@@ -39,8 +39,8 @@ Cria e gerencia perfis com fingerprints realistas, proxies e comportamento human
 
 1. Entre na pasta `antidetect-camoufox`.
 2. Execute o inicializador:
-   - **Windows:** `run.bat`
-   - **macOS / Linux:** `run.command` (duplo-clique no Finder) ou `./run.command` no terminal
+   - **Windows:** `MonitorMtzWin.bat`
+   - **macOS / Linux:** `MonitorMtzMac.command` (duplo-clique no Finder) ou `./MonitorMtzMac.command` no terminal
 
    Na primeira vez ele:
    - cria o ambiente virtual (`venv/`),
@@ -48,8 +48,15 @@ Cria e gerencia perfis com fingerprints realistas, proxies e comportamento human
    - instala o Firefox do Playwright e baixa o Camoufox,
    - abre a interface.
 
-   > No macOS, se o Finder bloquear o `run.command` ("desenvolvedor não identificado"),
-   > clique com o botão direito → **Abrir**, ou rode `chmod +x run.command` uma vez.
+   > No macOS, se o Finder bloquear o `MonitorMtzMac.command` ("desenvolvedor não identificado"),
+   > clique com o botão direito → **Abrir**, ou rode `chmod +x MonitorMtzMac.command` uma vez.
+
+   **Ícones** (em `icons/`, fundo preto com "MTZ"):
+   - macOS: `MonitorMtzMac.icns` (verde) — já aplicado ao `.command`. Se trocar o arquivo, reaplique com
+     botão direito → **Obter informações**, arraste o `.icns` sobre o ícone no canto superior.
+   - Windows: `MonitorMtzWin.ico` (azul). Como um `.bat` não carrega ícone sozinho, crie um **atalho**
+     do `MonitorMtzWin.bat` (botão direito → *Enviar para → Área de trabalho*), abra **Propriedades →
+     Alterar ícone** e selecione o `MonitorMtzWin.ico`.
 
 Execução manual (com o venv ativado):
 
@@ -75,8 +82,8 @@ Por padrão o app é **single-user** e guarda tudo num SQLite local
 Para **compartilhar contas, emails, configurações e o pool de proxies** entre
 vários usuários, aponte o app para um **PostgreSQL hospedado**. Há duas formas:
 
-**A) Arquivo `database_url.txt`** (mais simples — o `run.bat` carrega sozinho):
-crie um arquivo `database_url.txt` ao lado do `run.bat` com a connection string
+**A) Arquivo `database_url.txt`** (mais simples — o inicializador carrega sozinho):
+crie um arquivo `database_url.txt` ao lado do inicializador com a connection string
 na primeira linha:
 
 ```
@@ -161,7 +168,11 @@ antidetect-camoufox/
 ├── profile_warmup.py       # aquecimento do perfil (navegação geral)
 ├── migrate_to_postgres.py  # migração SQLite -> PostgreSQL (one-shot)
 ├── static/index.html       # interface web completa
-├── run.bat                 # instalador + launcher
+├── MonitorMtzWin.bat       # instalador + launcher (Windows)
+├── MonitorMtzMac.command   # instalador + launcher (macOS / Linux)
+├── MonitorMtzWin.ico       # ícone Windows (azul, MTZ)
+├── MonitorMtzMac.icns      # ícone macOS (verde, MTZ)
+├── icons/                  # fontes dos ícones (SVG/PNG)
 └── requirements.txt
 ```
 

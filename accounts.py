@@ -65,17 +65,21 @@ def get_limits() -> dict:
         # País-alvo (ISO-2) p/ coerência geográfica: só usa proxies desse país.
         # "" = sem filtro (qualquer país).
         "target_country": (db.get_setting("target_country", "") or "").strip().upper(),
+        # Re-checagem automática de status (horas). 0 = desligada.
+        "auto_recheck_hours": int(db.get_setting("auto_recheck_hours", "0") or 0),
     }
 
 
 def set_limits(proxy_limit: Optional[int] = None, whatsapp_limit: Optional[int] = None,
-               target_country: Optional[str] = None) -> dict:
+               target_country: Optional[str] = None, auto_recheck_hours: Optional[int] = None) -> dict:
     if proxy_limit is not None:
         db.set_setting("proxy_limit", int(proxy_limit))
     if whatsapp_limit is not None:
         db.set_setting("whatsapp_limit", int(whatsapp_limit))
     if target_country is not None:
         db.set_setting("target_country", (target_country or "").strip().upper())
+    if auto_recheck_hours is not None:
+        db.set_setting("auto_recheck_hours", max(0, int(auto_recheck_hours)))
     return get_limits()
 
 

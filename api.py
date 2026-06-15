@@ -40,6 +40,7 @@ _ig_creation_tasks: dict[str, asyncio.Task] = {}
 app = FastAPI(title="Browser Profile Manager", version="1.0.0")
 
 import sys
+import platform as _platform
 _base = Path(sys._MEIPASS) if getattr(sys, "frozen", False) else Path(__file__).parent
 STATIC_DIR = _base / "static"
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
@@ -107,6 +108,29 @@ async def _startup_warm_pool():
         warm_pool.start()
     except Exception:
         logger.exception("Falha ao iniciar o mantenedor do pool de perfis aquecidos")
+
+
+@app.on_event("startup")
+async def _startup_auto_recheck():
+    """Re-checa o status de todas as contas periodicamente (setting auto_recheck_hours; 0 = off)."""
+    async def _loop():
+        while True:
+            try:
+                hours = int(db.get_setting("auto_recheck_hours", "0") or 0)
+                if hours > 0 and acc.list_accounts():
+                    last = float(db.get_setting("auto_recheck_last", "0") or 0)
+                    now = time.time()
+                    if last <= 0:
+                        # primeira referência: espera um intervalo inteiro antes da 1a rodada
+                        db.set_setting("auto_recheck_last", str(int(now)))
+                    elif now - last >= hours * 3600:
+                        logger.info("auto-recheck: verificando o status de todas as contas")
+                        await _check_all_accounts()
+                        db.set_setting("auto_recheck_last", str(int(time.time())))
+            except Exception:
+                logger.exception("auto-recheck: erro no loop")
+            await asyncio.sleep(900)  # a cada 15 min, checa se já está na hora
+    asyncio.create_task(_loop())
 
 
 # ─── Models ───────────────────────────────────────────────
@@ -941,16 +965,24 @@ class LimitsRequest(BaseModel):
     proxy_limit: Optional[int] = None
     whatsapp_limit: Optional[int] = None
     target_country: Optional[str] = None
+    auto_recheck_hours: Optional[int] = None
 
 
 class AccountCreateRequest(BaseModel):
-    profile_id: Optional[str] = None
+    profile_id: Optional[str] = None   # id existente | "__new__" (cria perfil) | None (sem perfil)
     platform: str = "instagram"
     username: Optional[str] = None
     email: Optional[str] = None
     password: Optional[str] = None
     whatsapp_number: Optional[str] = None
     status: str = "created"
+    proxy: Optional[str] = None        # só p/ profile_id="__new__"; vazio = conexão local (internet do celular)
+
+
+def _host_profile_os() -> str:
+    """SO do fingerprint do perfil novo = SO real do PC (coerência ao abrir no PC)."""
+    s = _platform.system()
+    return "macos" if s == "Darwin" else "windows" if s == "Windows" else "linux"
 
 
 @app.get("/accounts")
@@ -970,10 +1002,25 @@ class AccountUpdateRequest(BaseModel):
 
 @app.post("/accounts", status_code=201)
 def accounts_create(body: AccountCreateRequest):
-    if body.profile_id and not get_profile(body.profile_id):
+    pid = body.profile_id
+    if pid == "__new__":
+        # Conta criada no celular: cria um perfil Camoufox p/ poder abrir no PC.
+        # Conexão local (proxy=None) = usa a internet do PC, que será o tethering
+        # do celular → mesmo IP da criação. Proxy é opcional (não recomendado).
+        proxy_dict = None
+        if body.proxy and body.proxy.strip():
+            proxy_dict = pool.parse_proxy_line(body.proxy.strip())
+            if proxy_dict is None:
+                raise HTTPException(400, "Proxy inválido (use host:porta:usuário:senha ou URL)")
+        name = (body.username or body.email or "conta").strip()[:40] or "conta"
+        pid = prof.create(name=name, os=_host_profile_os(), proxy=proxy_dict)["id"]
+    elif pid and not get_profile(pid):
         raise HTTPException(404, "Perfil informado não existe")
+    data = body.model_dump()
+    data.pop("proxy", None)
+    data["profile_id"] = pid or None
     try:
-        return acc.add_manual(body.model_dump())
+        return acc.add_manual(data)
     except ValueError as e:
         raise HTTPException(400, str(e))
 
@@ -982,6 +1029,8 @@ def accounts_create(body: AccountCreateRequest):
 def accounts_update(account_id: str, body: AccountUpdateRequest):
     if not acc.get_account(account_id):
         raise HTTPException(404, "Conta não encontrada")
+    if body.profile_id == "__new__":
+        body.profile_id = None  # edição não cria perfil; ignora o sentinela
     if body.profile_id and not get_profile(body.profile_id):
         raise HTTPException(404, "Perfil informado não existe")
     try:
@@ -989,6 +1038,29 @@ def accounts_update(account_id: str, body: AccountUpdateRequest):
         return acc.edit(account_id, body.model_dump(exclude_unset=True))
     except ValueError as e:
         raise HTTPException(400, str(e))
+
+
+class CreateProfileForAccountRequest(BaseModel):
+    proxy: Optional[str] = None   # vazio = conexão local (internet do celular)
+
+
+@app.post("/accounts/{account_id}/create-profile")
+def accounts_create_profile(account_id: str, body: CreateProfileForAccountRequest = CreateProfileForAccountRequest()):
+    """Cria um perfil Camoufox (conexão local por padrão) e vincula à conta, para
+    poder abrir no PC. Usado em contas cadastradas sem perfil (criadas no celular)."""
+    a = acc.get_account(account_id)
+    if not a:
+        raise HTTPException(404, "Conta não encontrada")
+    if a.get("profile_id") and get_profile(a["profile_id"]):
+        raise HTTPException(400, "Esta conta já tem um perfil vinculado")
+    proxy_dict = None
+    if body.proxy and body.proxy.strip():
+        proxy_dict = pool.parse_proxy_line(body.proxy.strip())
+        if proxy_dict is None:
+            raise HTTPException(400, "Proxy inválido (use host:porta:usuário:senha ou URL)")
+    name = (a.get("username") or a.get("email") or "conta")[:40] or "conta"
+    pid = prof.create(name=name, os=_host_profile_os(), proxy=proxy_dict)["id"]
+    return acc.edit(account_id, {"profile_id": pid})
 
 
 @app.get("/accounts/export")
@@ -1073,16 +1145,19 @@ async def accounts_warmup(account_id: str, body: AccountWarmupRequest = AccountW
     return {"account_id": account_id, "status": "warming", "minutes": body.minutes}
 
 
+async def _check_all_accounts():
+    """Verifica o status de todas as contas, sequencial e headless."""
+    for a in acc.list_accounts():
+        try:
+            await acc.check_status(a["id"], headless=True)
+        except Exception:
+            pass
+
+
 @app.post("/accounts/check-all")
 async def accounts_check_all():
     """Dispara verificação de todas as contas em segundo plano (sequencial)."""
-    async def _run_all():
-        for a in acc.list_accounts():
-            try:
-                await acc.check_status(a["id"], headless=True)
-            except Exception:
-                pass
-    asyncio.create_task(_run_all())
+    asyncio.create_task(_check_all_accounts())
     return {"status": "checking", "count": len(acc.list_accounts())}
 
 
@@ -1194,7 +1269,7 @@ def limits_get():
 @app.post("/limits")
 def limits_set(body: LimitsRequest):
     return acc.set_limits(proxy_limit=body.proxy_limit, whatsapp_limit=body.whatsapp_limit,
-                          target_country=body.target_country)
+                          target_country=body.target_country, auto_recheck_hours=body.auto_recheck_hours)
 
 
 # ── Métricas / Ban Analytics ──────────────────────────────────────────────────

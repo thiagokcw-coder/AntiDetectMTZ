@@ -229,56 +229,47 @@
 
 <div class="layout">
   <aside>
+    <!-- Aba "Criar Contas" (criação automática por Camoufox) removida do menu: fluxo mudou
+         p/ criação no celular Android. A página #page-instagram e os endpoints continuam no
+         código, apenas sem link no menu. -->
     <div class="nav-section">Início</div>
     <div class="nav-item active" data-page-link="start" onclick="showPage('start')">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4v16"/><path d="M4 4h12l-2 4 2 4H4"/></svg>
       Comece aqui
     </div>
-
-    <!-- Criar Contas logo após Comece aqui (como pedido) -->
-    <div class="nav-item" data-page-link="instagram" onclick="showPage('instagram')">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="20" rx="5"/><circle cx="12" cy="12" r="4"/><circle cx="17.5" cy="6.5" r="1" fill="currentColor" stroke="none"/></svg>
-      Criar Contas
-    </div>
-
-    <div class="nav-section">Fluxo de criação</div>
-    <div class="nav-item" data-page-link="emails" onclick="showPage('emails')">
-      <span class="nav-num">1</span>
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-10 5L2 7"/></svg>
-      Emails
-    </div>
     <div class="nav-item" data-page-link="profiles" onclick="showPage('profiles')">
-      <span class="nav-num">2</span>
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 9h6M9 13h4"/></svg>
       Perfis
     </div>
-    <div class="nav-item" data-page-link="import" onclick="showPage('import')">
-      <span class="nav-num">3</span>
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 3v4a1 1 0 0 0 1 1h4"/><path d="M17 21H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7l5 5v11a2 2 0 0 1-2 2z"/><path d="M12 11v6M9 14l3 3 3-3"/></svg>
-      Importar CSV
-    </div>
     <div class="nav-item" data-page-link="accounts" onclick="showPage('accounts')">
-      <span class="nav-num">4</span>
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>
       Contas
     </div>
-
-    <div class="nav-section">Utilitários</div>
+    <div class="nav-item" data-page-link="emails" onclick="showPage('emails')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-10 5L2 7"/></svg>
+      Emails
+    </div>
     <div class="nav-item" data-page-link="whatsapps" onclick="showPage('whatsapps')">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
       WhatsApps
-    </div>
-    <div class="nav-item" data-page-link="proxies" onclick="showPage('proxies')">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M5 12a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2M5 12a2 2 0 0 0-2 2v4a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-4a2 2 0 0 0-2-2M8 7h.01M8 17h.01"/></svg>
-      Proxies
     </div>
     <div class="nav-item" data-page-link="analytics" onclick="showPage('analytics')">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/></svg>
       Métricas
     </div>
+
+    <div class="nav-section">Utilitários</div>
+    <div class="nav-item" data-page-link="import" onclick="showPage('import')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 3v4a1 1 0 0 0 1 1h4"/><path d="M17 21H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7l5 5v11a2 2 0 0 1-2 2z"/><path d="M12 11v6M9 14l3 3 3-3"/></svg>
+      Importar CSV
+    </div>
     <div class="nav-item" data-page-link="create" onclick="showPage('create')">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
       Novo Perfil
+    </div>
+    <div class="nav-item" data-page-link="proxies" onclick="showPage('proxies')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M5 12a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2M5 12a2 2 0 0 0-2 2v4a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-4a2 2 0 0 0-2-2M8 7h.01M8 17h.01"/></svg>
+      Proxies
     </div>
     <div class="nav-item" onclick="launchAll()">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
@@ -300,26 +291,26 @@
       <div class="page-header">
         <div>
           <div class="page-title">Comece aqui</div>
-          <div class="page-subtitle">Configure os dados iniciais e deixe a automação fazer o resto</div>
+          <div class="page-subtitle">Crie as contas no celular (Android) e use o app para cadastrar, monitorar e abrir os perfis no PC</div>
         </div>
       </div>
 
       <div style="max-width:780px">
         <div class="form-card" style="margin-bottom:18px;border:1px solid var(--border);border-radius:10px">
-          <div style="font-weight:600;margin-bottom:6px">✅ O que essa automação faz por você</div>
+          <div style="font-weight:600;margin-bottom:6px">✅ Como funciona o fluxo</div>
           <div style="color:var(--muted);font-size:13px;line-height:1.65">
-            Essa ferramenta foi feita para criar contas do Instagram de forma <b>altamente automatizada</b> e com o máximo de sigilo possível (usando Camoufox + fingerprints realistas + proxies residenciais).<br><br>
+            As contas são criadas <b>no app do Instagram em um celular Android real</b> (IP móvel 4G/5G). Esse é o cenário mais limpo possível — a criação automática pelo PC foi <b>desativada</b> porque queimava as contas na hora. Aqui no app você <b>cadastra, monitora e abre os perfis no PC</b>.<br><br>
 
-            <b>O que a automação cuida sozinha:</b><br>
-            • Gera emails + cria perfis de navegador com proxy do pool automaticamente<br>
-            • Aquece os navegadores em background (visitas realistas em sites comuns)<br>
-            • Cria a conta no Instagram: preenche e-mail, senha, <b>data de nascimento, nome e username</b> com cliques reais (humano) e <b>envia</b><br>
-            • Lê o <b>código de verificação do e-mail</b> automaticamente (catch-all/IMAP) — e se falhar, você pega na <b>📥 caixa de entrada</b> e digita na janela<br>
-            • Aquece a conta recém-criada e monitora status, vida útil, proxy e WhatsApp<br><br>
+            <b>O que você faz no celular:</b><br>
+            • Cria a conta no app do Instagram (nome, usuário, senha, e-mail/telefone do próprio aparelho)<br>
+            • Deixa a conta <b>amadurecer alguns dias</b> no celular antes de mexer nela no PC<br><br>
 
-            <b>Onde VOCÊ entra (só isso):</b><br>
-            • 🤖 <b>reCAPTCHA</b>: quando o IG pede "I'm not a robot", o app <b>pausa, toca um alerta sonoro e traz a janela pra frente</b>. Você resolve na janela e ele continua sozinho. Pode deixar a janela minimizada e trabalhar — o som te chama.<br>
-            • 📱 <b>Verificação por telefone/WhatsApp</b>: se o IG exigir telefone no cadastro, a conta foi muito sinalizada → o app <b>descarta automaticamente</b> e segue para a próxima (não gasta número).
+            <b>O que o app faz por você (no PC):</b><br>
+            • Guarda as contas (usuário/senha) na aba <b>Contas</b> — cadastro manual ou importação por CSV<br>
+            • <b>Monitora o status</b> de cada conta no Instagram (ativa, checkpoint, banida) e a vida útil<br>
+            • <b>Abre o perfil no PC</b> num navegador antidetect (Camoufox) com proxy, pra você operar a conta<br><br>
+
+            <b>⚠️ Atenção ao abrir no PC:</b> logar no PC numa conta nascida no celular é um <b>"novo dispositivo"</b> para o Instagram e pode pedir verificação. Use proxy do <b>mesmo país</b> do celular e só abra no PC depois da conta estar assentada.
           </div>
         </div>
 
@@ -327,55 +318,53 @@
 
         <div class="form-card" style="margin-bottom:18px">
           <div style="color:var(--muted);font-size:13px;line-height:1.6">
-            • Use <b>proxies móveis (4G/5G) ou residenciais</b> (fator nº 1 contra detecção) na pasta <code>proxys/</code> (<code>host:porta:usuário:senha</code> ou URL). Datacenter/ISP-estático compartilhado = captcha e telefone quase sempre. <button class="btn btn-ghost btn-sm" style="padding:1px 8px" onclick="showPage('proxies')">ver guia →</button><br>
-            • Tenha um domínio com <b>catch-all</b> no Hostinger + credenciais IMAP configuradas (para ler o código de verificação).<br>
-            • Defina os limites de contas por proxy na aba Contas.<br>
-            • <i>(Opcional)</i> Chave do sms-activate.org — só se você QUISER verificar por telefone. Por padrão, contas que pedem telefone são descartadas.
+            • Um <b>celular Android</b> com o app do Instagram para criar as contas (IP móvel 4G/5G é o ideal).<br>
+            • Use <b>proxies móveis (4G/5G) ou residenciais</b> (fator nº 1 contra detecção) na pasta <code>proxys/</code> (<code>host:porta:usuário:senha</code> ou URL) — usados ao <b>abrir o perfil no PC</b>. Prefira o <b>mesmo país</b> do celular. <button class="btn btn-ghost btn-sm" style="padding:1px 8px" onclick="showPage('proxies')">ver guia →</button><br>
+            • Defina os limites de contas por proxy na aba <b>Contas</b>.
           </div>
           <div style="margin-top:10px">
-            <button class="btn btn-primary btn-sm" onclick="showPage('emails')">Configurar Emails (passo mais importante) →</button>
+            <button class="btn btn-primary btn-sm" onclick="showPage('accounts')">Ir para Contas →</button>
             <button class="btn btn-ghost btn-sm" onclick="showPage('proxies')">Ver Proxies →</button>
           </div>
         </div>
 
-        <div style="margin-bottom:10px;font-weight:600;color:var(--text)">Fluxo recomendado (a automação faz o pesado)</div>
+        <div style="margin-bottom:10px;font-weight:600;color:var(--text)">Fluxo recomendado</div>
 
         <div class="flow">
           <div class="flow-step">
             <div class="flow-left"><div class="flow-num">1</div><div class="flow-line"></div></div>
             <div class="flow-card">
-              <div class="flow-title">✉️ Gerar emails + perfis + proxies</div>
-              <div class="flow-desc">Na aba Emails você gera vários endereços de uma vez. O app automaticamente cria um perfil de navegador + atribui um proxy do seu pool para cada um.</div>
-              <div class="flow-actions"><button class="btn btn-primary btn-sm" onclick="showPage('emails')">Abrir Emails →</button></div>
+              <div class="flow-title">📱 Criar a conta no celular (Android)</div>
+              <div class="flow-desc">Crie a conta direto no <b>app do Instagram em um celular Android real</b>, usando o <b>IP móvel (4G/5G)</b>. É o cenário mais limpo — IP de operadora sob CGNAT, dispositivo real. Anote o <b>usuário e a senha</b> de cada conta.</div>
             </div>
           </div>
 
           <div class="flow-step">
             <div class="flow-left"><div class="flow-num">2</div><div class="flow-line"></div></div>
             <div class="flow-card">
-              <div class="flow-title">🔥 Aquecer navegadores (recomendado)</div>
-              <div class="flow-desc">Aqueça os perfis em background antes de criar as contas. Isso deixa o navegador com cookies e histórico mais natural. Pode rodar enquanto você faz outra coisa.</div>
-              <div class="flow-actions"><button class="btn btn-primary btn-sm" onclick="showPage('profiles')">Abrir Perfis →</button></div>
-            </div>
-          </div>
-
-          <div class="flow-step">
-            <div class="flow-left"><div class="flow-num">3</div><div class="flow-line"></div></div>
-            <div class="flow-card">
-              <div class="flow-title">📷 Criar contas no Instagram</div>
-              <div class="flow-desc">Na aba <b>Criar Contas</b>, informe a quantidade e clique em <b>"Criar contas"</b> — o app gera perfil + e-mail + conta (data, nome, username, código de e-mail automáticos) e aquece tudo. <b>Você só intervém no reCAPTCHA</b>: o app pausa, toca um som e traz a janela; você resolve e ele segue. Contas que pedem telefone são descartadas sozinhas.</div>
+              <div class="flow-title">👤 Cadastrar a conta no app</div>
+              <div class="flow-desc">Na aba <b>Contas</b>, clique em <b>"+ Adicionar conta"</b> e informe usuário e senha (uma a uma). Para várias de vez, use <b>Importar CSV</b>.</div>
               <div class="flow-actions">
-                <button class="btn btn-primary btn-sm" onclick="showPage('instagram')">Criar Contas →</button>
+                <button class="btn btn-primary btn-sm" onclick="showPage('accounts')">Ir para Contas →</button>
                 <button class="btn btn-ghost btn-sm" onclick="showPage('import')">Importar CSV</button>
               </div>
             </div>
           </div>
 
           <div class="flow-step">
+            <div class="flow-left"><div class="flow-num">3</div><div class="flow-line"></div></div>
+            <div class="flow-card">
+              <div class="flow-title">⏳ Deixar amadurecer e monitorar</div>
+              <div class="flow-desc">Deixe a conta <b>alguns dias só no celular</b> antes de mexer nela no PC. O app <b>monitora o status</b> de cada conta (ativa, checkpoint, banida) e a vida útil — use <b>"Verificar todas"</b> na aba Contas.</div>
+              <div class="flow-actions"><button class="btn btn-primary btn-sm" onclick="showPage('accounts')">Abrir Contas →</button></div>
+            </div>
+          </div>
+
+          <div class="flow-step">
             <div class="flow-left"><div class="flow-num">4</div><div class="flow-line"></div></div>
             <div class="flow-card">
-              <div class="flow-title">🌱 Aquecer as contas criadas</div>
-              <div class="flow-desc">Depois de criadas, aqueça cada conta (navegação realista no feed, sugestões etc). O app roda isso em segundo plano automaticamente.</div>
+              <div class="flow-title">🖥️ Abrir o perfil no PC</div>
+              <div class="flow-desc">Quando a conta estiver assentada, abra o perfil no PC no navegador antidetect (Camoufox) pela aba Contas. <b>Atenção:</b> isso é um <b>login de "novo dispositivo"</b> — use proxy do <b>mesmo país</b> do celular e vá com calma para evitar checkpoint.</div>
               <div class="flow-actions"><button class="btn btn-primary btn-sm" onclick="showPage('accounts')">Abrir Contas →</button></div>
             </div>
           </div>
@@ -391,13 +380,13 @@
         </div>
 
         <div style="margin-top:8px;padding:12px 14px;background:var(--surface2);border-radius:8px;font-size:12px;color:var(--muted);line-height:1.7">
-          <b style="color:var(--text)">Para a conta passar sem pedir telefone</b> (o que reduz captcha e descarte):<br>
-          • <b>Proxy é o fator nº 1.</b> Hierarquia para CRIAR conta: <b>móvel 4G/5G</b> (melhor) &gt; residencial rotativo &gt; ⚠️ ISP-estático compartilhado (queima rápido) &gt; ❌ datacenter (não use). Móvel é IP de operadora sob CGNAT → o IG não consegue punir o IP.<br>
-          • <b>Um país só, coerente com a persona</b> (persona BR ↔ IP BR). Defina o País-alvo em Contas → Limites.<br>
-          • <b>1 IP limpo por conta</b> e rotacione o IP entre contas (no celular: modo avião liga/desliga — não precisa trocar o plano).<br>
-          • <b>Aqueça o navegador 15+ min</b> antes de criar (padrão atual) e mantenha <b>ritmo lento</b> (90s) com poucas contas por IP/dia.<br>
-          • Fingerprint coerente e estável por perfil (o app já usa geoip + fixa GPU/navigator/WebRTC).<br>
-          👉 <b>Sem proxy próprio?</b> Marque "Usar conexão local (sem proxy)" em Criar Contas e use o <b>tethering do celular</b> (IP móvel real).
+          <b style="color:var(--text)">Boas práticas para não queimar a conta</b>:<br>
+          • <b>Crie no celular com IP móvel (4G/5G)</b> — IP de operadora sob CGNAT, o IG não consegue punir o IP. Evite Wi-Fi compartilhado na criação.<br>
+          • <b>Deixe a conta amadurecer alguns dias no celular</b> (poste, navegue) antes de abrir no PC.<br>
+          • Ao <b>abrir no PC</b>: use proxy do <b>mesmo país</b> do celular (residencial/móvel &gt; ISP-estático &gt; ❌ datacenter). Lembre que é um <b>"novo dispositivo"</b> para o IG.<br>
+          • <b>1 IP limpo por conta</b> e rotacione o IP entre contas (no celular: modo avião liga/desliga).<br>
+          • O app já mantém <b>fingerprint coerente e estável por perfil</b> (geoip + GPU/navigator/WebRTC fixos) ao abrir no PC.<br>
+          • Defina o <b>País-alvo</b> do proxy em Contas → Limites para casar a geografia.
           <div style="margin-top:10px">
             <button class="btn btn-ghost btn-sm" onclick="showPage('proxies')">📖 Ver guia completo de proxies →</button>
           </div>
@@ -1033,6 +1022,11 @@
             <input id="lim-country" type="text" maxlength="2" placeholder="BR" style="text-transform:uppercase">
             <small style="color:var(--muted)">Só usa proxies desse país, p/ casar com a persona. Sem proxy do país → usa todos (com aviso no log).</small>
           </div>
+          <div class="form-group">
+            <label>Re-checar status a cada (horas, 0 = desligado)</label>
+            <input id="lim-recheck" type="number" min="0" value="0">
+            <small style="color:var(--muted)">Verifica o status de todas as contas em segundo plano automaticamente. Cada checagem abre o perfil — use só com contas já logadas no PC.</small>
+          </div>
         </div>
         <button class="btn btn-primary btn-sm" onclick="saveLimits()">Salvar limites</button>
       </div>
@@ -1194,6 +1188,11 @@
       <label>Perfil (dispositivo)</label>
       <select id="aa-profile"></select>
       <div class="form-hint" id="aa-profile-warn" style="color:var(--yellow);display:none"></div>
+    </div>
+    <div class="form-group" id="aa-proxy-group">
+      <label>Proxy ao abrir no PC <span style="color:var(--muted);font-weight:400">(opcional — não recomendado)</span></label>
+      <input id="aa-proxy" type="text" placeholder="vazio = usar a internet do celular (tethering)">
+      <div class="form-hint">Deixe <b>vazio</b> para abrir no PC pela conexão local (mesmo IP do celular). Só preencha se for usar um proxy — de preferência do <b>mesmo país</b>. Formato: <code>host:porta:usuário:senha</code> ou URL.</div>
     </div>
     <div class="form-row">
       <div class="form-group">
@@ -2459,6 +2458,8 @@ async function loadAccountsPage() {
     if (af !== 'lim-whatsapp') document.getElementById('lim-whatsapp').value = limits.whatsapp_limit;
     const cEl = document.getElementById('lim-country');
     if (cEl && af !== 'lim-country') cEl.value = limits.target_country || '';
+    const rEl = document.getElementById('lim-recheck');
+    if (rEl && af !== 'lim-recheck') rEl.value = limits.auto_recheck_hours ?? 0;
   } catch (e) {
     toast(e.message || 'Erro ao carregar contas', 'error');
   }
@@ -2602,16 +2603,30 @@ async function loadAnalytics() {
   }
 }
 
+const _PROBLEM_STATUSES = ['checkpoint', 'banned', 'suspended', 'login_required'];
+
 function renderAccounts(list) {
   const sub = document.getElementById('accounts-subtitle');
-  sub.textContent = `${list.length} conta(s) registrada(s)`;
+  // Resumo por status no topo
+  let nActive = 0, nProblem = 0, nNoProfile = 0;
+  list.forEach(a => {
+    if (a.status === 'active') nActive++;
+    else if (_PROBLEM_STATUSES.includes(a.status)) nProblem++;
+    if (!a.profile_exists) nNoProfile++;
+  });
+  sub.innerHTML = `${list.length} conta(s) registrada(s) &nbsp; `
+    + `<span class="badge badge-active">${nActive} ativa(s)</span> `
+    + `<span class="badge badge-banned">${nProblem} com problema</span> `
+    + `<span class="badge badge-creating">${nNoProfile} sem perfil</span>`;
   const body = document.getElementById('accounts-body');
   if (!list.length) {
     body.innerHTML = `<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:30px">
-      Nenhuma conta ainda. Crie uma conta na aba Instagram.</td></tr>`;
+      Nenhuma conta ainda. Crie a conta no celular e clique em "+ Adicionar conta".</td></tr>`;
     return;
   }
   body.innerHTML = list.map(a => {
+    const isProblem = _PROBLEM_STATUSES.includes(a.status);
+    const rowStyle = isProblem ? ' style="background:rgba(239,68,68,0.07)"' : '';
     const ls = a.lifespan?.label || '—';
     const px = a.proxy_usage;
     const pxBadge = px?.blocked ? ' <span class="badge badge-banned" style="font-size:9px">limite</span>' : '';
@@ -2635,8 +2650,11 @@ function renderAccounts(list) {
       ? `<div>${escapeHtml(a.profile_name || '—')}</div>
          <div style="font-size:11px;color:var(--muted)">${escapeHtml(a.profile_device || '')}</div>
          <div style="margin-top:3px">${profWarm}</div>`
-      : '<span style="color:var(--red);font-size:12px">perfil removido</span>';
-    return `<tr>
+      : (a.profile_id
+          ? '<span style="color:var(--red);font-size:12px">perfil removido</span>'
+          : `<span style="color:var(--yellow);font-size:12px">sem perfil — não abre no PC</span>
+             <div style="margin-top:4px"><button class="btn btn-ghost btn-sm" onclick="createProfileForAccount('${a.id}', this)">➕ Criar perfil</button></div>`);
+    return `<tr${rowStyle}>
       <td>
         <div style="font-weight:600">${escapeHtml(a.username || '(sem username)')}</div>
         <div style="font-size:11px;color:var(--muted)">${escapeHtml(a.email || '')}</div>
@@ -2651,10 +2669,10 @@ function renderAccounts(list) {
       <td style="white-space:nowrap">
         ${a.profile_exists
           ? `<button class="btn btn-primary btn-sm" onclick="openAccountProfile('${a.profile_id}', this)">Abrir</button>
-             <button class="btn btn-ghost btn-sm" onclick="warmAccount('${a.id}', this)" ${warming ? 'disabled' : ''}>${warming ? '🔥 …' : '🔥 Aquecer'}</button>`
+             <button class="btn btn-ghost btn-sm" onclick="warmAccount('${a.id}', this)" ${warming ? 'disabled' : ''}>${warming ? '🔥 …' : '🔥 Aquecer'}</button>
+             <button class="btn btn-success btn-sm" onclick="checkAccount('${a.id}', this)">Verificar</button>`
           : ''}
         <button class="btn btn-ghost btn-sm" onclick="accountDetail('${a.id}')">Detalhes</button>
-        <button class="btn btn-success btn-sm" onclick="checkAccount('${a.id}', this)">Verificar</button>
       </td>
     </tr>`;
   }).join('');
@@ -2800,6 +2818,18 @@ async function openAccountProfile(profileId, btn) {
   }
 }
 
+async function createProfileForAccount(id, btn) {
+  if (btn) { btn.disabled = true; btn.textContent = '...'; }
+  try {
+    await api('POST', `/accounts/${encodeURIComponent(id)}/create-profile`, {});
+    toast('Perfil criado (conexão local). Já dá pra abrir no PC.');
+    loadAccountsPage();
+  } catch (e) {
+    toast(e.message || 'Erro ao criar perfil', 'error');
+    if (btn) { btn.disabled = false; btn.textContent = '➕ Criar perfil'; }
+  }
+}
+
 function fmtCountdown(secs) {
   secs = Math.max(0, parseInt(secs, 10) || 0);
   const m = Math.floor(secs / 60), s = secs % 60;
@@ -2859,8 +2889,9 @@ async function saveLimits() {
   const proxy_limit = parseInt(document.getElementById('lim-proxy').value, 10);
   const whatsapp_limit = parseInt(document.getElementById('lim-whatsapp').value, 10);
   const target_country = (document.getElementById('lim-country')?.value || '').trim().toUpperCase();
+  const auto_recheck_hours = parseInt(document.getElementById('lim-recheck')?.value, 10) || 0;
   try {
-    await api('POST', '/limits', { proxy_limit, whatsapp_limit, target_country });
+    await api('POST', '/limits', { proxy_limit, whatsapp_limit, target_country, auto_recheck_hours });
     toast('Limites salvos');
     loadAccountsPage();
   } catch (e) { toast(e.message, 'error'); }
@@ -2980,13 +3011,18 @@ async function _loadAccountProfileSelect(selectedId) {
     const usedProfiles = new Set(
       accs.filter(a => a.id !== _editingAccountId).map(a => a.profile_id).filter(Boolean)
     );
-    sel.innerHTML = '<option value="">Sem perfil (entrada avulsa)</option>' +
+    sel.innerHTML =
+      '<option value="__new__">➕ Criar perfil novo (conexão local — internet do celular)</option>' +
+      '<option value="">Sem perfil (só cadastro — não abre no PC)</option>' +
       profiles.map(p => {
         const dev = p.fingerprint?.platform || '';
         const used = usedProfiles.has(p.id) ? ' — já tem conta' : '';
         const isSel = p.id === selectedId ? ' selected' : '';
         return `<option value="${p.id}" data-used="${usedProfiles.has(p.id)}"${isSel}>${escapeHtml(p.name)} (${escapeHtml(dev)})${used}</option>`;
       }).join('');
+    // Conta nova nasce no celular → padrão "criar perfil novo".
+    // Em edição, mantém o perfil atual (ou "Sem perfil" se não tiver) — nunca __new__.
+    sel.value = _editingAccountId ? (selectedId || '') : (selectedId || '__new__');
     sel.onchange = checkAddProfileWarn;
     checkAddProfileWarn();
   } catch (e) {
@@ -2998,7 +3034,7 @@ async function openAddAccount() {
   _editingAccountId = null;
   document.getElementById('aa-title').textContent = 'Adicionar conta';
   document.getElementById('aa-profile-warn').style.display = 'none';
-  ['aa-username','aa-email','aa-password','aa-whatsapp'].forEach(id => document.getElementById(id).value = '');
+  ['aa-username','aa-email','aa-password','aa-whatsapp','aa-proxy'].forEach(id => document.getElementById(id).value = '');
   document.getElementById('aa-platform').value = 'instagram';
   document.getElementById('aa-status').value = 'active';
   document.getElementById('modal-add-account').classList.add('open');
@@ -3023,7 +3059,8 @@ async function editAccount(id) {
 }
 
 function checkAddProfileWarn() {
-  const opt = document.getElementById('aa-profile').selectedOptions[0];
+  const sel = document.getElementById('aa-profile');
+  const opt = sel.selectedOptions[0];
   const warn = document.getElementById('aa-profile-warn');
   if (opt && opt.dataset.used === 'true') {
     warn.textContent = '⚠ Este perfil já tem uma conta. O ideal é 1 conta por perfil.';
@@ -3031,17 +3068,22 @@ function checkAddProfileWarn() {
   } else {
     warn.style.display = 'none';
   }
+  // Campo de proxy só faz sentido quando o app vai criar um perfil novo
+  const pg = document.getElementById('aa-proxy-group');
+  if (pg) pg.style.display = (sel.value === '__new__') ? 'block' : 'none';
 }
 
 async function submitAddAccount() {
+  const profVal = document.getElementById('aa-profile').value;
   const body = {
-    profile_id: document.getElementById('aa-profile').value || null,
+    profile_id: profVal === '' ? null : profVal,   // "__new__" sobe literal (backend cria o perfil)
     platform: document.getElementById('aa-platform').value,
     status: document.getElementById('aa-status').value,
     username: document.getElementById('aa-username').value.trim() || null,
     email: document.getElementById('aa-email').value.trim() || null,
     password: document.getElementById('aa-password').value || null,
     whatsapp_number: document.getElementById('aa-whatsapp').value.trim() || null,
+    proxy: (profVal === '__new__' ? (document.getElementById('aa-proxy').value.trim() || null) : null),
   };
   if (!body.username && !body.email) {
     toast('Informe pelo menos username ou email', 'error');

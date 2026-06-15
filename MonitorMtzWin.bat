@@ -1,7 +1,7 @@
 @echo off
 setlocal
 cd /d "%~dp0"
-title Antidetect Camoufox
+title Monitor MTZ
 
 set "VENV_DIR=venv"
 set "PY_CMD=python"
