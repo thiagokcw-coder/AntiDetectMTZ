@@ -39,11 +39,7 @@ Cria e gerencia perfis com fingerprints realistas, proxies e comportamento human
 
 1. Entre na pasta `antidetect-camoufox`.
 2. Execute o inicializador:
-   - **macOS (recomendado):** **`MonitorMtzMac.app`** (duplo-clique no Finder) — mostra o ícone MTZ
-     verde e abre como "Monitor MTZ". Na 1ª vez ele abre o Terminal para instalar (com barra de
-     progresso); depois roda direto, sem Terminal. ⚠️ **Mantenha o `.app` dentro da pasta do projeto**
-     (ele encontra o `venv`/`main.py` pelo próprio caminho).
-   - **macOS / Linux (terminal):** `MonitorMtzMac.command` (duplo-clique) ou `./MonitorMtzMac.command`.
+   - **macOS / Linux:** `MonitorMtzMac.command` (duplo-clique no Finder) ou `./MonitorMtzMac.command` no terminal
    - **Windows:** `MonitorMtzWin.bat`
 
    Na primeira vez ele:
@@ -52,11 +48,13 @@ Cria e gerencia perfis com fingerprints realistas, proxies e comportamento human
    - instala o Firefox do Playwright e baixa o Camoufox,
    - abre a interface.
 
-   > No macOS, se o Gatekeeper bloquear ("desenvolvedor não identificado"),
-   > clique com o botão direito no `.app`/`.command` → **Abrir** (só na 1ª vez).
+   > No macOS, se o Gatekeeper bloquear o `MonitorMtzMac.command` ("desenvolvedor não identificado"),
+   > clique com o botão direito → **Abrir** (só na 1ª vez), ou rode `chmod +x MonitorMtzMac.command`.
+
+   Com o app aberto, o `main.py` ajusta o **ícone do Dock (MTZ verde)** e o **nome ("Monitor MTZ")** no macOS.
 
    **Ícones** (em `icons/`, fundo preto com "MTZ"):
-   - macOS: `MonitorMtzMac.icns` (verde) — embutido no `.app` (Dock/menu via `main.py`).
+   - macOS: `MonitorMtzMac.icns` (verde) — aplicado ao Dock/menu em tempo de execução pelo `main.py`.
    - Windows: `MonitorMtzWin.ico` (azul). Como um `.bat` não carrega ícone sozinho, crie um **atalho**
      do `MonitorMtzWin.bat`, abra **Propriedades → Alterar ícone** e selecione o `MonitorMtzWin.ico`.
 
