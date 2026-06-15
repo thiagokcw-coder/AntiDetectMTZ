@@ -1,12 +1,23 @@
 # CLAUDE.md — AntiDetect Camoufox (contexto do projeto)
 
-> Notas de contexto para o Claude. App de **criação automática de contas Instagram** com Camoufox (Firefox antidetect) + Playwright. Backend FastAPI (`api.py`/`main.py`), frontend em `static/index.html`. Idioma do usuário: **português**.
+> Notas de contexto para o Claude. App de **gestão de contas Instagram** (Camoufox/Firefox antidetect + Playwright). Backend FastAPI (`api.py`/`main.py`), frontend em `static/index.html`. **Multiplataforma (Windows + macOS).** Idioma do usuário: **português**.
+
+## ⚡ ESTADO ATUAL — fluxo mudou (2026-06-15)
+**A criação automática de contas pelo desktop foi ABANDONADA** (queimava as contas na hora; proxy/IP era o fator nº1). Novo fluxo, decisão firme do usuário:
+- Contas são **criadas manualmente no app do Instagram em um celular Android real** (IP móvel 4G/5G).
+- O app agora serve para **cadastrar (manual), monitorar e abrir os perfis no PC**.
+- Aba "Criar Contas" (page-instagram) **oculta/fora do menu** — página e endpoints continuam no código, **dormentes** (não apagar). As seções abaixo sobre o fluxo de signup descrevem esse código dormente.
+- **Cadastro manual** ("+ Adicionar conta", aba Contas): por padrão cria um perfil Camoufox com **conexão local** (proxy=None = internet do celular/tethering, mesmo IP da criação). Sentinela `profile_id="__new__"` no POST /accounts; perfil usa o SO real do PC no fingerprint. Proxy opcional (não recomendado). Endpoint extra POST /accounts/{id}/create-profile. "Abrir no PC" = login de "novo dispositivo" → deixar amadurecer no celular + proxy do mesmo país.
+- **Monitoramento** (aba Contas): resumo por status no topo, destaque de linhas com problema, aviso "sem perfil" + criar perfil em 1 clique, re-checagem automática (setting `auto_recheck_hours`, loop no startup de api.py).
+- **Aba Emails** virou **registro manual** (livre/usado) espelhando WhatsApps; IMAP/catch-all removido da UI (código IMAP do backend fica dormente). Endpoints `/emails` (GET/POST/PATCH/DELETE).
+- Menu: Início = Comece aqui · Perfis · Contas · Emails · WhatsApps · Métricas; Utilitários = Importar CSV · Novo Perfil · Proxies · Abrir Todos · Sessões · Diagnóstico.
 
 ## Como rodar / validar
-- Rodar: `run.bat` (cria venv, instala deps, baixa Camoufox, inicia `main.py`).
-- Validar Python: `venv\Scripts\python.exe -m py_compile arquivo.py` (não há suíte de testes).
-- Banco: **SQLite local** em `%LOCALAPPDATA%\ProfileManager\` (profiles.db, logs/). `db.py` usa **PostgreSQL compartilhado SE existir `database_url.txt`** ao lado do run.bat (ou env `DATABASE_URL`); senão SQLite. `_ex()` adapta `?`→`%s`. Comandos CLI fora do run.bat leem o SQLite (sem env).
-- Git: repo em `main`, remote `mtz-ag/AntiDetectMTZ`. `.gitignore` cobre venv/proxys/database_url.txt/*.db/logs/screenshots.
+- Rodar: **`MonitorMtzWin.bat`** (Windows) ou **`MonitorMtzMac.command`** (macOS/Linux) — criam venv, instalam deps + Firefox/Playwright + Camoufox, iniciam `main.py`. (Eram `run.bat`/`run.command`.)
+- **macOS:** o `python3` do PATH pode ser antigo (3.7); o launcher tenta `python3.12/3.11/...`. Usa-se o **python3.11 do Homebrew** (`/opt/homebrew`). Branding no `main.py` troca ícone do Dock (MTZ) e nome ("Monitor MTZ"). `.app` foi descartado (Gatekeeper bloqueia bundle não-assinado no macOS 26). Ícones em `icons/` (`MonitorMtzMac.icns` verde, `MonitorMtzWin.ico` azul).
+- Validar Python: `./venv/bin/python -m py_compile arquivo.py` (macOS) ou `venv\Scripts\python.exe -m py_compile` (Windows). Testar UI ao vivo: launch.json + preview na porta 18760. Não há suíte de testes.
+- Banco: **SQLite local** (Win: `%LOCALAPPDATA%\ProfileManager\`; macOS: `~/Library/Application Support/ProfileManager/`; ver `paths.py`). `db.py` usa **PostgreSQL compartilhado SE existir `database_url.txt`** ao lado do launcher (ou env `DATABASE_URL`); senão SQLite. `_ex()` adapta `?`→`%s`.
+- Git: repo em `main`, remote **`thiagokcw-coder/AntiDetectMTZ`**. **Push é feito pelo usuário no GitHub Desktop** (gh CLI expirou) — eu só commito local. `.gitignore` cobre venv/proxys/database_url.txt/*.db/logs/screenshots/*.png/*.zip/.claude/*.app.
 
 ## ⚠️ PENDÊNCIAS ABERTAS
 1. ~~Commit/push pendente~~ **FEITO** (commits `d5383af`/`c6d1047` e seguintes). `CLAUDE.md` segue só local (não rastreado). Push para `mtz-ag/AntiDetectMTZ` ainda **pode estar pendente** — confirmar com o usuário.
