@@ -39,8 +39,12 @@ Cria e gerencia perfis com fingerprints realistas, proxies e comportamento human
 
 1. Entre na pasta `antidetect-camoufox`.
 2. Execute o inicializador:
+   - **macOS (recomendado):** **`MonitorMtzMac.app`** (duplo-clique no Finder) — mostra o ícone MTZ
+     verde e abre como "Monitor MTZ". Na 1ª vez ele abre o Terminal para instalar (com barra de
+     progresso); depois roda direto, sem Terminal. ⚠️ **Mantenha o `.app` dentro da pasta do projeto**
+     (ele encontra o `venv`/`main.py` pelo próprio caminho).
+   - **macOS / Linux (terminal):** `MonitorMtzMac.command` (duplo-clique) ou `./MonitorMtzMac.command`.
    - **Windows:** `MonitorMtzWin.bat`
-   - **macOS / Linux:** `MonitorMtzMac.command` (duplo-clique no Finder) ou `./MonitorMtzMac.command` no terminal
 
    Na primeira vez ele:
    - cria o ambiente virtual (`venv/`),
@@ -48,15 +52,13 @@ Cria e gerencia perfis com fingerprints realistas, proxies e comportamento human
    - instala o Firefox do Playwright e baixa o Camoufox,
    - abre a interface.
 
-   > No macOS, se o Finder bloquear o `MonitorMtzMac.command` ("desenvolvedor não identificado"),
-   > clique com o botão direito → **Abrir**, ou rode `chmod +x MonitorMtzMac.command` uma vez.
+   > No macOS, se o Gatekeeper bloquear ("desenvolvedor não identificado"),
+   > clique com o botão direito no `.app`/`.command` → **Abrir** (só na 1ª vez).
 
    **Ícones** (em `icons/`, fundo preto com "MTZ"):
-   - macOS: `MonitorMtzMac.icns` (verde) — já aplicado ao `.command`. Se trocar o arquivo, reaplique com
-     botão direito → **Obter informações**, arraste o `.icns` sobre o ícone no canto superior.
+   - macOS: `MonitorMtzMac.icns` (verde) — embutido no `.app` (Dock/menu via `main.py`).
    - Windows: `MonitorMtzWin.ico` (azul). Como um `.bat` não carrega ícone sozinho, crie um **atalho**
-     do `MonitorMtzWin.bat` (botão direito → *Enviar para → Área de trabalho*), abra **Propriedades →
-     Alterar ícone** e selecione o `MonitorMtzWin.ico`.
+     do `MonitorMtzWin.bat`, abra **Propriedades → Alterar ícone** e selecione o `MonitorMtzWin.ico`.
 
 Execução manual (com o venv ativado):
 

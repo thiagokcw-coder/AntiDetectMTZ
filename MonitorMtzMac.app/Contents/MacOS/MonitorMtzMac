@@ -1,0 +1,16 @@
+#!/bin/bash
+# Launcher do bundle "Monitor MTZ".
+# O .app fica DENTRO da pasta do projeto e a resolve pelo próprio caminho
+# (.app/Contents/MacOS/ → sobe 3 níveis). Na 1ª vez (sem venv) instala pelo
+# Terminal — com a barra de progresso visível — via MonitorMtzMac.command.
+# Depois, roda o app direto (ícone/nome do MTZ vêm do main.py).
+HERE="$(cd "$(dirname "$0")" && pwd)"
+REPO="$(cd "$HERE/../../.." && pwd)"
+cd "$REPO" || exit 1
+
+VPY="$REPO/venv/bin/python"
+if [ -x "$VPY" ] && [ -f "$REPO/venv/.installed" ]; then
+    exec "$VPY" "$REPO/main.py"
+else
+    open -a Terminal "$REPO/MonitorMtzMac.command"
+fi

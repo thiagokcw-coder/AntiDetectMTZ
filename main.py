@@ -92,8 +92,40 @@ def wait_api_ready(timeout=20):
     return False
 
 
+def _mac_set_app_name(name: str = "Monitor MTZ"):
+    """macOS: troca o nome exibido no menu/Dock (senão aparece 'Python').
+    Precisa rodar ANTES do pywebview montar o menu (início do main())."""
+    if sys.platform != "darwin":
+        return
+    try:
+        from Foundation import NSBundle
+        b = NSBundle.mainBundle()
+        info = b.localizedInfoDictionary() or b.infoDictionary()
+        if info is not None:
+            info["CFBundleName"] = name
+    except Exception:
+        pass
+
+
+def _mac_set_dock_icon():
+    """macOS: troca o ícone do Dock (senão aparece o foguete padrão do Python)."""
+    if sys.platform != "darwin":
+        return
+    try:
+        from AppKit import NSApplication, NSImage
+        icon = BASE_DIR / "MonitorMtzMac.icns"
+        if not icon.exists():
+            return
+        img = NSImage.alloc().initWithContentsOfFile_(str(icon))
+        if img:
+            NSApplication.sharedApplication().setApplicationIconImage_(img)
+    except Exception:
+        pass
+
+
 def on_loaded(window):
     print("DEBUG: on_loaded called, waiting for API ready (polling /profiles)...")
+    _mac_set_dock_icon()  # reaplica após o app subir (mais confiável)
     if wait_api_ready():
         print(f"DEBUG: API ready, loading URL http://127.0.0.1:{PORT}")
         window.load_url(f"http://127.0.0.1:{PORT}")
@@ -107,6 +139,8 @@ def on_loaded(window):
 
 def main():
     print("DEBUG: main() started, launching uvicorn thread...")
+    # Nome do app no macOS (antes de qualquer uso de AppKit pelo pywebview).
+    _mac_set_app_name()
     # API roda em thread dedicada com seu próprio event loop
     t = threading.Thread(target=run_event_loop, daemon=False)
     t.start()
@@ -115,8 +149,9 @@ def main():
     # Tenta abrir janela nativa (PyWebView). No Windows usa WebView2.
     try:
         import webview
+        _mac_set_dock_icon()  # ícone do Dock (foguete → MTZ)
         window = webview.create_window(
-            title="Browser Profile Manager",
+            title="Monitor MTZ",
             html="<html style='background:#0f1117;margin:0;display:flex;align-items:center;justify-content:center;height:100vh'>"
                  "<p style='color:#5c6ef8;font-family:-apple-system,Segoe UI,sans-serif;font-size:16px'>Carregando...</p></html>",
             width=1100,

@@ -142,6 +142,9 @@ screenshots/
 *.exe
 *.app
 *.dmg
+# ...exceto o launcher oficial (bundle leve, versionado de propósito)
+!MonitorMtzMac.app/
+!MonitorMtzMac.app/**
 
 # Source archive (download de origem; nao versionar)
 *.zip

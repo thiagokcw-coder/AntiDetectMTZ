@@ -1735,6 +1735,84 @@ def whatsapps_delete(wa_id: str):
     db.delete_whatsapp(wa_id)
 
 
+# ─── Emails (registro manual dos emails das contas + controle de uso) ─────────
+# Substitui o antigo fluxo de catch-all/IMAP (criação automática desativada).
+# A aba Emails agora é só um registro: guardar os emails das contas, livres ou usados.
+
+class EmailAddRequest(BaseModel):
+    addresses: str = ""        # um por linha / vírgula / ; / espaço — aceita lote
+    notes: Optional[str] = None
+
+
+class EmailRegistryUpdateRequest(BaseModel):
+    status: Optional[str] = None       # 'free' | 'used'
+    notes: Optional[str] = None
+    account_id: Optional[str] = None
+
+
+def _email_summary(items: list) -> dict:
+    free = sum(1 for e in items if (e.get("status") or "free") == "free")
+    used = sum(1 for e in items if (e.get("status") or "free") == "used")
+    return {"total": len(items), "free": free, "used": used}
+
+
+@app.get("/emails")
+def emails_registry_list():
+    items = db.list_emails()
+    accs = {a["id"]: a for a in acc.list_accounts()}
+    for e in items:
+        a = accs.get(e.get("account_id"))
+        e["account_username"] = (a.get("username") if a else None)
+    return {"items": items, "summary": _email_summary(items)}
+
+
+@app.post("/emails", status_code=201)
+def emails_registry_add(body: EmailAddRequest):
+    raw = re.split(r"[\n,;\s]+", body.addresses or "")
+    existing = {(e.get("address") or "").lower() for e in db.list_emails()}
+    added, skipped = [], []
+    for token in raw:
+        addr = token.strip()
+        if not addr:
+            continue
+        if addr.lower() in existing:
+            skipped.append(addr)
+            continue
+        db.save_email({"id": str(uuid.uuid4()), "address": addr, "status": "free", "notes": body.notes})
+        existing.add(addr.lower())
+        added.append(addr)
+    if not added and not skipped:
+        raise HTTPException(400, "Nenhum email informado.")
+    items = db.list_emails()
+    return {"added": added, "skipped_duplicates": skipped, "summary": _email_summary(items)}
+
+
+@app.patch("/emails/{email_id}")
+def emails_registry_update(email_id: str, body: EmailRegistryUpdateRequest):
+    if not db.get_email(email_id):
+        raise HTTPException(404, "Email não encontrado")
+    fields = {}
+    if body.status is not None:
+        if body.status not in ("free", "used"):
+            raise HTTPException(400, "status deve ser 'free' ou 'used'")
+        fields["status"] = body.status
+        if body.status == "free":
+            fields["account_id"] = None   # liberar desvincula da conta
+    if body.notes is not None:
+        fields["notes"] = body.notes
+    if body.account_id is not None:
+        fields["account_id"] = body.account_id
+    db.update_email(email_id, **fields)
+    return db.get_email(email_id)
+
+
+@app.delete("/emails/{email_id}", status_code=204)
+def emails_registry_delete(email_id: str):
+    if not db.get_email(email_id):
+        raise HTTPException(404, "Email não encontrado")
+    db.delete_email(email_id)
+
+
 # ─── Pool de perfis pré-aquecidos ─────────────────────────────────────────────
 
 @app.get("/warm-pool/status")

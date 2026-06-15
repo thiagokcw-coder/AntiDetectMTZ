@@ -738,97 +738,39 @@
       <div class="page-header">
         <div>
           <div class="page-title">Emails</div>
-          <div class="page-subtitle">Catch-all + IMAP (Hostinger) — gera endereços e lê o código do IG automaticamente</div>
-        </div>
-        <div style="display:flex;gap:8px">
-          <button class="btn btn-ghost btn-sm" onclick="loadEmailsPage()">↻ Atualizar</button>
+          <div class="page-subtitle" id="em-subtitle">Emails das contas cadastrados manualmente e controle de uso</div>
         </div>
       </div>
 
-      <div class="section-title">Configuração do domínio / IMAP</div>
-      <div class="form-card" style="max-width:560px">
-        <div class="form-group">
-          <label>Domínio de email (com catch-all ligado)</label>
-          <input id="em-domain" type="text" placeholder="seudominio.com">
-        </div>
-        <div class="form-row">
+      <div style="max-width:820px">
+        <div class="form-card" style="margin-bottom:18px">
+          <div class="section-title">Adicionar emails</div>
           <div class="form-group">
-            <label>Servidor IMAP</label>
-            <input id="em-imap-host" type="text" value="imap.hostinger.com">
+            <label>Emails (um por linha — ou separados por vírgula)</label>
+            <textarea id="em-input" rows="4" placeholder="conta1@gmail.com&#10;conta2@outlook.com" style="width:100%;font-family:monospace"></textarea>
+            <div class="form-hint">Cole vários de uma vez. Duplicados são ignorados automaticamente.</div>
           </div>
           <div class="form-group">
-            <label>Porta</label>
-            <input id="em-imap-port" type="number" value="993">
+            <label>Observação (opcional)</label>
+            <input id="em-notes" type="text" placeholder="ex: emails da leva de junho">
           </div>
+          <button class="btn btn-primary btn-sm" onclick="addEmails()">Adicionar</button>
+          <span id="em-add-status" style="font-size:12px;color:var(--muted);margin-left:8px"></span>
         </div>
-        <div class="form-group">
-          <label>Usuário IMAP (a caixa catch-all)</label>
-          <input id="em-imap-user" type="text" placeholder="catchall@seudominio.com">
-        </div>
-        <div class="form-group">
-          <label>Senha IMAP</label>
-          <input id="em-imap-pass" type="text" placeholder="senha da caixa igmtzmail" autocomplete="off" spellcheck="false">
-          <div class="form-hint">A senha fica visível aqui de propósito, para você conferir caracteres. Espaços/quebras invisíveis são removidos automaticamente.</div>
-        </div>
-        <div style="display:flex;gap:8px;flex-wrap:wrap">
-          <button class="btn btn-primary btn-sm" onclick="saveEmailConfig()">Salvar</button>
-          <button class="btn btn-ghost btn-sm" onclick="testImap()">Testar IMAP</button>
-          <button class="btn btn-ghost btn-sm" onclick="loadInbox()">📥 Ver caixa de entrada</button>
-          <span id="em-config-status" style="font-size:12px;color:var(--muted);align-self:center"></span>
-        </div>
-        <div class="form-hint" style="margin-top:12px">
-          No hPanel do Hostinger: <b>Emails → seu domínio → Catch-all</b> e direcione para uma caixa.
-          O usuário/senha IMAP são os <b>dessa caixa</b>. Servidor: <code>imap.hostinger.com:993</code>.
-        </div>
-      </div>
 
-      <div id="em-inbox-wrap" style="display:none">
-        <div class="section-title">Caixa de entrada <span id="em-inbox-info" style="text-transform:none;color:var(--muted)"></span></div>
-        <div class="table-wrap" style="max-height:300px;overflow:auto">
+        <div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:12px;font-size:13px">
+          <span>Total: <b id="em-total">0</b></span>
+          <span style="color:var(--accent2)">Livres: <b id="em-free">0</b></span>
+          <span style="color:var(--muted)">Usados: <b id="em-used">0</b></span>
+          <button class="btn btn-ghost btn-sm" onclick="loadEmailsPage()" style="margin-left:auto">↻ Atualizar</button>
+        </div>
+
+        <div class="table-wrap">
           <table>
-            <thead><tr><th>De</th><th>Para</th><th>Assunto</th><th>Código</th></tr></thead>
-            <tbody id="em-inbox-body"></tbody>
+            <thead><tr><th>Endereço</th><th>Status</th><th>Conta vinculada</th><th>Observação</th><th>Ações</th></tr></thead>
+            <tbody id="emails-body"></tbody>
           </table>
         </div>
-        <div class="form-hint" style="margin-top:8px">
-          Para testar: mande um email para um endereço do seu domínio (ex.: <code>teste1@personalidade.online</code>)
-          com um assunto tipo <code>123456 is your Instagram code</code>. Recarregue a caixa e veja se aparece com o código detectado.
-        </div>
-      </div>
-
-      <div class="section-title">Gerar emails (+ perfil)</div>
-      <div class="form-card" style="max-width:560px">
-        <div class="form-row">
-          <div class="form-group">
-            <label>Quantidade</label>
-            <input id="em-gen-count" type="number" min="1" value="5">
-          </div>
-          <div class="form-group">
-            <label>Base do nome (opcional)</label>
-            <input id="em-gen-base" type="text" placeholder="ex.: loja (gera loja8421@…)">
-          </div>
-        </div>
-        <div class="form-group toggle-row">
-          <input type="checkbox" id="em-gen-profile" checked>
-          <label for="em-gen-profile" style="margin:0">Gerar um perfil para cada email (pronto para criação)</label>
-        </div>
-        <div class="form-group toggle-row">
-          <input type="checkbox" id="em-gen-pool" checked>
-          <label for="em-gen-pool" style="margin:0">Usar proxies do pool <span id="em-pool-info" style="color:var(--muted)"></span></label>
-        </div>
-        <div class="form-group">
-          <label>Proxy manual (ignorado se o pool estiver marcado)</label>
-          <input id="em-gen-proxy" type="text" placeholder="host:porta:usuario:senha  ou  http://user:senha@host:porta">
-        </div>
-        <button class="btn btn-primary btn-sm" onclick="generateEmails()">Gerar</button>
-      </div>
-
-      <div class="section-title">Emails gerados <span id="em-count" style="text-transform:none;color:var(--muted)"></span></div>
-      <div class="table-wrap">
-        <table>
-          <thead><tr><th>Endereço</th><th>Perfil vinculado</th><th>Status</th><th>Criado</th><th></th></tr></thead>
-          <tbody id="emails-body"></tbody>
-        </table>
       </div>
     </div>
 
@@ -3234,155 +3176,83 @@ function renderImpProgress(j) {
 }
 
 // ── Emails (catch-all + IMAP) ────────────────────────────
+// Aba Emails = registro manual dos emails das contas (livre/usado). IMAP/catch-all
+// foi descontinuado junto com a criação automática. Padrão espelha a aba WhatsApps.
 async function loadEmailsPage() {
   try {
-    const [cfg, list] = await Promise.all([
-      api('GET', '/email/config'),
-      api('GET', '/email/list'),
-    ]);
-    const af = document.activeElement?.id;
-    if (af !== 'em-domain')    document.getElementById('em-domain').value = cfg.email_domain || '';
-    if (af !== 'em-imap-host') document.getElementById('em-imap-host').value = cfg.imap_host || 'imap.hostinger.com';
-    if (af !== 'em-imap-port') document.getElementById('em-imap-port').value = cfg.imap_port || 993;
-    if (af !== 'em-imap-user') document.getElementById('em-imap-user').value = cfg.imap_user || '';
-    if (af !== 'em-imap-pass') document.getElementById('em-imap-pass').value = cfg.imap_pass || '';
-    document.getElementById('em-config-status').textContent =
-      cfg.configured ? '✓ configurado' : 'não configurado';
-    renderEmails(list);
-    // resumo do pool de proxies
-    try {
-      const sp = await api('GET', '/proxies/pool');
-      const info = document.getElementById('em-pool-info');
-      if (info) info.textContent = sp.count
-        ? `(${sp.count} proxies, ${sp.free_slots ?? '∞'} vagas livres)`
-        : '(nenhum proxy na pasta proxys/)';
-    } catch (e) {}
-  } catch (e) { toast(e.message, 'error'); }
+    const r = await api('GET', '/emails');
+    const items = r.items || [];
+    const s = r.summary || { total: 0, free: 0, used: 0 };
+    document.getElementById('em-total').textContent = s.total;
+    document.getElementById('em-free').textContent = s.free;
+    document.getElementById('em-used').textContent = s.used;
+    document.getElementById('em-subtitle').textContent =
+      `${s.total} email(s) — ${s.free} livre(s), ${s.used} usado(s)`;
+    renderEmails(items);
+  } catch (e) { toast(e.message || 'Erro ao carregar emails', 'error'); }
 }
 
-function renderEmails(list) {
-  document.getElementById('em-count').textContent = `— ${list.length}`;
+function renderEmails(items) {
   const body = document.getElementById('emails-body');
-  if (!list.length) {
-    body.innerHTML = `<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:24px">Nenhum email gerado ainda.</td></tr>`;
+  if (!items.length) {
+    body.innerHTML = `<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:24px">Nenhum email cadastrado ainda.</td></tr>`;
     return;
   }
-  body.innerHTML = list.map(e => {
-    const prof = e.profile_id
-      ? (e.profile_exists ? escapeHtml(e.profile_name || e.profile_id.slice(0,8))
-                          : '<span style="color:var(--red)">perfil removido</span>')
+  body.innerHTML = items.map(e => {
+    const used = (e.status || 'free') === 'used';
+    const badge = used
+      ? '<span style="color:var(--muted)">● usado</span>'
+      : '<span style="color:var(--accent2)">● livre</span>';
+    const toggle = used
+      ? `<button class="btn btn-ghost btn-sm" onclick="setEmailStatus('${e.id}','free')">Marcar livre</button>`
+      : `<button class="btn btn-ghost btn-sm" onclick="setEmailStatus('${e.id}','used')">Marcar usado</button>`;
+    const acct = e.account_username
+      ? escapeHtml(e.account_username)
       : '<span style="color:var(--muted)">—</span>';
-
-    // Status mais amigável: só mostra "Usado" quando realmente tem uma conta IG associada
-    const hasAccount = !!e.account_id;
-    const statusLabel = hasAccount ? 'Usado (conta criada)' : 'Pronta para uso';
-    const statusClass = hasAccount ? 'created' : 'active';
-
-    const canCreate = e.profile_exists && !hasAccount;
-
     return `<tr>
-      <td><span style="font-family:monospace">${escapeHtml(e.address)}</span>
-          <span class="copy" onclick="copyText('${e.address}')">copiar</span></td>
-      <td>${prof}</td>
-      <td><span class="badge badge-${statusClass}">${escapeHtml(statusLabel)}</span></td>
-      <td style="font-size:12px">${escapeHtml((e.created_at||'').replace('T',' '))}</td>
-      <td style="white-space:nowrap">
-        ${canCreate
-          ? `<button class="btn btn-primary btn-sm" onclick="createAccountFromEmail('${e.id}', this)">Criar conta</button>`
-          : ''}
-        <button class="btn btn-danger btn-sm" onclick="deleteEmail('${e.id}')">Excluir</button>
-      </td>
+      <td><span style="font-family:monospace">${escapeHtml(e.address || '')}</span>
+          <span class="copy" onclick="copyText('${escapeHtml(e.address || '')}')">copiar</span></td>
+      <td>${badge}</td>
+      <td>${acct}</td>
+      <td style="color:var(--muted)">${escapeHtml(e.notes || '')}</td>
+      <td style="white-space:nowrap">${toggle}
+        <button class="btn btn-ghost btn-sm" onclick="deleteEmail('${e.id}')" title="Excluir">🗑</button></td>
     </tr>`;
   }).join('');
 }
 
-async function saveEmailConfig() {
-  const body = {
-    email_domain: document.getElementById('em-domain').value.trim(),
-    imap_host: document.getElementById('em-imap-host').value.trim(),
-    imap_port: parseInt(document.getElementById('em-imap-port').value, 10) || 993,
-    imap_user: document.getElementById('em-imap-user').value.trim(),
-    imap_pass: document.getElementById('em-imap-pass').value,
-  };
+async function addEmails() {
+  const addresses = document.getElementById('em-input').value.trim();
+  const notes = document.getElementById('em-notes').value.trim();
+  if (!addresses) { toast('Informe pelo menos um email', 'error'); return; }
   try {
-    await api('POST', '/email/config', body);
-    toast('Configuração salva');
-    loadEmailsPage();   // recarrega mantendo a senha no campo
-  } catch (e) { toast(e.message, 'error'); }
-}
-
-async function testImap() {
-  toast('Testando conexão IMAP...');
-  try {
-    const r = await api('POST', '/email/test-imap');
-    if (r.ok) {
-      toast(`✓ IMAP conectou (${r.user})`);
-    } else {
-      // mostra exatamente o que foi usado, pra diagnosticar
-      toast(`Falha IMAP: ${r.error || ''} | user=${r.user} pass_len=${r.pass_len} host=${r.host}:${r.port}`, 'error');
-    }
-  } catch (e) { toast(e.message, 'error'); }
-}
-
-async function loadInbox() {
-  const wrap = document.getElementById('em-inbox-wrap');
-  const body = document.getElementById('em-inbox-body');
-  wrap.style.display = 'block';
-  document.getElementById('em-inbox-info').textContent = '— lendo...';
-  body.innerHTML = '';
-  try {
-    const r = await api('GET', '/email/inbox?limit=15');
-    const msgs = r.messages || [];
-    document.getElementById('em-inbox-info').textContent = `— ${msgs.length} mensagem(ns)`;
-    if (!msgs.length) {
-      body.innerHTML = `<tr><td colspan="4" style="text-align:center;color:var(--muted);padding:20px">Caixa vazia (ou catch-all ainda não recebeu nada).</td></tr>`;
-      return;
-    }
-    body.innerHTML = msgs.map(m => `<tr>
-      <td style="font-size:12px">${escapeHtml((m.from||'').slice(0,40))}</td>
-      <td style="font-size:12px">${escapeHtml((m.to||'').slice(0,40))}</td>
-      <td style="font-size:12px">${escapeHtml((m.subject||'').slice(0,50))}</td>
-      <td>${m.code ? `<span class="badge badge-active">${escapeHtml(m.code)}</span>` : '<span style="color:var(--muted)">—</span>'}</td>
-    </tr>`).join('');
+    const r = await api('POST', '/emails', { addresses, notes });
+    document.getElementById('em-input').value = '';
+    document.getElementById('em-notes').value = '';
+    const dup = r.skipped_duplicates?.length ? ` (${r.skipped_duplicates.length} duplicado(s) ignorado(s))` : '';
+    document.getElementById('em-add-status').textContent = `${r.added.length} adicionado(s)${dup}`;
+    toast(`${r.added.length} email(s) adicionado(s)${dup}`);
+    loadEmailsPage();
   } catch (e) {
-    document.getElementById('em-inbox-info').textContent = '';
-    body.innerHTML = `<tr><td colspan="4" style="color:var(--red);padding:14px">${escapeHtml(e.message || 'erro')}</td></tr>`;
+    toast(e.message || 'Erro ao adicionar', 'error');
   }
 }
 
-async function generateEmails() {
-  const count = parseInt(document.getElementById('em-gen-count').value, 10) || 1;
-  const base = document.getElementById('em-gen-base').value.trim() || null;
-  const with_profile = document.getElementById('em-gen-profile').checked;
-  const use_proxy_pool = document.getElementById('em-gen-pool').checked;
-  const proxy = use_proxy_pool ? null : parseProxy(document.getElementById('em-gen-proxy').value);
+async function setEmailStatus(id, status) {
   try {
-    const r = await api('POST', '/email/generate', { count, base, with_profile, proxy, use_proxy_pool, os: 'random' });
-    toast(`${r.count} email(s) gerado(s)`);
-    if (r.warning) toast(r.warning, 'error');
-    loadEmailsPage();
-  } catch (e) { toast(e.message || 'Erro ao gerar', 'error'); }
-}
-
-async function createAccountFromEmail(id, btn) {
-  if (btn) { btn.disabled = true; btn.textContent = '...'; }
-  try {
-    const r = await api('POST', `/email/${id}/create-account`, {});
-    toast(`Criando conta: ${r.username} / senha: ${r.password} (abrindo navegador, código lido automático)`);
+    await api('PATCH', `/emails/${id}`, { status });
     loadEmailsPage();
   } catch (e) {
-    toast(e.message || 'Erro ao criar conta', 'error');
-    if (btn) { btn.disabled = false; btn.textContent = 'Criar conta'; }
+    toast(e.message || 'Erro ao atualizar', 'error');
   }
 }
 
 async function deleteEmail(id) {
   if (!confirm('Excluir este email do registro?')) return;
   try {
-    await api('DELETE', '/email/' + id);
-    toast('Email removido');
+    await api('DELETE', '/emails/' + id);
     loadEmailsPage();
-  } catch (e) { toast(e.message, 'error'); }
+  } catch (e) { toast(e.message || 'Erro ao excluir', 'error'); }
 }
 
 loadProfiles();
