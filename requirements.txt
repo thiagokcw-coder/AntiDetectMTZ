@@ -1,0 +1,7 @@
+camoufox[geoip]
+playwright
+browserforge
+fastapi[standard]
+uvicorn
+pywebview
+psycopg[binary]

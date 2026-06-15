@@ -1,0 +1,147 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+
+# Translations
+*.mo
+*.pot
+
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Spyder project settings
+.spyderproject
+.spyproject
+
+# Rope project settings
+.ropeproject
+
+# mkdocs documentation
+/site
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Pyre type checker
+.pyre/
+
+# pytype static type analyzer
+.pytype/
+
+# Cython debug symbols
+cython_debug/
+
+# IDEs and editors
+.idea/
+.vscode/
+.claude/
+*.sublime-project
+*.sublime-workspace
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+$RECYCLE.BIN/
+
+# Windows
+*.bak
+*.tmp
+*.swp
+*~
+
+# Project-specific: AntiDetect Camoufox
+debug.log
+*.log
+.installed
+
+# Proxy lists (contain real credentials / sensitive data)
+proxys/
+
+# Credenciais do banco compartilhado (NUNCA commitar)
+database_url.txt
+
+# Large downloaded browsers / camoufox (fetched via `python -m camoufox fetch`)
+# These live inside the venv or playwright cache usually
+
+# Local app data (profiles.db and browser user_data go to %LOCALAPPDATA%\ProfileManager by default)
+*.db
+user_data/
+logs/
+
+# Temporary / test artifacts
+tmp/
+temp/
+out/
+screenshots/
+*.png
+*.jpg
+*.jpeg
+*.webp
+
+# Pywebview / frozen builds
+*.exe
+*.app
+*.dmg
+
+# Source archive (download de origem; nao versionar)
+*.zip

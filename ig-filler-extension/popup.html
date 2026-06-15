@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Preencher cadastro</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <main class="panel">
+      <header>
+        <h1>Cadastro</h1>
+        <p>Preencha a pagina ativa com dados autorizados.</p>
+      </header>
+
+      <form id="profileForm" autocomplete="off">
+        <section class="csv-box" aria-label="Importar CSV">
+          <label>
+            Arquivo CSV
+            <input id="csvFile" type="file" accept=".csv,text/csv" />
+          </label>
+          <label>
+            Linha importada
+            <select id="csvRow" disabled>
+              <option value="">Nenhum CSV carregado</option>
+            </select>
+          </label>
+        </section>
+
+        <label>
+          Celular ou email
+          <input id="contact" name="contact" type="text" placeholder="email@exemplo.com" />
+        </label>
+
+        <label>
+          Senha
+          <input id="password" name="password" type="text" placeholder="Senha" />
+        </label>
+
+        <fieldset>
+          <legend>Data de nascimento</legend>
+          <div class="date-grid">
+            <label>
+              Dia
+              <input id="day" name="day" type="number" min="1" max="31" placeholder="Dia" />
+            </label>
+            <label>
+              Mes
+              <select id="month" name="month">
+                <option value="">Mes</option>
+                <option value="1">Janeiro</option>
+                <option value="2">Fevereiro</option>
+                <option value="3">Marco</option>
+                <option value="4">Abril</option>
+                <option value="5">Maio</option>
+                <option value="6">Junho</option>
+                <option value="7">Julho</option>
+                <option value="8">Agosto</option>
+                <option value="9">Setembro</option>
+                <option value="10">Outubro</option>
+                <option value="11">Novembro</option>
+                <option value="12">Dezembro</option>
+              </select>
+            </label>
+            <label>
+              Ano
+              <input id="year" name="year" type="number" min="1900" max="2026" placeholder="Ano" />
+            </label>
+          </div>
+        </fieldset>
+
+        <label>
+          Nome completo
+          <input id="fullName" name="fullName" type="text" placeholder="Nome completo" />
+        </label>
+
+        <div class="actions">
+          <button id="fillButton" type="submit">Preencher</button>
+          <button id="saveButton" type="button" class="secondary">Salvar</button>
+        </div>
+      </form>
+
+      <p id="status" role="status" aria-live="polite"></p>
+    </main>
+
+    <script src="popup.js"></script>
+  </body>
+</html>

@@ -1,0 +1,3358 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Browser Profile Manager</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #0f1117;
+    --surface: #1a1d27;
+    --surface2: #22263a;
+    --border: #2e3250;
+    --accent: #5c6ef8;
+    --accent2: #7c8ffa;
+    --green: #22c55e;
+    --red: #ef4444;
+    --yellow: #f59e0b;
+    --text: #e2e8f0;
+    --muted: #64748b;
+    --radius: 10px;
+  }
+
+  body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; font-size: 14px; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+
+  /* Header */
+  header { background: var(--surface); border-bottom: 1px solid var(--border); padding: 0 24px; height: 56px; display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; }
+  header h1 { font-size: 16px; font-weight: 600; color: var(--text); display: flex; align-items: center; gap: 8px; }
+  header h1 span { color: var(--accent); }
+  .header-actions { display: flex; gap: 8px; align-items: center; }
+
+  /* Layout */
+  .layout { display: flex; flex: 1; overflow: hidden; }
+
+  /* Sidebar */
+  aside { width: 200px; background: var(--surface); border-right: 1px solid var(--border); padding: 16px 0; flex-shrink: 0; }
+  .nav-item { padding: 10px 20px; cursor: pointer; color: var(--muted); display: flex; align-items: center; gap: 10px; transition: all .15s; border-left: 3px solid transparent; font-size: 13px; }
+  .nav-item:hover { color: var(--text); background: var(--surface2); }
+  .nav-item.active { color: var(--accent2); border-left-color: var(--accent); background: var(--surface2); }
+  .nav-item svg { width: 16px; height: 16px; flex-shrink: 0; }
+  .nav-section { padding: 20px 20px 6px; font-size: 10px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+
+  /* Main */
+  main { flex: 1; overflow-y: auto; padding: 24px; }
+
+  /* Page */
+  .page { display: none; }
+  .page.active { display: block; }
+  .page-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; }
+  .page-title { font-size: 18px; font-weight: 600; }
+  .page-subtitle { color: var(--muted); font-size: 12px; margin-top: 2px; }
+
+  /* Buttons */
+  .btn { padding: 8px 16px; border-radius: 6px; border: none; cursor: pointer; font-size: 13px; font-weight: 500; transition: all .15s; display: inline-flex; align-items: center; gap: 6px; }
+  .btn-primary { background: var(--accent); color: #fff; }
+  .btn-primary:hover { background: var(--accent2); }
+  .btn-danger { background: transparent; color: var(--red); border: 1px solid var(--red); }
+  .btn-danger:hover { background: var(--red); color: #fff; }
+  .btn-ghost { background: transparent; color: var(--muted); border: 1px solid var(--border); }
+  .btn-ghost:hover { color: var(--text); border-color: var(--text); }
+  .btn-success { background: var(--green); color: #fff; }
+  .btn-success:hover { filter: brightness(1.1); }
+  .btn-sm { padding: 5px 10px; font-size: 12px; }
+  .btn:disabled { opacity: .4; cursor: not-allowed; }
+
+  /* Cards grid */
+  .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px; }
+
+  /* Profile card */
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; transition: border-color .15s; }
+  .card:hover { border-color: var(--accent); }
+  .card-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 12px; }
+  .card-name { font-weight: 600; font-size: 15px; }
+  .card-id { font-size: 10px; color: var(--muted); margin-top: 2px; font-family: monospace; }
+  .badge { padding: 2px 8px; border-radius: 20px; font-size: 11px; font-weight: 500; }
+  .badge-running { background: #14532d; color: var(--green); }
+  .badge-stopped { background: #1e293b; color: var(--muted); }
+  .badge-starting { background: #451a03; color: var(--yellow); }
+  .badge-error { background: #450a0a; color: var(--red); }
+  /* Account status badges */
+  .badge-active { background: #14532d; color: var(--green); }
+  .badge-created { background: #1e2a4a; color: var(--accent2); }
+  .badge-creating, .badge-waiting_verification { background: #451a03; color: var(--yellow); }
+  .badge-checkpoint { background: #4a2a05; color: #fbbf24; }
+  .badge-login_required { background: #1e293b; color: var(--muted); }
+  .badge-banned, .badge-suspended { background: #450a0a; color: var(--red); }
+  .badge-unknown { background: #1e293b; color: var(--muted); }
+
+  /* Detail rows in modal */
+  .detail-row { display: flex; justify-content: space-between; gap: 12px; padding: 9px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
+  .detail-row:last-child { border-bottom: none; }
+  .detail-row .k { color: var(--muted); }
+  .detail-row .v { color: var(--text); text-align: right; word-break: break-all; font-family: monospace; }
+  .copy { cursor: pointer; color: var(--accent2); font-size: 11px; margin-left: 6px; }
+  .copy:hover { text-decoration: underline; }
+  .section-title { font-size: 13px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; margin: 28px 0 12px; }
+  .bar { height: 6px; background: var(--surface2); border-radius: 4px; overflow: hidden; width: 120px; display: inline-block; vertical-align: middle; }
+  .bar > i { display: block; height: 100%; background: var(--accent); }
+  .bar.full > i { background: var(--red); }
+  .card-info { display: flex; flex-direction: column; gap: 4px; margin-bottom: 14px; }
+  .card-row { display: flex; gap: 6px; align-items: center; color: var(--muted); font-size: 12px; }
+  .card-row span { color: var(--text); }
+  .card-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+
+  /* Form */
+  .form-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 24px; max-width: 560px; }
+  .form-group { margin-bottom: 16px; }
+  label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 6px; font-weight: 500; }
+  input, select, textarea { width: 100%; background: var(--surface2); border: 1px solid var(--border); border-radius: 6px; padding: 9px 12px; color: var(--text); font-size: 13px; outline: none; transition: border-color .15s; }
+  input:focus, select:focus, textarea:focus { border-color: var(--accent); }
+  textarea { resize: vertical; min-height: 80px; font-family: monospace; font-size: 12px; }
+  .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .form-hint { font-size: 11px; color: var(--muted); margin-top: 4px; }
+  .toggle-row { display: flex; align-items: center; gap: 10px; }
+  input[type=checkbox] { width: auto; }
+
+  /* Sessions table */
+  .table-wrap { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+  table { width: 100%; border-collapse: collapse; }
+  th { background: var(--surface2); padding: 10px 16px; text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 600; }
+  td { padding: 12px 16px; border-top: 1px solid var(--border); font-size: 13px; }
+  tr:hover td { background: var(--surface2); }
+
+  /* Toast */
+  #toast { position: fixed; bottom: 24px; right: 24px; background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 12px 18px; font-size: 13px; box-shadow: 0 8px 24px #0008; opacity: 0; transition: opacity .2s; pointer-events: none; z-index: 999; max-width: 320px; }
+  #toast.show { opacity: 1; }
+  #toast.success { border-color: var(--green); color: var(--green); }
+  #toast.error { border-color: var(--red); color: var(--red); }
+
+  /* Modal */
+  .modal-backdrop { position: fixed; inset: 0; background: #0009; display: none; align-items: center; justify-content: center; z-index: 100; }
+  .modal-backdrop.open { display: flex; }
+  .modal { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 24px; width: 480px; max-width: 95vw; }
+  .modal h2 { font-size: 16px; margin-bottom: 16px; }
+  .modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 20px; }
+
+  /* Empty state */
+  .empty { text-align: center; padding: 60px 20px; color: var(--muted); }
+  .empty svg { width: 48px; height: 48px; margin-bottom: 12px; opacity: .3; }
+  .empty p { font-size: 15px; margin-bottom: 8px; }
+  .empty small { font-size: 12px; }
+
+  /* Dot indicator */
+  .dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
+  .dot-green { background: var(--green); box-shadow: 0 0 6px var(--green); }
+  .dot-gray { background: var(--muted); }
+  .dot-yellow { background: var(--yellow); }
+
+  /* Flow (Comece aqui) */
+  .flow-step { display: flex; gap: 16px; }
+  .flow-left { display: flex; flex-direction: column; align-items: center; }
+  .flow-num { width: 34px; height: 34px; border-radius: 50%; background: var(--accent); color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 600; flex-shrink: 0; }
+  .flow-num.done { background: var(--green); }
+  .flow-line { flex: 1; width: 2px; background: var(--border); margin: 4px 0; min-height: 12px; }
+  .flow-card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; margin-bottom: 14px; flex: 1; }
+  .flow-card:hover { border-color: var(--accent); }
+  .flow-title { font-weight: 600; margin-bottom: 4px; display: flex; align-items: center; gap: 8px; }
+  .flow-desc { color: var(--muted); font-size: 13px; line-height: 1.6; margin-bottom: 10px; }
+  .flow-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+  .nav-num { display: inline-block; width: 16px; color: var(--muted); font-size: 11px; }
+
+  /* Criar Contas */
+  .ig-page { max-width: 1180px; }
+  .ig-page .page-header { align-items: flex-start; gap: 16px; }
+  .ig-page-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+  .ig-panel { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 18px; }
+  .ig-panel-primary { background: linear-gradient(180deg, #242944 0%, var(--surface) 100%); border-color: #3f4a8d; margin-bottom: 18px; }
+  .ig-panel-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; margin-bottom: 16px; }
+  .ig-panel-title { font-size: 15px; font-weight: 700; color: var(--text); }
+  .ig-panel-subtitle { color: var(--muted); font-size: 12px; line-height: 1.5; margin-top: 4px; max-width: 680px; }
+  .ig-tag { flex-shrink: 0; border: 1px solid #4d5cff; color: var(--accent2); background: #18204a; border-radius: 999px; padding: 3px 8px; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; }
+  .ig-method-grid { display: grid; grid-template-columns: repeat(2, minmax(220px, 1fr)); gap: 12px; margin-bottom: 14px; }
+  .ig-method-card { display: grid; grid-template-columns: 18px 1fr; gap: 10px; align-items: flex-start; min-height: 92px; margin: 0; padding: 13px; border: 1px solid var(--border); border-radius: 8px; background: rgba(15, 17, 23, .42); cursor: pointer; color: var(--text); }
+  .ig-method-card:has(input:checked) { border-color: var(--accent); background: rgba(92, 110, 248, .13); }
+  .ig-method-card input { width: 16px; margin-top: 2px; }
+  .ig-method-name { display: block; font-size: 13px; font-weight: 700; color: var(--text); margin-bottom: 4px; }
+  .ig-method-copy { display: block; color: var(--muted); font-size: 12px; line-height: 1.45; }
+  .ig-fixed-limit { margin-top: 10px; display: none; grid-column: 1 / -1; }
+  .ig-fixed-limit-inner { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .ig-fixed-limit input { width: 76px; }
+  .ig-proxy-cap { min-height: 62px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 8px; background: rgba(15, 17, 23, .36); color: var(--text); font-size: 13px; line-height: 1.5; margin-bottom: 14px; }
+  .ig-bulk-row { display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-start; }
+  .ig-bulk-field { flex: 1 1 200px; min-width: 160px; }
+  .ig-bulk-field > label { display: block; }
+  .ig-bulk-field input { width: 100%; }
+  .ig-qty { display: flex; gap: 8px; align-items: center; }
+  .ig-qty button { white-space: nowrap; }
+  .ig-qty input { width: 100%; }
+  .ig-bulk-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
+  .ig-workspace { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 18px; align-items: start; }
+  .ig-card-title { display: flex; align-items: baseline; gap: 8px; color: var(--text); font-size: 13px; font-weight: 700; margin-bottom: 14px; }
+  .ig-card-title small { color: var(--muted); font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; }
+  .ig-divider { height: 1px; background: var(--border); margin: 16px 0 12px; }
+  .ig-balance-row { display: flex; align-items: center; gap: 8px; min-height: 38px; }
+  .ig-form-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
+  .ig-side { display: grid; gap: 14px; }
+  .ig-status-box { min-height: 120px; border-radius: 8px; }
+  .ig-empty-status { min-height: 118px; display: grid; place-items: center; padding: 24px; color: var(--muted); font-size: 13px; text-align: center; }
+  .ig-warmup-row { display: grid; grid-template-columns: 1fr 92px; gap: 10px; margin-bottom: 12px; }
+  .ig-note { margin-top: 16px; padding: 11px 14px; border: 1px solid var(--border); background: rgba(34, 38, 58, .65); border-radius: 8px; color: var(--muted); font-size: 12px; line-height: 1.5; }
+
+  @media (max-width: 980px) {
+    .ig-page .page-header, .ig-panel-head { flex-direction: column; }
+    .ig-page-actions, .ig-bulk-actions { justify-content: flex-start; }
+    .ig-workspace, .ig-bulk-row, .ig-method-grid { grid-template-columns: 1fr; }
+  }
+
+  @media (max-width: 720px) {
+    main { padding: 16px; }
+    .ig-page .form-row, .ig-warmup-row { grid-template-columns: 1fr; }
+    .ig-panel { padding: 14px; }
+    .ig-page-actions .btn, .ig-bulk-actions .btn, .ig-form-actions .btn { width: 100%; justify-content: center; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+    Profile <span>Manager</span>
+  </h1>
+  <div class="header-actions">
+    <span id="sessions-count" style="font-size:12px;color:var(--muted)"></span>
+    <button class="btn btn-ghost btn-sm" onclick="refreshAll()">↻ Atualizar</button>
+  </div>
+</header>
+
+<div class="layout">
+  <aside>
+    <div class="nav-section">Início</div>
+    <div class="nav-item active" data-page-link="start" onclick="showPage('start')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4v16"/><path d="M4 4h12l-2 4 2 4H4"/></svg>
+      Comece aqui
+    </div>
+
+    <!-- Criar Contas logo após Comece aqui (como pedido) -->
+    <div class="nav-item" data-page-link="instagram" onclick="showPage('instagram')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="20" rx="5"/><circle cx="12" cy="12" r="4"/><circle cx="17.5" cy="6.5" r="1" fill="currentColor" stroke="none"/></svg>
+      Criar Contas
+    </div>
+
+    <div class="nav-section">Fluxo de criação</div>
+    <div class="nav-item" data-page-link="emails" onclick="showPage('emails')">
+      <span class="nav-num">1</span>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-10 5L2 7"/></svg>
+      Emails
+    </div>
+    <div class="nav-item" data-page-link="profiles" onclick="showPage('profiles')">
+      <span class="nav-num">2</span>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 9h6M9 13h4"/></svg>
+      Perfis
+    </div>
+    <div class="nav-item" data-page-link="import" onclick="showPage('import')">
+      <span class="nav-num">3</span>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 3v4a1 1 0 0 0 1 1h4"/><path d="M17 21H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7l5 5v11a2 2 0 0 1-2 2z"/><path d="M12 11v6M9 14l3 3 3-3"/></svg>
+      Importar CSV
+    </div>
+    <div class="nav-item" data-page-link="accounts" onclick="showPage('accounts')">
+      <span class="nav-num">4</span>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+      Contas
+    </div>
+
+    <div class="nav-section">Utilitários</div>
+    <div class="nav-item" data-page-link="whatsapps" onclick="showPage('whatsapps')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
+      WhatsApps
+    </div>
+    <div class="nav-item" data-page-link="proxies" onclick="showPage('proxies')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M5 12a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2M5 12a2 2 0 0 0-2 2v4a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-4a2 2 0 0 0-2-2M8 7h.01M8 17h.01"/></svg>
+      Proxies
+    </div>
+    <div class="nav-item" data-page-link="analytics" onclick="showPage('analytics')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/></svg>
+      Métricas
+    </div>
+    <div class="nav-item" data-page-link="create" onclick="showPage('create')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+      Novo Perfil
+    </div>
+    <div class="nav-item" onclick="launchAll()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+      Abrir Todos
+    </div>
+    <div class="nav-item" data-page-link="sessions" onclick="showPage('sessions')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+      Sessões Ativas
+    </div>
+    <div class="nav-item" data-page-link="diagnostics" onclick="showPage('diagnostics')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>
+      Diagnóstico
+    </div>
+  </aside>
+
+  <main>
+    <!-- START / COMECE AQUI -->
+    <div class="page active" id="page-start">
+      <div class="page-header">
+        <div>
+          <div class="page-title">Comece aqui</div>
+          <div class="page-subtitle">Configure os dados iniciais e deixe a automação fazer o resto</div>
+        </div>
+      </div>
+
+      <div style="max-width:780px">
+        <div class="form-card" style="margin-bottom:18px;border:1px solid var(--border);border-radius:10px">
+          <div style="font-weight:600;margin-bottom:6px">✅ O que essa automação faz por você</div>
+          <div style="color:var(--muted);font-size:13px;line-height:1.65">
+            Essa ferramenta foi feita para criar contas do Instagram de forma <b>altamente automatizada</b> e com o máximo de sigilo possível (usando Camoufox + fingerprints realistas + proxies residenciais).<br><br>
+
+            <b>O que a automação cuida sozinha:</b><br>
+            • Gera emails + cria perfis de navegador com proxy do pool automaticamente<br>
+            • Aquece os navegadores em background (visitas realistas em sites comuns)<br>
+            • Cria a conta no Instagram: preenche e-mail, senha, <b>data de nascimento, nome e username</b> com cliques reais (humano) e <b>envia</b><br>
+            • Lê o <b>código de verificação do e-mail</b> automaticamente (catch-all/IMAP) — e se falhar, você pega na <b>📥 caixa de entrada</b> e digita na janela<br>
+            • Aquece a conta recém-criada e monitora status, vida útil, proxy e WhatsApp<br><br>
+
+            <b>Onde VOCÊ entra (só isso):</b><br>
+            • 🤖 <b>reCAPTCHA</b>: quando o IG pede "I'm not a robot", o app <b>pausa, toca um alerta sonoro e traz a janela pra frente</b>. Você resolve na janela e ele continua sozinho. Pode deixar a janela minimizada e trabalhar — o som te chama.<br>
+            • 📱 <b>Verificação por telefone/WhatsApp</b>: se o IG exigir telefone no cadastro, a conta foi muito sinalizada → o app <b>descarta automaticamente</b> e segue para a próxima (não gasta número).
+          </div>
+        </div>
+
+        <div style="margin-bottom:10px;font-weight:600;color:var(--text)">O que você precisa fazer (configuração inicial)</div>
+
+        <div class="form-card" style="margin-bottom:18px">
+          <div style="color:var(--muted);font-size:13px;line-height:1.6">
+            • Use <b>proxies móveis (4G/5G) ou residenciais</b> (fator nº 1 contra detecção) na pasta <code>proxys/</code> (<code>host:porta:usuário:senha</code> ou URL). Datacenter/ISP-estático compartilhado = captcha e telefone quase sempre. <button class="btn btn-ghost btn-sm" style="padding:1px 8px" onclick="showPage('proxies')">ver guia →</button><br>
+            • Tenha um domínio com <b>catch-all</b> no Hostinger + credenciais IMAP configuradas (para ler o código de verificação).<br>
+            • Defina os limites de contas por proxy na aba Contas.<br>
+            • <i>(Opcional)</i> Chave do sms-activate.org — só se você QUISER verificar por telefone. Por padrão, contas que pedem telefone são descartadas.
+          </div>
+          <div style="margin-top:10px">
+            <button class="btn btn-primary btn-sm" onclick="showPage('emails')">Configurar Emails (passo mais importante) →</button>
+            <button class="btn btn-ghost btn-sm" onclick="showPage('proxies')">Ver Proxies →</button>
+          </div>
+        </div>
+
+        <div style="margin-bottom:10px;font-weight:600;color:var(--text)">Fluxo recomendado (a automação faz o pesado)</div>
+
+        <div class="flow">
+          <div class="flow-step">
+            <div class="flow-left"><div class="flow-num">1</div><div class="flow-line"></div></div>
+            <div class="flow-card">
+              <div class="flow-title">✉️ Gerar emails + perfis + proxies</div>
+              <div class="flow-desc">Na aba Emails você gera vários endereços de uma vez. O app automaticamente cria um perfil de navegador + atribui um proxy do seu pool para cada um.</div>
+              <div class="flow-actions"><button class="btn btn-primary btn-sm" onclick="showPage('emails')">Abrir Emails →</button></div>
+            </div>
+          </div>
+
+          <div class="flow-step">
+            <div class="flow-left"><div class="flow-num">2</div><div class="flow-line"></div></div>
+            <div class="flow-card">
+              <div class="flow-title">🔥 Aquecer navegadores (recomendado)</div>
+              <div class="flow-desc">Aqueça os perfis em background antes de criar as contas. Isso deixa o navegador com cookies e histórico mais natural. Pode rodar enquanto você faz outra coisa.</div>
+              <div class="flow-actions"><button class="btn btn-primary btn-sm" onclick="showPage('profiles')">Abrir Perfis →</button></div>
+            </div>
+          </div>
+
+          <div class="flow-step">
+            <div class="flow-left"><div class="flow-num">3</div><div class="flow-line"></div></div>
+            <div class="flow-card">
+              <div class="flow-title">📷 Criar contas no Instagram</div>
+              <div class="flow-desc">Na aba <b>Criar Contas</b>, informe a quantidade e clique em <b>"Criar contas"</b> — o app gera perfil + e-mail + conta (data, nome, username, código de e-mail automáticos) e aquece tudo. <b>Você só intervém no reCAPTCHA</b>: o app pausa, toca um som e traz a janela; você resolve e ele segue. Contas que pedem telefone são descartadas sozinhas.</div>
+              <div class="flow-actions">
+                <button class="btn btn-primary btn-sm" onclick="showPage('instagram')">Criar Contas →</button>
+                <button class="btn btn-ghost btn-sm" onclick="showPage('import')">Importar CSV</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="flow-step">
+            <div class="flow-left"><div class="flow-num">4</div><div class="flow-line"></div></div>
+            <div class="flow-card">
+              <div class="flow-title">🌱 Aquecer as contas criadas</div>
+              <div class="flow-desc">Depois de criadas, aqueça cada conta (navegação realista no feed, sugestões etc). O app roda isso em segundo plano automaticamente.</div>
+              <div class="flow-actions"><button class="btn btn-primary btn-sm" onclick="showPage('accounts')">Abrir Contas →</button></div>
+            </div>
+          </div>
+
+          <div class="flow-step">
+            <div class="flow-left"><div class="flow-num">5</div></div>
+            <div class="flow-card">
+              <div class="flow-title">📊 Acompanhar e exportar</div>
+              <div class="flow-desc">Veja status de cada conta, qual proxy foi usado, se está ativa, banida ou em checkpoint. Exporte tudo em CSV quando quiser.</div>
+              <div class="flow-actions"><button class="btn btn-primary btn-sm" onclick="showPage('accounts')">Abrir Contas →</button></div>
+            </div>
+          </div>
+        </div>
+
+        <div style="margin-top:8px;padding:12px 14px;background:var(--surface2);border-radius:8px;font-size:12px;color:var(--muted);line-height:1.7">
+          <b style="color:var(--text)">Para a conta passar sem pedir telefone</b> (o que reduz captcha e descarte):<br>
+          • <b>Proxy é o fator nº 1.</b> Hierarquia para CRIAR conta: <b>móvel 4G/5G</b> (melhor) &gt; residencial rotativo &gt; ⚠️ ISP-estático compartilhado (queima rápido) &gt; ❌ datacenter (não use). Móvel é IP de operadora sob CGNAT → o IG não consegue punir o IP.<br>
+          • <b>Um país só, coerente com a persona</b> (persona BR ↔ IP BR). Defina o País-alvo em Contas → Limites.<br>
+          • <b>1 IP limpo por conta</b> e rotacione o IP entre contas (no celular: modo avião liga/desliga — não precisa trocar o plano).<br>
+          • <b>Aqueça o navegador 15+ min</b> antes de criar (padrão atual) e mantenha <b>ritmo lento</b> (90s) com poucas contas por IP/dia.<br>
+          • Fingerprint coerente e estável por perfil (o app já usa geoip + fixa GPU/navigator/WebRTC).<br>
+          👉 <b>Sem proxy próprio?</b> Marque "Usar conexão local (sem proxy)" em Criar Contas e use o <b>tethering do celular</b> (IP móvel real).
+          <div style="margin-top:10px">
+            <button class="btn btn-ghost btn-sm" onclick="showPage('proxies')">📖 Ver guia completo de proxies →</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- PROFILES PAGE -->
+    <div class="page" id="page-profiles">
+      <div class="page-header">
+        <div>
+          <div class="page-title">Perfis</div>
+          <div class="page-subtitle" id="profiles-subtitle">Carregando...</div>
+        </div>
+        <button class="btn btn-primary" onclick="showPage('create')">+ Novo Perfil</button>
+      </div>
+      <div id="warm-pool-bar" style="margin-bottom:14px;padding:10px 14px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;font-size:13px;display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+        <span style="font-weight:600">🔥 Pool de perfis aquecidos</span>
+        <span style="color:var(--accent2)">Prontos: <b id="wp-ready">–</b></span>
+        <span style="color:var(--muted)">Aquecendo: <b id="wp-warming">–</b></span>
+        <span style="color:var(--muted)">Em uso: <b id="wp-inuse">–</b></span>
+        <span style="color:var(--muted)">Meta: <b id="wp-target">–</b></span>
+        <span id="wp-info" style="color:var(--muted);margin-left:auto"></span>
+      </div>
+      <div class="cards" id="profiles-grid"></div>
+    </div>
+
+    <!-- SESSIONS PAGE -->
+    <div class="page" id="page-sessions">
+      <div class="page-header">
+        <div>
+          <div class="page-title">Sessões Ativas</div>
+          <div class="page-subtitle" id="sessions-subtitle">Carregando...</div>
+        </div>
+        <button class="btn btn-danger btn-sm" onclick="stopAll()">Parar Todas</button>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Perfil</th><th>Status</th><th>URL</th><th>Ação</th></tr></thead>
+          <tbody id="sessions-body"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- CREATE PAGE -->
+    <div class="page" id="page-create">
+      <div class="page-header">
+        <div class="page-title">Novo Perfil</div>
+      </div>
+      <div class="form-card">
+        <div class="form-group">
+          <label>Nome do Perfil</label>
+          <input id="f-name" type="text" placeholder="Ex: Conta Instagram 1">
+        </div>
+        <div class="form-group">
+          <label>Sistema Operacional</label>
+          <select id="f-os">
+            <option value="random">Aleatório (recomendado — varia entre perfis)</option>
+            <option value="windows">Windows</option>
+            <option value="macos">macOS</option>
+            <option value="linux">Linux</option>
+          </select>
+          <div class="form-hint">Cada conta deve ter seu próprio perfil. "Aleatório" sorteia o dispositivo para os perfis não ficarem todos iguais.</div>
+        </div>
+        <div class="form-group">
+          <label>Escolher do pool de proxies (opcional)</label>
+          <select id="cf-pool" onchange="onCreatePoolPick()">
+            <option value="">— escolher do pool (com status) —</option>
+          </select>
+          <div class="form-hint">A lista mostra uso, ban rate e vagas de cada proxy. Selecionar daqui ignora o campo manual.</div>
+        </div>
+        <div class="form-group">
+          <label>Proxy manual (opcional)</label>
+          <input id="f-proxy" type="text" placeholder="http://user:senha@host:porta">
+          <div class="form-hint">Formatos: http://host:porta — socks5://user:pass@host:porta</div>
+        </div>
+        <button class="btn btn-ghost btn-sm" onclick="testProxy()">Testar Proxy</button>
+        <div style="display:flex;gap:10px;margin-top:20px">
+          <button class="btn btn-primary" onclick="createProfile()">Criar Perfil</button>
+          <button class="btn btn-ghost" onclick="showPage('profiles')">Cancelar</button>
+        </div>
+        <div class="form-group" style="margin-top:24px">
+          <label>Criacao em massa</label>
+          <textarea id="f-bulk" placeholder="Um por linha: Nome do perfil;http://user:senha@host:porta"></textarea>
+          <div class="form-hint">O proxy e opcional. Exemplo: Conta 01;socks5://host:porta</div>
+        </div>
+        <button class="btn btn-ghost" onclick="createProfilesBulk()">Criar em Massa</button>
+      </div>
+    </div>
+
+    <!-- INSTAGRAM PAGE - Criar Contas -->
+    <div class="page ig-page" id="page-instagram">
+      <div class="page-header">
+        <div>
+          <div class="page-title">Criar Contas</div>
+          <div class="page-subtitle">Instagram • automação em lote, controle de proxies e criação manual</div>
+        </div>
+        <div class="ig-page-actions">
+          <button class="btn btn-ghost btn-sm" onclick="igLoadProfiles && igLoadProfiles()">Atualizar</button>
+        </div>
+      </div>
+
+      <section class="ig-panel ig-panel-primary">
+        <div class="ig-panel-head">
+          <div>
+            <div class="ig-panel-title">Criação automática em lote</div>
+            <div class="ig-panel-subtitle">"Criar contas" gera perfil + e-mail (catch-all) + conta do zero pela quantidade. "Criação em massa segura" usa e-mails livres já gerados na aba Emails. Em ambos os proxies vêm do pool.</div>
+          </div>
+        </div>
+
+        <!-- separador entre o cabeçalho e as opções de conexão -->
+        <div style="border-top:1px solid var(--border);margin:2px 0 16px"></div>
+
+        <!-- OPÇÃO RECOMENDADA: conexão do celular (ancoragem/tethering) -->
+        <div style="margin:0 0 6px 2px"><span class="ig-tag">Recomendado</span></div>
+        <label class="ig-method-card" style="display:flex;align-items:flex-start;gap:8px;margin-bottom:6px;border-left:3px solid var(--accent)">
+          <input type="radio" id="ig-local-conn" name="proxy-method" value="local" onchange="onProxyMethodChange()" style="margin-top:3px">
+          <span>
+            <span class="ig-method-name">📱 Usar a internet do celular (ancoragem)</span>
+            <span class="ig-method-copy">Ligue a <strong>ancoragem USB</strong> do celular: o IP é <strong>móvel real</strong> (a melhor reputação contra detecção). Ignora o pool de proxies; idioma e fuso seguem o IP do celular automaticamente.</span>
+          </span>
+        </label>
+        <div class="form-hint" style="margin:0 0 16px 2px">Sem proxy próprio? Esta é a melhor opção. Ative a ancoragem USB no celular <strong>antes</strong> de criar.</div>
+
+        <div style="font-size:12px;color:var(--muted);margin:0 0 8px 2px;font-weight:600">Ou use proxies do pool:</div>
+        <div class="ig-method-grid">
+          <label class="ig-method-card">
+            <input type="radio" name="proxy-method" value="inteligente" checked onchange="onProxyMethodChange()">
+            <span>
+              <span class="ig-method-name">Proxy Inteligente</span>
+              <span class="ig-method-copy">Prioriza proxies com melhor histórico e usa o ban rate real coletado na aba Métricas.</span>
+            </span>
+          </label>
+
+          <label class="ig-method-card">
+            <input type="radio" name="proxy-method" value="fixo" onchange="onProxyMethodChange()">
+            <span>
+              <span class="ig-method-name">Proxy Fixo</span>
+              <span class="ig-method-copy">Aplica o mesmo limite para cada proxy. Bom para manter uma distribuição previsível.</span>
+              <span id="ig-fixed-limit-row" class="ig-fixed-limit">
+                <span class="ig-fixed-limit-inner">
+                  <span style="font-size:12px; color:var(--muted);">Contas por proxy</span>
+                  <input id="ig-fixed-limit" type="number" min="0" value="3" onchange="loadIgProxyCapacity()" oninput="this._userTouched = true; loadIgProxyCapacity();">
+                  <span style="font-size:11px; color:var(--muted);">0 = sem limite</span>
+                </span>
+              </span>
+            </span>
+          </label>
+        </div>
+
+        <details class="ig-proxy-explain" style="background:var(--surface2);border:1px solid var(--border);border-left:3px solid var(--accent);border-radius:8px;padding:12px 14px;margin-bottom:14px;font-size:12.5px;line-height:1.55;color:var(--muted)">
+          <summary style="cursor:pointer;font-weight:600;color:var(--text)">❓ O que é o Proxy Inteligente?</summary>
+          <div style="margin-top:8px">
+            Em vez de você chutar um limite de contas por proxy, o app decide sozinho
+            quanto usar cada proxy com base no <strong>histórico real de banimentos</strong>
+            (o que ele aprendeu na aba <strong>Métricas</strong>). Na prática:
+            <ul style="margin:8px 0 8px 18px;padding:0">
+              <li>Proxy que vem segurando contas <strong>sem ban</strong> → é usado mais vezes.</li>
+              <li>Proxy com <strong>muitos bans</strong> → é usado menos ou evitado.</li>
+              <li>Proxy <strong>novo</strong> (ainda sem histórico) → começa com folga e vai sendo ajustado conforme os resultados aparecem.</li>
+            </ul>
+            Assim você aproveita ao máximo os proxies bons sem queimar os ruins — sem precisar
+            calcular o limite na mão.
+            <div style="margin-top:8px">👉 Use o <strong>Proxy Fixo</strong> só se preferir o mesmo limite para todos os proxies, de forma previsível.</div>
+          </div>
+        </details>
+
+        <div id="ig-proxy-cap" class="ig-proxy-cap">
+          Carregando capacidade de proxies...
+        </div>
+
+        <div class="ig-bulk-row">
+          <div class="ig-bulk-field">
+            <label>Quantas contas criar</label>
+            <div class="ig-qty">
+              <button class="btn btn-primary" onclick="createSpecificNumber()">Criar contas</button>
+              <input id="ig-bulk-qty" type="number" min="1" placeholder="ex: 10" oninput="this._userManuallyEdited = true;">
+            </div>
+          </div>
+          <div class="ig-bulk-field">
+            <label>Aquecer navegador (min)</label>
+            <input id="ig-bulk-warm" type="number" min="0" step="1" value="15">
+            <div class="form-hint">Antes de criar: navega sites comuns (cookies/histórico → parece humano). Recomendado 15+. 0 = não aquece.</div>
+          </div>
+          <div class="ig-bulk-field">
+            <label>Aquecer conta (min)</label>
+            <input id="ig-bulk-acctwarm" type="number" min="0" step="1" value="5">
+            <div class="form-hint">Depois de criar (se logada): navega o feed do IG. 0 = não aquece.</div>
+          </div>
+        </div>
+        <div class="ig-bulk-actions">
+          <button class="btn btn-success" onclick="createMass()">Criação em massa segura</button>
+          <button class="btn btn-ghost" onclick="createManual()" title="O app gera os dados e abre a janela; VOCÊ preenche">✍️ Criar conta manual (eu preencho)</button>
+          <button class="btn btn-ghost btn-sm" onclick="showPage('emails')">Emails</button>
+          <button class="btn btn-ghost btn-sm" onclick="showPage('analytics')">Métricas</button>
+        </div>
+
+        <div id="ig-batch-progress" style="display:none;margin-top:16px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:14px 16px">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;gap:10px">
+            <strong style="color:var(--text);font-size:13px">Progresso da criação em lote</strong>
+            <div style="display:flex;align-items:center;gap:10px">
+              <span id="ig-batch-eta" style="font-size:12px;color:var(--muted)"></span>
+              <button id="ig-batch-stop" class="btn btn-danger btn-sm" onclick="stopAccountCreations()">⏹ Parar</button>
+            </div>
+          </div>
+          <div style="height:8px;background:var(--surface);border-radius:6px;overflow:hidden;margin-bottom:8px">
+            <div id="ig-batch-bar" style="height:100%;width:0%;background:var(--accent);transition:width .4s"></div>
+          </div>
+          <div id="ig-batch-summary" style="font-size:12px;color:var(--muted);margin-bottom:10px"></div>
+          <div id="ig-batch-items" style="max-height:200px;overflow:auto;font-size:12px;display:flex;flex-direction:column;gap:4px"></div>
+        </div>
+      </section>
+
+      <div class="ig-workspace">
+        <section class="ig-panel">
+          <div class="ig-card-title">
+            Criação manual
+            <small>um perfil por vez</small>
+          </div>
+
+          <div class="form-group">
+            <label>Perfil do navegador</label>
+            <select id="ig-profile-id"></select>
+            <div class="form-hint">Cada conta deve usar um perfil com proxy diferente.</div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label>Email da conta</label>
+              <input id="ig-email" type="email" placeholder="conta@seudominio.com">
+              <div class="form-group toggle-row" style="margin-top:6px">
+                <input type="checkbox" id="ig-auto-email" onchange="onIgAutoEmail()">
+                <label for="ig-auto-email" style="margin:0">Gerar e-mail automaticamente (catch-all)</label>
+              </div>
+            </div>
+            <div class="form-group">
+              <label>Senha</label>
+              <input id="ig-password" type="password" placeholder="Senha forte">
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label>Nome completo</label>
+              <input id="ig-fullname" type="text" placeholder="João Silva">
+            </div>
+            <div class="form-group">
+              <label>Username (opcional)</label>
+              <input id="ig-username" type="text" placeholder="Gerado automaticamente">
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label>Data de nascimento (opcional)</label>
+            <div style="display:flex; gap:8px">
+              <input id="ig-bd-day" type="number" min="1" max="31" placeholder="Dia" style="flex:1">
+              <select id="ig-bd-month" style="flex:1.6">
+                <option value="">Mês</option>
+                <option value="1">Janeiro</option>
+                <option value="2">Fevereiro</option>
+                <option value="3">Março</option>
+                <option value="4">Abril</option>
+                <option value="5">Maio</option>
+                <option value="6">Junho</option>
+                <option value="7">Julho</option>
+                <option value="8">Agosto</option>
+                <option value="9">Setembro</option>
+                <option value="10">Outubro</option>
+                <option value="11">Novembro</option>
+                <option value="12">Dezembro</option>
+              </select>
+              <input id="ig-bd-year" type="number" min="1950" max="2010" placeholder="Ano" style="flex:1.2">
+            </div>
+            <div class="form-hint">Deixe em branco para o app gerar uma data aleatória (maior de idade).</div>
+          </div>
+
+          <div class="ig-divider"></div>
+          <div class="ig-card-title" style="margin-bottom:10px">
+            Verificação via WhatsApp / SMS
+            <small>opcional</small>
+          </div>
+
+          <div class="form-group">
+            <label>Chave API sms-activate.org</label>
+            <input id="ig-smskey" type="text" placeholder="Cole sua chave aqui">
+            <div class="form-hint">Sem chave, o navegador para no passo do código para inserção manual.</div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label>País do número</label>
+              <select id="ig-country">
+                <option value="73">Brasil 🇧🇷</option>
+                <option value="12">Indonésia 🇮🇩</option>
+                <option value="44">México 🇲🇽</option>
+                <option value="22">Índia 🇮🇳</option>
+                <option value="57">Colômbia 🇨🇴</option>
+                <option value="0">Qualquer disponível</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Saldo SMS</label>
+              <div id="ig-balance-row" class="ig-balance-row">
+                <span style="font-size:12px;color:var(--muted)">Saldo</span>
+                <span id="ig-balance" style="color:var(--green);font-weight:600">—</span>
+                <button class="btn btn-ghost btn-sm" onclick="checkSmsBalance()">Verificar</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="ig-form-actions">
+            <button class="btn btn-primary" onclick="igCreate()">Criar conta</button>
+            <button class="btn btn-ghost" onclick="checkSmsBalance()">Checar saldo</button>
+          </div>
+        </section>
+
+        <aside class="ig-side">
+          <section class="ig-panel">
+            <div class="ig-card-title">Status da criação atual</div>
+            <div id="ig-status-box" class="table-wrap ig-status-box">
+              <div class="ig-empty-status">Nenhum fluxo em andamento</div>
+            </div>
+          </section>
+
+          <section class="ig-panel">
+            <div class="ig-card-title">Aquecer conta no Instagram</div>
+            <div class="ig-warmup-row">
+              <div class="form-group" style="margin:0">
+                <label>Perfil</label>
+                <select id="ig-warmup-profile"></select>
+              </div>
+              <div class="form-group" style="margin:0">
+                <label>Minutos</label>
+                <input id="ig-warmup-min" type="number" value="8" min="3" max="60">
+              </div>
+            </div>
+            <button class="btn btn-ghost" style="width:100%; justify-content:center" onclick="igWarmup()">Iniciar aquecimento</button>
+          </section>
+        </aside>
+      </div>
+
+      <div class="ig-note">
+        <b style="color:var(--text)">Regra:</b> aqueça o navegador antes de criar a conta e a conta depois de criada. O app já respeita 1 conta por perfil.
+      </div>
+    </div>
+
+    <!-- EMAILS PAGE -->
+    <div class="page" id="page-emails">
+      <div class="page-header">
+        <div>
+          <div class="page-title">Emails</div>
+          <div class="page-subtitle">Catch-all + IMAP (Hostinger) — gera endereços e lê o código do IG automaticamente</div>
+        </div>
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-ghost btn-sm" onclick="loadEmailsPage()">↻ Atualizar</button>
+        </div>
+      </div>
+
+      <div class="section-title">Configuração do domínio / IMAP</div>
+      <div class="form-card" style="max-width:560px">
+        <div class="form-group">
+          <label>Domínio de email (com catch-all ligado)</label>
+          <input id="em-domain" type="text" placeholder="seudominio.com">
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Servidor IMAP</label>
+            <input id="em-imap-host" type="text" value="imap.hostinger.com">
+          </div>
+          <div class="form-group">
+            <label>Porta</label>
+            <input id="em-imap-port" type="number" value="993">
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Usuário IMAP (a caixa catch-all)</label>
+          <input id="em-imap-user" type="text" placeholder="catchall@seudominio.com">
+        </div>
+        <div class="form-group">
+          <label>Senha IMAP</label>
+          <input id="em-imap-pass" type="text" placeholder="senha da caixa igmtzmail" autocomplete="off" spellcheck="false">
+          <div class="form-hint">A senha fica visível aqui de propósito, para você conferir caracteres. Espaços/quebras invisíveis são removidos automaticamente.</div>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn btn-primary btn-sm" onclick="saveEmailConfig()">Salvar</button>
+          <button class="btn btn-ghost btn-sm" onclick="testImap()">Testar IMAP</button>
+          <button class="btn btn-ghost btn-sm" onclick="loadInbox()">📥 Ver caixa de entrada</button>
+          <span id="em-config-status" style="font-size:12px;color:var(--muted);align-self:center"></span>
+        </div>
+        <div class="form-hint" style="margin-top:12px">
+          No hPanel do Hostinger: <b>Emails → seu domínio → Catch-all</b> e direcione para uma caixa.
+          O usuário/senha IMAP são os <b>dessa caixa</b>. Servidor: <code>imap.hostinger.com:993</code>.
+        </div>
+      </div>
+
+      <div id="em-inbox-wrap" style="display:none">
+        <div class="section-title">Caixa de entrada <span id="em-inbox-info" style="text-transform:none;color:var(--muted)"></span></div>
+        <div class="table-wrap" style="max-height:300px;overflow:auto">
+          <table>
+            <thead><tr><th>De</th><th>Para</th><th>Assunto</th><th>Código</th></tr></thead>
+            <tbody id="em-inbox-body"></tbody>
+          </table>
+        </div>
+        <div class="form-hint" style="margin-top:8px">
+          Para testar: mande um email para um endereço do seu domínio (ex.: <code>teste1@personalidade.online</code>)
+          com um assunto tipo <code>123456 is your Instagram code</code>. Recarregue a caixa e veja se aparece com o código detectado.
+        </div>
+      </div>
+
+      <div class="section-title">Gerar emails (+ perfil)</div>
+      <div class="form-card" style="max-width:560px">
+        <div class="form-row">
+          <div class="form-group">
+            <label>Quantidade</label>
+            <input id="em-gen-count" type="number" min="1" value="5">
+          </div>
+          <div class="form-group">
+            <label>Base do nome (opcional)</label>
+            <input id="em-gen-base" type="text" placeholder="ex.: loja (gera loja8421@…)">
+          </div>
+        </div>
+        <div class="form-group toggle-row">
+          <input type="checkbox" id="em-gen-profile" checked>
+          <label for="em-gen-profile" style="margin:0">Gerar um perfil para cada email (pronto para criação)</label>
+        </div>
+        <div class="form-group toggle-row">
+          <input type="checkbox" id="em-gen-pool" checked>
+          <label for="em-gen-pool" style="margin:0">Usar proxies do pool <span id="em-pool-info" style="color:var(--muted)"></span></label>
+        </div>
+        <div class="form-group">
+          <label>Proxy manual (ignorado se o pool estiver marcado)</label>
+          <input id="em-gen-proxy" type="text" placeholder="host:porta:usuario:senha  ou  http://user:senha@host:porta">
+        </div>
+        <button class="btn btn-primary btn-sm" onclick="generateEmails()">Gerar</button>
+      </div>
+
+      <div class="section-title">Emails gerados <span id="em-count" style="text-transform:none;color:var(--muted)"></span></div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Endereço</th><th>Perfil vinculado</th><th>Status</th><th>Criado</th><th></th></tr></thead>
+          <tbody id="emails-body"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- WHATSAPP PAGE -->
+    <div class="page" id="page-whatsapps">
+      <div class="page-header">
+        <div>
+          <div class="page-title">WhatsApps</div>
+          <div class="page-subtitle" id="wa-subtitle">Números cadastrados manualmente e controle de uso</div>
+        </div>
+      </div>
+
+      <div style="max-width:820px">
+        <div class="form-card" style="margin-bottom:18px">
+          <div class="section-title">Adicionar números</div>
+          <div class="form-group">
+            <label>Números (um por linha — ou separados por vírgula)</label>
+            <textarea id="wa-input" rows="4" placeholder="+5511999998888&#10;+5521988887777" style="width:100%;font-family:monospace"></textarea>
+            <div class="form-hint">Cole vários de uma vez. Duplicados são ignorados automaticamente.</div>
+          </div>
+          <div class="form-group">
+            <label>Observação (opcional)</label>
+            <input id="wa-notes" type="text" placeholder="ex: chip Vivo, comprado em 14/06">
+          </div>
+          <button class="btn btn-primary btn-sm" onclick="addWhatsapps()">Adicionar</button>
+          <span id="wa-add-status" style="font-size:12px;color:var(--muted);margin-left:8px"></span>
+        </div>
+
+        <div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:12px;font-size:13px">
+          <span>Total: <b id="wa-total">0</b></span>
+          <span style="color:var(--accent2)">Livres: <b id="wa-free">0</b></span>
+          <span style="color:var(--muted)">Usados: <b id="wa-used">0</b></span>
+          <button class="btn btn-ghost btn-sm" onclick="loadWhatsapps()" style="margin-left:auto">↻ Atualizar</button>
+        </div>
+
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Número</th><th>Status</th><th>Observação</th><th>Usado em</th><th>Ações</th></tr></thead>
+            <tbody id="wa-body"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- IMPORT CSV PAGE -->
+    <div class="page" id="page-import">
+      <div class="page-header">
+        <div>
+          <div class="page-title">Importar CSV</div>
+          <div class="page-subtitle">Criação de contas em massa a partir de uma planilha</div>
+        </div>
+      </div>
+
+      <div class="form-card" style="max-width:none">
+        <div class="form-group">
+          <label>Arquivo CSV</label>
+          <input id="imp-file" type="file" accept=".csv,text/csv">
+          <div class="form-hint">
+            Colunas reconhecidas: <code>nome/full_name</code>, <code>email</code>, <code>senha/password</code>,
+            <code>username</code> (opc.), <code>proxy</code> (opc., ex.: http://user:senha@host:porta),
+            <code>os</code> (opc.), <code>sms_key</code> (opc.). Nascimento: colunas separadas
+            <code>dia</code>,<code>mes</code>,<code>ano</code> (mês por número ou nome) <b>ou</b>
+            uma coluna <code>nascimento</code> (DD/MM/AAAA). Se faltar, uma data aleatória +18 é usada.
+          </div>
+        </div>
+        <div class="form-group">
+          <label>…ou cole o conteúdo CSV</label>
+          <textarea id="imp-text" placeholder="nome,email,senha,proxy&#10;Lucas Almeida,lucas@mail.com,Senha123,http://user:pass@1.2.3.4:8080"></textarea>
+        </div>
+        <button class="btn btn-ghost btn-sm" onclick="impParse()">Pré-visualizar</button>
+      </div>
+
+      <div id="imp-preview-wrap" style="display:none;margin-top:20px">
+        <div class="section-title">Pré-visualização <span id="imp-preview-count" style="text-transform:none;color:var(--muted)"></span></div>
+        <div class="table-wrap" style="max-height:320px;overflow:auto">
+          <table>
+            <thead><tr><th>#</th><th>Nome</th><th>Email</th><th>Senha</th><th>Username</th><th>Nasc.</th><th>Proxy</th><th>OS</th><th>Status</th></tr></thead>
+            <tbody id="imp-preview-body"></tbody>
+          </table>
+        </div>
+
+        <div class="section-title">Opções de importação</div>
+        <div class="form-card" style="max-width:560px">
+          <div class="form-group toggle-row">
+            <input type="checkbox" id="imp-create-accounts" checked>
+            <label for="imp-create-accounts" style="margin:0">Criar contas no Instagram (além dos perfis)</label>
+          </div>
+          <div class="form-hint" style="margin-bottom:14px">Desmarcado: apenas cria os perfis (rápido). Marcado: cria perfil + abre o navegador e preenche o cadastro, uma conta por vez.</div>
+          <div class="form-group toggle-row">
+            <input type="checkbox" id="imp-pool" checked>
+            <label for="imp-pool" style="margin:0">Usar proxies do pool nas linhas sem proxy próprio</label>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Intervalo entre contas (segundos)</label>
+              <input id="imp-delay" type="number" min="0" value="45">
+            </div>
+            <div class="form-group">
+              <label>Aquecer perfil antes (min, 0 = não)</label>
+              <input id="imp-warm" type="number" min="0" value="0">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Chave sms-activate (WhatsApp, opcional)</label>
+              <input id="imp-sms" type="text" placeholder="usa a da linha se vazio aqui">
+            </div>
+            <div class="form-group">
+              <label>País do número</label>
+              <select id="imp-country">
+                <option value="73">Brasil</option>
+                <option value="12">Indonésia</option>
+                <option value="44">México</option>
+                <option value="22">Índia</option>
+                <option value="57">Colômbia</option>
+                <option value="0">Qualquer</option>
+              </select>
+            </div>
+          </div>
+          <button class="btn btn-primary" id="imp-start-btn" onclick="impStart()">Iniciar importação</button>
+        </div>
+      </div>
+
+      <div id="imp-progress-wrap" style="display:none;margin-top:20px">
+        <div class="section-title">Progresso <span id="imp-progress-summary" style="text-transform:none;color:var(--muted)"></span></div>
+        <div class="table-wrap" style="max-height:360px;overflow:auto">
+          <table>
+            <thead><tr><th>#</th><th>Conta</th><th>Status</th><th>Detalhe</th></tr></thead>
+            <tbody id="imp-progress-body"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ACCOUNTS PAGE -->
+    <div class="page" id="page-accounts">
+      <div class="page-header">
+        <div>
+          <div class="page-title">Contas</div>
+          <div class="page-subtitle" id="accounts-subtitle">Carregando...</div>
+        </div>
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-ghost btn-sm" onclick="loadAccountsPage()">↻ Atualizar</button>
+          <button class="btn btn-ghost btn-sm" onclick="openAddAccount()">+ Adicionar conta</button>
+          <button class="btn btn-ghost btn-sm" onclick="exportAccountsCsv()">⤓ Exportar CSV</button>
+          <button class="btn btn-primary btn-sm" onclick="checkAllAccounts()">Verificar todas</button>
+        </div>
+      </div>
+
+      <div class="table-wrap">
+        <table>
+          <thead><tr>
+            <th>Conta</th><th>Perfil</th><th>Status</th><th>Vida útil</th><th>Proxy</th>
+            <th>WhatsApp</th><th>Verificado</th><th></th>
+          </tr></thead>
+          <tbody id="accounts-body"></tbody>
+        </table>
+      </div>
+
+      <div class="section-title">Proxies usados</div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Proxy</th><th>Uso</th><th>Status das contas</th><th>Limite</th></tr></thead>
+          <tbody id="proxy-usage-body"></tbody>
+        </table>
+      </div>
+
+      <div class="section-title">Números de WhatsApp usados</div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Número</th><th>Uso</th><th>Contas</th><th>Limite</th></tr></thead>
+          <tbody id="whatsapp-usage-body"></tbody>
+        </table>
+      </div>
+
+      <div class="section-title">Limites</div>
+      <div class="form-card" style="max-width:420px">
+        <div class="form-row">
+          <div class="form-group">
+            <label>Contas por proxy (0 = sem limite)</label>
+            <input id="lim-proxy" type="number" min="0" value="3">
+          </div>
+          <div class="form-group">
+            <label>Usos por WhatsApp (0 = sem limite)</label>
+            <input id="lim-whatsapp" type="number" min="0" value="1">
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>País-alvo do proxy (ISO-2, ex.: BR — vazio = qualquer)</label>
+            <input id="lim-country" type="text" maxlength="2" placeholder="BR" style="text-transform:uppercase">
+            <small style="color:var(--muted)">Só usa proxies desse país, p/ casar com a persona. Sem proxy do país → usa todos (com aviso no log).</small>
+          </div>
+        </div>
+        <button class="btn btn-primary btn-sm" onclick="saveLimits()">Salvar limites</button>
+      </div>
+    </div>
+
+    <!-- PROXIES PAGE -->
+    <div class="page" id="page-proxies">
+      <div class="page-header">
+        <div>
+          <div class="page-title">Proxies</div>
+          <div class="page-subtitle" id="proxies-subtitle">Proxies ativos no pool</div>
+        </div>
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-ghost btn-sm" onclick="testProxies(true)">📶 Testar conectividade</button>
+          <button class="btn btn-ghost btn-sm" onclick="loadProxiesPage()">↻ Atualizar</button>
+        </div>
+      </div>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Proxy (host:porta)</th>
+              <th>Conectividade</th>
+              <th>Protocolo</th>
+              <th>Autenticação</th>
+              <th>Contas usando</th>
+              <th>Slots restantes</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody id="proxies-body"></tbody>
+        </table>
+      </div>
+
+      <div class="form-hint" style="margin-top:12px">
+        Coloque seus proxies em arquivos .txt ou .csv dentro da pasta <code>proxys/</code> (um por linha, formatos suportados: host:porta:user:pass ou URL).<br>
+        O limite de contas por proxy é configurado na aba <b>Contas</b> → Limites.
+      </div>
+
+      <!-- GUIA DE PROXIES (orientação anti-detecção) -->
+      <div style="margin-top:18px;background:var(--surface2);border:1px solid var(--border);border-left:3px solid var(--accent);border-radius:8px;padding:14px 16px;font-size:13px;line-height:1.65;color:var(--muted);max-width:900px">
+        <div style="font-weight:700;color:var(--text);font-size:14px;margin-bottom:8px">🛡️ Guia de proxies — o fator nº 1 contra detecção</div>
+        O Instagram pesa MUITO a reputação do IP na <b>criação</b> da conta. O tipo de proxy decide se a conta nasce limpa ou já sinalizada (captcha/telefone de cara).
+
+        <div style="font-weight:600;color:var(--text);margin:12px 0 4px">Tipo de proxy — do pior ao melhor para CRIAR conta</div>
+        <ul style="margin:0 0 0 18px;padding:0">
+          <li>❌ <b>Datacenter</b> — bloqueado quase sempre no signup. Não use para criar.</li>
+          <li>⚠️ <b>ISP-estático compartilhado</b> (ex.: listas "20/100 proxies" da Webshare) — IPs fixos divididos entre vários clientes; queimam rápido. Servem só para <i>aquecer</i> conta já criada, não para nascer.</li>
+          <li>✅ <b>Residencial rotativo</b> — IPs de provedores domésticos reais. Bom.</li>
+          <li>⭐ <b>Móvel (4G/5G)</b> — <b>padrão-ouro</b>. IPs de operadora sob CGNAT (compartilhados com milhares de usuários reais) → o IG não consegue punir o IP sem punir gente legítima.</li>
+        </ul>
+
+        <div style="font-weight:600;color:var(--text);margin:12px 0 4px">Como conseguir proxy móvel</div>
+        <ul style="margin:0 0 0 18px;padding:0">
+          <li><b>DIY com chip BR (melhor custo-benefício):</b> app <code>iProxy.online</code> (ou <code>Proxidize</code>) num Android com chip Vivo/Claro/TIM. IP genuinamente brasileiro, barato, 1 IP por aparelho — ótimo para volume baixo.</li>
+          <li><b>Dedicado alugado:</b> modem 4G/5G só seu (~US$30–120/mês). Menos trabalho.</li>
+          <li><b>Pools (Soax / IPRoyal / Smartproxy):</b> IPs móveis/residenciais por GB — cuidado, muitos já foram usados à exaustão no IG.</li>
+        </ul>
+
+        <div style="font-weight:600;color:var(--text);margin:12px 0 4px">Boas práticas</div>
+        <ul style="margin:0 0 0 18px;padding:0">
+          <li><b>1 IP limpo por conta</b> (sticky na criação — não rotacionar no meio do cadastro).</li>
+          <li><b>Rotacione o IP entre uma conta e outra</b> (modo avião liga/desliga no celular, ou via API do provedor). O IP é compartilhado: a próxima rotação já dá um IP novo do pool — <b>não precisa trocar o chip/plano</b>.</li>
+          <li><b>Um país só, coerente com a persona.</b> Configure o <b>País-alvo</b> em <b>Contas → Limites</b> — o app passa a usar só proxies desse país (persona BR ↔ IP BR).</li>
+          <li><b>Ritmo lento</b> e <b>poucas contas por IP/dia</b>.</li>
+          <li>Evite datacenter e ISP-estático compartilhado para criar.</li>
+        </ul>
+
+        <div style="font-weight:600;color:var(--text);margin:12px 0 4px">Testar pela sua própria conexão (sem proxy)</div>
+        Em <b>Criar Contas</b>, marque <b>"Usar conexão local (sem proxy)"</b> para criar pela internet do PC — ex.: <b>tethering do celular</b> (IP móvel real). O <code>geoip</code> ajusta idioma/fuso ao IP automaticamente. Lembre de desabilitar a outra conexão (Wi-Fi/Ethernet de casa) para o tráfego sair mesmo pelo celular.
+      </div>
+    </div>
+
+    <!-- ANALYTICS / MÉTRICAS DE BAN (implementado) -->
+    <div class="page" id="page-analytics">
+      <div class="page-header">
+        <div>
+          <div class="page-title">Métricas & Ban Analytics</div>
+          <div class="page-subtitle">Dados agregados para entender o que está funcionando</div>
+        </div>
+        <button class="btn btn-ghost btn-sm" onclick="loadAnalytics()">↻ Atualizar</button>
+      </div>
+
+      <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap:16px; margin-bottom:20px;">
+        <div class="form-card">
+          <div style="font-size:12px;color:var(--muted)">Total de contas</div>
+          <div id="an-total" style="font-size:28px;font-weight:600;margin-top:4px">—</div>
+        </div>
+        <div class="form-card">
+          <div style="font-size:12px;color:var(--muted)">Ban rate geral</div>
+          <div id="an-ban-rate" style="font-size:28px;font-weight:600;margin-top:4px;color:var(--red)">—</div>
+        </div>
+        <div class="form-card">
+          <div style="font-size:12px;color:var(--muted)">Vida útil média (dias)</div>
+          <div id="an-avg-life" style="font-size:28px;font-weight:600;margin-top:4px">—</div>
+        </div>
+        <div class="form-card">
+          <div style="font-size:12px;color:var(--muted)">Ativas / Banidas / Suspensas</div>
+          <div id="an-breakdown" style="font-size:15px;margin-top:6px">—</div>
+        </div>
+      </div>
+
+      <div class="section-title">Performance por proxy (ban rate)</div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Proxy</th>
+              <th>Contas</th>
+              <th>Banidas</th>
+              <th>Suspensas</th>
+              <th>Ban Rate</th>
+            </tr>
+          </thead>
+          <tbody id="an-proxy-body"></tbody>
+        </table>
+      </div>
+
+      <div style="margin-top:16px;font-size:12px;color:var(--muted)">
+        Use esses dados para identificar proxies ruins, ajustar limites e melhorar estratégias de criação/aquecimento.
+      </div>
+    </div>
+
+    <!-- DIAGNOSTICS PAGE -->
+    <div class="page" id="page-diagnostics">
+      <div class="page-header">
+        <div>
+          <div class="page-title">Diagnóstico</div>
+          <div class="page-subtitle" id="diagnostics-subtitle">Carregando...</div>
+        </div>
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-ghost btn-sm" onclick="loadLogs('errors')">Logs de erro</button>
+          <button class="btn btn-ghost btn-sm" onclick="loadLogs('app')">Log completo</button>
+          <button class="btn btn-ghost btn-sm" onclick="loadDiagnostics()">Atualizar</button>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <tbody id="diagnostics-body"></tbody>
+        </table>
+      </div>
+      <div id="diag-logs" style="display:none;margin-top:16px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+          <strong id="diag-logs-title" style="font-size:13px;color:var(--text)">Logs</strong>
+          <button class="btn btn-ghost btn-sm" onclick="document.getElementById('diag-logs').style.display='none'">Fechar</button>
+        </div>
+        <pre id="diag-logs-content" style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:12px;max-height:360px;overflow:auto;font-size:11px;line-height:1.5;white-space:pre-wrap;word-break:break-word;color:var(--muted)"></pre>
+      </div>
+    </div>
+  </main>
+</div>
+
+<!-- Modal de adicionar conta manualmente -->
+<div class="modal-backdrop" id="modal-add-account">
+  <div class="modal">
+    <h2 id="aa-title">Adicionar conta</h2>
+    <div class="form-group">
+      <label>Perfil (dispositivo)</label>
+      <select id="aa-profile"></select>
+      <div class="form-hint" id="aa-profile-warn" style="color:var(--yellow);display:none"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Plataforma</label>
+        <select id="aa-platform">
+          <option value="instagram">Instagram</option>
+          <option value="facebook">Facebook</option>
+          <option value="outro">Outro</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Status</label>
+        <select id="aa-status">
+          <option value="active">Ativa</option>
+          <option value="created">Criada</option>
+          <option value="checkpoint">Checkpoint</option>
+          <option value="login_required">Sessão expirada</option>
+          <option value="banned">Banida</option>
+          <option value="suspended">Suspensa</option>
+          <option value="unknown">Desconhecido</option>
+        </select>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Username</label>
+        <input id="aa-username" type="text" placeholder="usuario_ig">
+      </div>
+      <div class="form-group">
+        <label>WhatsApp</label>
+        <input id="aa-whatsapp" type="text" placeholder="+5511999990000">
+      </div>
+    </div>
+    <div class="form-group">
+      <label>Email</label>
+      <input id="aa-email" type="text" placeholder="email@dominio.com">
+    </div>
+    <div class="form-group">
+      <label>Senha</label>
+      <input id="aa-password" type="text" placeholder="senha da conta">
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal('modal-add-account')">Cancelar</button>
+      <button class="btn btn-primary" onclick="submitAddAccount()">Adicionar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal de detalhes da conta -->
+<div class="modal-backdrop" id="modal-account">
+  <div class="modal">
+    <h2 id="ma-title">Detalhes da conta</h2>
+    <div id="ma-body"></div>
+    <div class="modal-actions">
+      <button class="btn btn-danger btn-sm" id="ma-delete">Excluir</button>
+      <button class="btn btn-ghost btn-sm" id="ma-edit">Editar</button>
+      <button class="btn btn-primary btn-sm" id="ma-open" style="display:none">Abrir no navegador</button>
+      <button class="btn btn-ghost btn-sm" id="ma-warm" style="display:none">🔥 Aquecer conta</button>
+      <button class="btn btn-success btn-sm" id="ma-check">Verificar status</button>
+      <button class="btn btn-ghost btn-sm" onclick="closeModal('modal-account')">Fechar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal de launch -->
+<div class="modal-backdrop" id="modal-launch">
+  <div class="modal">
+    <h2>Abrir Perfil</h2>
+    <div class="form-group">
+      <label>URL inicial</label>
+      <input id="m-url" type="text" value="https://abrahamjuliot.github.io/creepjs/">
+    </div>
+    <div class="form-group">
+      <label>Modo de abertura</label>
+      <select id="m-mode">
+        <option value="manual">Manual seguro</option>
+        <option value="controlled">Controlado/diagnostico</option>
+      </select>
+      <div class="form-hint">Manual reduz sinais de automacao. Controlado usa CDP para diagnostico.</div>
+    </div>
+    <div class="form-group toggle-row">
+      <input type="checkbox" id="m-headless">
+      <label for="m-headless" style="margin:0">Headless (sem janela)</label>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal()">Cancelar</button>
+      <button class="btn btn-success" onclick="confirmLaunch()">Abrir</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal de criação MANUAL: dados gerados p/ copiar + código do e-mail -->
+<div class="modal-backdrop" id="modal-manual">
+  <div class="modal" style="max-width:520px">
+    <h2>Conta manual — copie e preencha na janela</h2>
+    <div id="manual-warm" style="display:none;margin-bottom:12px">
+      <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--muted);margin-bottom:4px">
+        <span>🔥 Aquecendo o navegador…</span><span id="manual-warm-eta"></span>
+      </div>
+      <div style="height:8px;background:var(--surface);border-radius:6px;overflow:hidden">
+        <div id="manual-warm-bar" style="height:100%;width:0%;background:var(--accent);transition:width .9s linear"></div>
+      </div>
+      <div class="form-hint" style="margin-top:6px">A janela do cadastro abre sozinha quando o aquecimento terminar. Já pode copiar os dados abaixo enquanto espera.</div>
+    </div>
+    <div id="manual-ready-hint" class="form-hint" style="margin-bottom:12px;display:none">A janela do Camoufox abriu na tela de cadastro. Copie cada dado abaixo e digite você mesmo. <b>Não feche este popup.</b></div>
+    <div id="manual-fields" style="display:flex;flex-direction:column;gap:8px"></div>
+
+    <div style="margin-top:16px;border-top:1px solid var(--border);padding-top:12px">
+      <div style="font-weight:600;color:var(--text);margin-bottom:6px">Código de verificação do e-mail</div>
+      <div id="manual-code-row" style="display:flex;align-items:center;gap:8px">
+        <span id="manual-code-val" style="font-size:15px;font-weight:700;letter-spacing:2px;color:var(--muted)">aguardando…</span>
+        <button id="manual-code-copy" class="btn btn-ghost btn-sm" style="display:none" onclick="copyText(window._manualCode||'')">Copiar</button>
+        <button class="btn btn-ghost btn-sm" onclick="pollManualCode(true)">↻ Buscar de novo</button>
+      </div>
+      <div class="form-hint" id="manual-code-hint" style="margin-top:6px">O código aparece aqui automaticamente quando o IG enviar (após você enviar o cadastro).</div>
+    </div>
+
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeManual()">Fechar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal de edição de perfil -->
+<div class="modal-backdrop" id="modal-edit-profile">
+  <div class="modal">
+    <h2>Editar Perfil</h2>
+    <div class="form-group">
+      <label>Nome do perfil</label>
+      <input id="ep-name" type="text" placeholder="Nome do perfil">
+    </div>
+    <div class="form-group">
+      <label>Escolher do pool de proxies</label>
+      <select id="ep-pool" onchange="onEditPoolPick()">
+        <option value="">— escolher do pool (com status) —</option>
+      </select>
+      <div class="form-hint">A lista mostra uso, ban rate e vagas de cada proxy. Selecionar daqui ignora o campo manual.</div>
+    </div>
+    <div class="form-group">
+      <label>Proxy manual</label>
+      <input id="ep-proxy" type="text" placeholder="http://usuario:senha@host:porta">
+      <div class="form-hint" id="ep-proxy-hint">Formato: protocolo://host:porta. Em branco remove o proxy.</div>
+    </div>
+    <div class="form-hint" style="margin-bottom:12px">O fingerprint (SO, tela, idioma) não muda — só nome e proxy são editáveis.</div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal('modal-edit-profile')">Cancelar</button>
+      <button class="btn btn-primary" onclick="submitEditProfile()">Salvar</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+const API = '';
+let currentLaunchId = null;
+let editProfileId = null;
+let pollInterval = null;
+
+// ── Helpers ──────────────────────────────────────────────
+async function api(method, path, body) {
+  const res = await fetch(API + path, {
+    method,
+    headers: body ? {'Content-Type': 'application/json'} : {},
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  if (res.status === 204) return null;
+  const text = await res.text();
+  let data = null;
+  if (text) {
+    try { data = JSON.parse(text); }
+    catch { data = { detail: text }; }
+  }
+  if (!res.ok) {
+    let detail = data?.detail ?? data?.error ?? `Erro HTTP ${res.status}`;
+    // HTTPException pode trazer um objeto {error, message, ...} no detail
+    if (detail && typeof detail === 'object') detail = detail.message || detail.error || JSON.stringify(detail);
+    throw new Error(typeof detail === 'string' ? detail : `Erro HTTP ${res.status}`);
+  }
+  return data;
+}
+
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, ch => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;',
+  }[ch]));
+}
+
+function toast(msg, type = 'success') {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = `show ${type}`;
+  clearTimeout(el._t);
+  el._t = setTimeout(() => el.className = '', 3000);
+}
+
+function parseProxy(str) {
+  if (!str.trim()) return null;
+  try {
+    const u = new URL(str.trim());
+    return {
+      protocol: u.protocol.replace(':', ''),
+      host: u.hostname,
+      port: parseInt(u.port),
+      username: u.username || null,
+      password: u.password || null,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function showPage(name) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  document.getElementById('page-' + name).classList.add('active');
+  document.querySelector(`[data-page-link="${name}"]`)?.classList.add('active');
+  if (name === 'profiles') loadProfiles();
+  if (name === 'create') fillCreatePool();
+  if (name === 'sessions') loadSessions();
+  if (name === 'diagnostics') loadDiagnostics();
+  if (name === 'instagram') igLoadProfiles();
+  if (name === 'accounts') loadAccountsPage();
+  if (name === 'emails') loadEmailsPage();
+  if (name === 'whatsapps') loadWhatsapps();
+  if (name === 'proxies') loadProxiesPage();
+  if (name === 'analytics') loadAnalytics();
+}
+
+function refreshAll() {
+  loadProfiles();
+  loadSessions();
+}
+
+// ── WhatsApps (cadastro manual + controle de uso) ─────────
+function _waEsc(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+async function loadWhatsapps() {
+  try {
+    const r = await api('GET', '/whatsapps');
+    const items = r.items || [];
+    const s = r.summary || { total: 0, free: 0, used: 0 };
+    document.getElementById('wa-total').textContent = s.total;
+    document.getElementById('wa-free').textContent = s.free;
+    document.getElementById('wa-used').textContent = s.used;
+    document.getElementById('wa-subtitle').textContent =
+      `${s.total} número(s) — ${s.free} livre(s), ${s.used} usado(s)`;
+    const body = document.getElementById('wa-body');
+    if (!items.length) {
+      body.innerHTML = '<tr><td colspan="5" style="color:var(--muted);text-align:center;padding:18px">Nenhum número cadastrado ainda.</td></tr>';
+      return;
+    }
+    body.innerHTML = items.map(w => {
+      const used = (w.status || 'free') === 'used';
+      const badge = used
+        ? '<span style="color:var(--muted)">● usado</span>'
+        : '<span style="color:var(--accent2)">● livre</span>';
+      const toggle = used
+        ? `<button class="btn btn-ghost btn-sm" onclick="setWhatsappStatus('${w.id}','free')">Marcar livre</button>`
+        : `<button class="btn btn-ghost btn-sm" onclick="setWhatsappStatus('${w.id}','used')">Marcar usado</button>`;
+      return `<tr>
+        <td style="font-family:monospace">${_waEsc(w.number)}</td>
+        <td>${badge}</td>
+        <td style="color:var(--muted)">${_waEsc(w.notes || '')}</td>
+        <td style="color:var(--muted)">${_waEsc(w.used_at || '')}</td>
+        <td style="white-space:nowrap">${toggle}
+          <button class="btn btn-ghost btn-sm" onclick="deleteWhatsapp('${w.id}')" title="Excluir">🗑</button></td>
+      </tr>`;
+    }).join('');
+  } catch (e) {
+    toast(e.message || 'Erro ao carregar WhatsApps', 'error');
+  }
+}
+
+async function addWhatsapps() {
+  const numbers = document.getElementById('wa-input').value.trim();
+  const notes = document.getElementById('wa-notes').value.trim();
+  if (!numbers) { toast('Informe pelo menos um número', 'error'); return; }
+  try {
+    const r = await api('POST', '/whatsapps', { numbers, notes });
+    document.getElementById('wa-input').value = '';
+    document.getElementById('wa-notes').value = '';
+    const dup = r.skipped_duplicates?.length ? ` (${r.skipped_duplicates.length} duplicado(s) ignorado(s))` : '';
+    document.getElementById('wa-add-status').textContent = `${r.added.length} adicionado(s)${dup}`;
+    toast(`${r.added.length} número(s) adicionado(s)${dup}`);
+    loadWhatsapps();
+  } catch (e) {
+    toast(e.message || 'Erro ao adicionar', 'error');
+  }
+}
+
+async function setWhatsappStatus(id, status) {
+  try {
+    await api('PATCH', `/whatsapps/${id}`, { status });
+    loadWhatsapps();
+  } catch (e) {
+    toast(e.message || 'Erro ao atualizar', 'error');
+  }
+}
+
+async function deleteWhatsapp(id) {
+  if (!confirm('Excluir este número?')) return;
+  try {
+    await api('DELETE', `/whatsapps/${id}`);
+    loadWhatsapps();
+  } catch (e) {
+    toast(e.message || 'Erro ao excluir', 'error');
+  }
+}
+
+// ── Profiles ─────────────────────────────────────────────
+function fmtElapsed(ts) {
+  if (!ts) return '';
+  // Os timestamps do backend são UTC ("YYYY-MM-DD HH:MM:SS"); marca como UTC (sufixo Z).
+  let iso = String(ts).replace(' ', 'T');
+  if (!/[zZ]|[+-]\d\d:?\d\d$/.test(iso)) iso += 'Z';
+  const t = new Date(iso);
+  if (isNaN(t.getTime())) return '';
+  let s = Math.max(0, Math.floor((Date.now() - t.getTime()) / 1000));
+  if (s < 60) return `${s}s`;
+  if (s < 3600) return `${Math.floor(s / 60)}min`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h${Math.floor((s % 3600) / 60)}min`;
+  return `${Math.floor(s / 86400)}d`;
+}
+
+function warmStatusHtml(p) {
+  const ps = p.pool_status;
+  if (ps === 'warming') {
+    const el = fmtElapsed(p.warm_started_at);
+    return `🔥 Aquecendo${el ? ` (há ${el})` : ''}`;
+  }
+  if (ps === 'ready') return '✅ Pronto (pool)';
+  if (ps === 'in_use') return '📤 Em uso (conta usando)';
+  if (p.warmup_count) {
+    const since = fmtElapsed(p.last_warmup_at);
+    return `🔥 Aquecido (${p.warmup_count}×${since ? `, há ${since}` : ''})`;
+  }
+  return '❄️ Não aquecido';
+}
+
+// Atualiza a aba Perfis periodicamente para o tempo decorrido / status ficarem vivos.
+setInterval(() => {
+  const pp = document.getElementById('page-profiles');
+  if (pp && pp.classList.contains('active')) loadProfiles();
+}, 15000);
+
+async function loadWarmPool() {
+  try {
+    const s = await api('GET', '/warm-pool/status');
+    document.getElementById('wp-ready').textContent = s.ready;
+    document.getElementById('wp-warming').textContent = s.warming;
+    document.getElementById('wp-inuse').textContent = s.in_use;
+    document.getElementById('wp-target').textContent = s.target;
+    document.getElementById('wp-info').textContent = s.enabled
+      ? (s.ready >= s.target ? 'pool completo ✓' : 'repondo perfis...')
+      : 'pool desativado';
+  } catch (e) { /* silencioso */ }
+}
+
+async function loadProfiles() {
+  loadWarmPool();
+  const [profiles, sessions] = await Promise.all([
+    api('GET', '/profiles'),
+    api('GET', '/sessions'),
+  ]);
+  const sessionMap = {};
+  sessions.forEach(s => sessionMap[s.profile_id] = s.status);
+
+  const sub = document.getElementById('profiles-subtitle');
+  sub.textContent = `${profiles.length} perfil(s) cadastrado(s)`;
+
+  document.getElementById('sessions-count').textContent =
+    sessions.length ? `${sessions.length} sessão(ões) ativa(s)` : '';
+
+  const grid = document.getElementById('profiles-grid');
+  if (!profiles.length) {
+    grid.innerHTML = `<div class="empty" style="grid-column:1/-1">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/></svg>
+      <p>Nenhum perfil criado</p>
+      <small>Clique em "Novo Perfil" para começar</small>
+    </div>`;
+    return;
+  }
+
+  grid.innerHTML = profiles.map(p => {
+    const status = sessionMap[p.id] || 'stopped';
+    const dotClass = status === 'running' ? 'dot-green' : status === 'starting' ? 'dot-yellow' : 'dot-gray';
+    const badgeClass = `badge-${status}`;
+    const fp = p.fingerprint;
+    const proxy = p.proxy ? `${p.proxy.host}:${p.proxy.port}` : 'Sem proxy';
+    const isRunning = status === 'running' || status === 'starting';
+    const safeId = escapeHtml(p.id);
+    const safeName = escapeHtml(p.name);
+    const risk = p.risk || { risk: 'desconhecido', score: '-' };
+    // Lock compartilhado: perfil em uso por OUTRA máquina (não pode abrir aqui)
+    const lock = p.lock || { in_use: false };
+    const lockedByOther = lock.in_use && !lock.is_self;
+    const lockRow = lockedByOther
+      ? `<div class="card-row" style="color:var(--danger,#ef4444)">⛔ Em uso por <span title="desde ${escapeHtml(lock.since||'')} UTC">${escapeHtml(lock.holder||'outro usuário')}</span></div>`
+      : '';
+    return `
+    <div class="card" id="card-${safeId}">
+      <div class="card-header">
+        <div>
+          <div class="card-name">${safeName}</div>
+          <div class="card-id">${p.id.substring(0,18)}…</div>
+        </div>
+        <span class="badge ${badgeClass}"><span class="dot ${dotClass}"></span> ${escapeHtml(status)}</span>
+      </div>
+      <div class="card-info">
+        <div class="card-row">OS: <span>${escapeHtml(fp.platform)}</span></div>
+        <div class="card-row">Idioma: <span>${escapeHtml(fp.language)}</span></div>
+        <div class="card-row">Timezone: <span>${escapeHtml(fp.timezone)}</span></div>
+        <div class="card-row">Tela: <span>${fp.screen.width}×${fp.screen.height}</span></div>
+        <div class="card-row">Proxy: <span>${escapeHtml(proxy)}</span></div>
+        <div class="card-row">Risco: <span>${escapeHtml(risk.risk)} (${escapeHtml(risk.score)})</span></div>
+        <div class="card-row">Status: <span>${warmStatusHtml(p)}</span></div>
+        ${lockRow}
+      </div>
+      <div class="card-actions">
+        ${isRunning
+          ? `<button class="btn btn-danger btn-sm" onclick="stopProfile('${p.id}')">■ Parar</button>`
+          : lockedByOther
+            ? `<button class="btn btn-sm" disabled title="Em uso por ${escapeHtml(lock.holder||'outro usuário')}" style="opacity:.5;cursor:not-allowed">🔒 Em uso</button>`
+            : `<button class="btn btn-success btn-sm" onclick="openLaunchModal('${p.id}')">▶ Abrir</button>`
+        }
+        <button class="btn btn-ghost btn-sm" ${lockedByOther ? 'disabled style="opacity:.5;cursor:not-allowed"' : ''} onclick="warmupProfile('${p.id}', this)">🔥 Aquecer</button>
+        <button class="btn btn-ghost btn-sm" onclick="openEditProfile('${p.id}')">✏ Editar</button>
+        <button class="btn btn-ghost btn-sm" onclick="deleteProfile('${p.id}', '${safeName}')">Remover</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function testProxy() {
+  const proxyText = document.getElementById('f-proxy').value.trim();
+  if (!proxyText) { toast('Informe um proxy para testar', 'error'); return; }
+  const proxy = parseProxy(proxyText);
+  if (!proxy || !proxy.host || !proxy.port) {
+    toast('Proxy invalido. Use protocolo://host:porta', 'error');
+    return;
+  }
+  try {
+    const result = await api('POST', '/tools/proxy-check', { proxy });
+    toast(result.ok ? 'Proxy respondeu' : `Proxy falhou: ${result.error}`, result.ok ? 'success' : 'error');
+  } catch(e) {
+    toast(e.message || 'Erro ao testar proxy', 'error');
+  }
+}
+
+async function createProfile() {
+  const name = document.getElementById('f-name').value.trim();
+  if (!name) { toast('Informe o nome do perfil', 'error'); return; }
+  const os = document.getElementById('f-os').value;
+  const poolKey = document.getElementById('cf-pool').value;
+  const proxyText = document.getElementById('f-proxy').value.trim();
+
+  const payload = { name, os };
+  if (poolKey) {
+    payload.proxy_pool_key = poolKey;
+  } else if (proxyText) {
+    const proxy = parseProxy(proxyText);
+    if (!proxy || !proxy.host || !proxy.port) {
+      toast('Proxy invalido. Use protocolo://host:porta', 'error');
+      return;
+    }
+    payload.proxy = proxy;
+  }
+
+  try {
+    await api('POST', '/profiles', payload);
+    toast(`Perfil "${name}" criado!`);
+    document.getElementById('f-name').value = '';
+    document.getElementById('f-proxy').value = '';
+    document.getElementById('cf-pool').value = '';
+    onCreatePoolPick();
+    showPage('profiles');
+  } catch(e) {
+    toast(e.message || 'Erro ao criar perfil', 'error');
+  }
+}
+
+async function createProfilesBulk() {
+  const text = document.getElementById('f-bulk').value.trim();
+  if (!text) { toast('Informe os perfis para criar em massa', 'error'); return; }
+  const os = document.getElementById('f-os').value;
+  const profiles = [];
+  for (const line of text.split(/\r?\n/)) {
+    const clean = line.trim();
+    if (!clean) continue;
+    const [namePart, proxyPart] = clean.split(';');
+    const name = (namePart || '').trim();
+    const proxyText = (proxyPart || '').trim();
+    if (!name) { toast('Existe uma linha sem nome de perfil', 'error'); return; }
+    const proxy = proxyText ? parseProxy(proxyText) : null;
+    if (proxyText && (!proxy || !proxy.host || !proxy.port)) {
+      toast(`Proxy invalido em: ${name}`, 'error');
+      return;
+    }
+    profiles.push({ name, os, proxy });
+  }
+  if (!profiles.length) { toast('Nenhum perfil valido encontrado', 'error'); return; }
+  try {
+    const result = await api('POST', '/profiles/bulk', { profiles });
+    toast(`${result.count} perfil(s) criado(s)`);
+    document.getElementById('f-bulk').value = '';
+    showPage('profiles');
+  } catch(e) {
+    toast(e.message || 'Erro ao criar perfis', 'error');
+  }
+}
+
+async function deleteProfile(id, name) {
+  if (!confirm(`Remover o perfil "${name}"?\n\nIsto também REMOVE a conta vinculada e os e-mails ligados a ele. Não afeta a conta no Instagram.`)) return;
+  try {
+    await api('DELETE', `/profiles/${encodeURIComponent(id)}`);
+    toast(`Perfil "${name}", conta e e-mails removidos`);
+    loadProfiles();
+  } catch (e) {
+    toast(e.message || 'Erro ao remover perfil', 'error');
+  }
+}
+
+// ── Editar perfil ─────────────────────────────────────────
+async function openEditProfile(id) {
+  editProfileId = id;
+  try {
+    const p = await api('GET', `/profiles/${encodeURIComponent(id)}`);
+    document.getElementById('ep-name').value = p.name || '';
+    const px = p.proxy;
+    let proxyStr = '';
+    if (px && px.host) {
+      const auth = px.username ? `${px.username}@` : '';
+      proxyStr = `${px.protocol || 'http'}://${auth}${px.host}:${px.port}`;
+    }
+    document.getElementById('ep-proxy').value = proxyStr;
+    document.getElementById('ep-proxy-hint').textContent = (px && px.has_password)
+      ? 'Este proxy tem senha salva. Deixe a senha fora da URL para mantê-la; para trocar use protocolo://usuario:senha@host:porta. Em branco remove o proxy.'
+      : 'Formato: protocolo://host:porta (ou protocolo://usuario:senha@host:porta). Em branco remove o proxy.';
+    // Popula a lista do pool com status (deixa "manter atual" como padrão)
+    await fillEditPool();
+    onEditPoolPick();
+    document.getElementById('modal-edit-profile').classList.add('open');
+  } catch (e) {
+    toast(e.message || 'Erro ao carregar perfil', 'error');
+  }
+}
+
+// Popula um <select> com os proxies do pool e seu status. Reutilizado na
+// edição e na criação de perfis.
+async function populatePoolSelect(selectId) {
+  const sel = document.getElementById(selectId);
+  if (!sel) return;
+  sel.innerHTML = '<option value="">— escolher do pool (com status) —</option>';
+  try {
+    const summary = await api('GET', '/proxies/pool');
+    (summary.items || []).forEach(it => {
+      const parts = [`usado ${it.used}×`];
+      if (it.ban_rate_pct != null) parts.push(`ban ${it.ban_rate_pct}%`);
+      if (it.recommended_remaining != null) parts.push(`${it.recommended_remaining} livre(s)`);
+      if (it.auth) parts.push('🔑');
+      if (it.blocked) parts.push('⛔ BLOQUEADO');
+      const o = document.createElement('option');
+      o.value = it.key;
+      o.textContent = `${it.key} — ${parts.join(' • ')}`;
+      sel.appendChild(o);
+    });
+    if (!(summary.items || []).length) {
+      const o = document.createElement('option');
+      o.value = ''; o.disabled = true;
+      o.textContent = 'Pool vazio — adicione proxies na aba Proxies';
+      sel.appendChild(o);
+    }
+  } catch (e) { /* pool indisponível — segue só com o campo manual */ }
+}
+
+// Desabilita o campo manual quando um proxy do pool é escolhido (pool tem prioridade).
+function _togglePoolManual(poolSelId, manualId) {
+  const poolKey = document.getElementById(poolSelId).value;
+  const manual = document.getElementById(manualId);
+  manual.disabled = !!poolKey;
+  manual.style.opacity = poolKey ? '.5' : '1';
+}
+
+const fillEditPool = () => populatePoolSelect('ep-pool');
+const onEditPoolPick = () => _togglePoolManual('ep-pool', 'ep-proxy');
+const fillCreatePool = () => populatePoolSelect('cf-pool');
+const onCreatePoolPick = () => _togglePoolManual('cf-pool', 'f-proxy');
+
+async function submitEditProfile() {
+  const id = editProfileId;
+  if (!id) return;
+  const name = document.getElementById('ep-name').value.trim();
+  const poolKey = document.getElementById('ep-pool').value;
+  const proxyText = document.getElementById('ep-proxy').value.trim();
+  if (!name) { toast('Informe o nome do perfil', 'error'); return; }
+  const payload = { name };
+  if (poolKey) {
+    payload.proxy_pool_key = poolKey;
+  } else if (!proxyText) {
+    payload.remove_proxy = true;
+  } else {
+    const proxy = parseProxy(proxyText);
+    if (!proxy || !proxy.host || !proxy.port) {
+      toast('Proxy inválido. Use protocolo://host:porta', 'error');
+      return;
+    }
+    payload.proxy = proxy;
+  }
+  try {
+    await api('PATCH', `/profiles/${encodeURIComponent(id)}`, payload);
+    toast('Perfil atualizado');
+    closeModal('modal-edit-profile');
+    editProfileId = null;
+    loadProfiles();
+  } catch (e) {
+    toast(e.message || 'Erro ao salvar', 'error');
+  }
+}
+
+// ── Launch ────────────────────────────────────────────────
+function openLaunchModal(id) {
+  currentLaunchId = id;
+  document.getElementById('modal-launch').classList.add('open');
+}
+
+function closeModal(id) {
+  if (id) { document.getElementById(id).classList.remove('open'); return; }
+  document.getElementById('modal-launch').classList.remove('open');
+  currentLaunchId = null;
+}
+
+async function confirmLaunch() {
+  const profileId = currentLaunchId;
+  const url = document.getElementById('m-url').value;
+  const headless = document.getElementById('m-headless').checked;
+  const mode = document.getElementById('m-mode').value;
+  if (!profileId) { toast('Perfil nao selecionado', 'error'); return; }
+  closeModal();
+  try {
+    await api('POST', `/profiles/${encodeURIComponent(profileId)}/launch`, { url, headless, mode });
+    toast('Browser iniciando...');
+    setTimeout(loadProfiles, 1500);
+  } catch(e) {
+    // 409 = perfil em uso por outra máquina (lock compartilhado)
+    toast(e.message || 'Erro ao iniciar browser', 'error');
+    loadProfiles();
+  }
+}
+
+async function stopProfile(id) {
+  await api('POST', `/profiles/${encodeURIComponent(id)}/stop`);
+  toast('Sessão encerrada');
+  loadProfiles();
+}
+
+async function warmupProfile(id, btn) {
+  const mins = prompt('Aquecer o perfil por quantos minutos?\n(em segundo plano: navega sites comuns acumulando cookies/histórico antes de usar no Instagram)', '10');
+  if (mins === null) return;
+  const minutes = parseFloat(mins) || 10;
+  if (btn) { btn.disabled = true; btn.textContent = '🔥 ...'; }
+  try {
+    await api('POST', `/profiles/${encodeURIComponent(id)}/warmup-profile`, { minutes, headless: true });
+    toast(`Aquecendo perfil por ~${minutes} min em segundo plano...`);
+  } catch (e) {
+    toast(e.message?.includes('already') ? 'O perfil já está aberto — feche antes de aquecer' : (e.message || 'Erro ao aquecer'), 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '🔥 Aquecer'; }
+  }
+}
+
+async function launchAll() {
+  const profiles = await api('GET', '/profiles');
+  if (!profiles.length) { toast('Nenhum perfil cadastrado', 'error'); return; }
+  const ids = profiles.map(p => p.id);
+    await api('POST', '/sessions/bulk-launch', { profile_ids: ids, url: 'https://abrahamjuliot.github.io/creepjs/', mode: 'manual' });
+  toast(`${ids.length} perfis iniciando...`);
+  setTimeout(loadProfiles, 1500);
+}
+
+// ── Sessions ──────────────────────────────────────────────
+async function loadSessions() {
+  const [sessions, profiles] = await Promise.all([
+    api('GET', '/sessions'),
+    api('GET', '/profiles'),
+  ]);
+  const nameMap = {};
+  profiles.forEach(p => nameMap[p.id] = p.name);
+
+  document.getElementById('sessions-subtitle').textContent =
+    `${sessions.length} sessão(ões) ativa(s)`;
+
+  const tbody = document.getElementById('sessions-body');
+  if (!sessions.length) {
+    tbody.innerHTML = `<tr><td colspan="4" style="text-align:center;color:var(--muted);padding:32px">Nenhuma sessão ativa</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = sessions.map(s => {
+    const dotClass = s.status === 'running' ? 'dot-green' : 'dot-yellow';
+    return `<tr>
+      <td><strong>${escapeHtml(nameMap[s.profile_id] || s.profile_id)}</strong></td>
+      <td><span class="dot ${dotClass}"></span> ${escapeHtml(s.status)}</td>
+      <td style="color:var(--muted);font-size:12px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(s.url || '-')}</td>
+      <td><button class="btn btn-danger btn-sm" onclick="stopProfile('${s.profile_id}')">Parar</button></td>
+    </tr>`;
+  }).join('');
+}
+
+async function stopAll() {
+  const sessions = await api('GET', '/sessions');
+  await Promise.all(sessions.map(s => api('POST', `/profiles/${encodeURIComponent(s.profile_id)}/stop`)));
+  toast('Todas as sessões encerradas');
+  loadSessions();
+}
+
+// ── Init ──────────────────────────────────────────────────
+async function loadDiagnostics() {
+  const body = document.getElementById('diagnostics-body');
+  try {
+    const data = await api('GET', '/diagnostics');
+    const browser = data.browser || {};
+    document.getElementById('diagnostics-subtitle').textContent =
+      browser.available ? 'Navegador detectado' : 'Nenhum Chromium detectado';
+    const rows = [
+      ['Navegador', browser.available ? browser.name : 'Nao encontrado'],
+      ['Mimic', browser.is_mimic ? `Sim (${browser.version || 'versao desconhecida'})` : 'Nao'],
+      ['Caminho', browser.path || '-'],
+      ['Perfis', data.profile_count],
+      ['Sessoes ativas', data.active_sessions],
+      ['Diretorio de dados', data.app_dir],
+    ];
+    body.innerHTML = rows.map(([k, v]) => `<tr><th>${escapeHtml(k)}</th><td>${escapeHtml(v)}</td></tr>`).join('');
+  } catch(e) {
+    document.getElementById('diagnostics-subtitle').textContent = 'Erro ao carregar diagnostico';
+    body.innerHTML = `<tr><td style="color:var(--red);padding:18px">${escapeHtml(e.message)}</td></tr>`;
+  }
+}
+
+async function loadLogs(kind) {
+  const wrap = document.getElementById('diag-logs');
+  const title = document.getElementById('diag-logs-title');
+  const pre = document.getElementById('diag-logs-content');
+  wrap.style.display = 'block';
+  title.textContent = kind === 'app' ? 'Log completo (recente)' : 'Logs de erro (recente)';
+  pre.textContent = 'Carregando...';
+  try {
+    const data = await api('GET', `/logs?kind=${kind}&lines=300`);
+    pre.textContent = (data.content && data.content.trim())
+      ? data.content
+      : 'Nenhum registro ainda — nada de errado por aqui. 🎉';
+    pre.scrollTop = pre.scrollHeight;
+  } catch (e) {
+    pre.textContent = e.message || 'Erro ao carregar os logs';
+  }
+}
+
+// ── Instagram ─────────────────────────────────────────────
+const IG_STEP_LABELS = {
+  navigating:             '🌐 Abrindo Instagram...',
+  filling_form:           '✍️  Preenchendo formulário...',
+  submitting:             '📤 Enviando cadastro...',
+  birthday:               '🎂 Preenchendo data de nascimento...',
+  buying_number:          '📱 Comprando número WhatsApp...',
+  phone_acquired:         '✅ Número adquirido, aguardando envio...',
+  waiting_whatsapp_code:  '⏳ Aguardando código WhatsApp...',
+  filling_code:           '🔑 Preenchendo código...',
+  verification:           '📲 Aguardando verificação manual no browser...',
+  completed:              '🎉 Conta criada com sucesso!',
+  warmup:                 '🔥 Aquecendo conta...',
+  done:                   '✅ Aquecimento concluído!',
+};
+
+const IG_STATUS_COLORS = {
+  starting:                   'var(--yellow)',
+  waiting_for_verification:   'var(--yellow)',
+  created:                    'var(--green)',
+  ready:                      'var(--green)',
+  error:                      'var(--red)',
+  cancelled:                  'var(--muted)',
+};
+
+let igPollTimer = null;
+let igActiveProfileId = null;
+let currentProxyMethod = 'inteligente';
+
+let igProfilesCache = [];
+async function igLoadProfiles() {
+  const profiles = await api('GET', '/profiles');
+  igProfilesCache = profiles;
+  const opts = profiles.map(p => {
+    const warm = p.warmup_count ? ' 🔥' : ' ❄️';
+    return `<option value="${escapeHtml(p.id)}">${escapeHtml(p.name)}${p.proxy ? ' ✓proxy' : ' ⚠️sem proxy'}${warm}</option>`;
+  }).join('');
+  const empty = '<option value="">— selecione um perfil —</option>';
+  document.getElementById('ig-profile-id').innerHTML = empty + opts;
+  document.getElementById('ig-warmup-profile').innerHTML = empty + opts;
+
+  // Inicializa o método a partir do rádio marcado no HTML (se ainda não definido pelo usuário)
+  if (!window._proxyMethodInitialized) {
+    const checkedRadio = document.querySelector('input[name="proxy-method"]:checked');
+    if (checkedRadio) currentProxyMethod = checkedRadio.value;
+    window._proxyMethodInitialized = true;
+  }
+
+  // Atualiza a capacidade (não força o método - respeita escolha do usuário)
+  loadIgProxyCapacity();
+  syncProxyMethodRadios();
+}
+
+// Também atualiza capacidade quando a página de proxies é carregada por outros caminhos
+function refreshIgCapacityIfOpen() {
+  const cap = document.getElementById('ig-proxy-cap');
+  if (cap && document.getElementById('page-instagram')?.classList.contains('active')) {
+    loadIgProxyCapacity();
+  }
+}
+
+async function loadIgProxyCapacity() {
+  const capEl = document.getElementById('ig-proxy-cap');
+  if (!capEl) return;
+
+  const method = currentProxyMethod || 'inteligente';
+
+  if (method === 'local') {
+    capEl.innerHTML = `
+      <b>Conexão local selecionada</b><br>
+      <span style="font-size:11px;color:var(--muted)">O pool de proxies será ignorado; o navegador usará a internet atual do PC/celular.</span>
+    `;
+    return;
+  }
+
+  try {
+    const [pool, recs] = await Promise.all([
+      api('GET', '/proxies/pool'),
+      api('GET', '/analytics/proxy-recommendations').catch(() => [])
+    ]);
+
+    const count = pool.count || 0;
+    const globalLimit = pool.limit || 0;
+
+    let displayText = '';
+
+    if (method === 'inteligente') {
+      if (recs && recs.length > 0) {
+        const totalRec = recs.reduce((s, r) => s + (r.remaining_recommended || 0), 0);
+        displayText = `
+          <b>${count}</b> proxies ativos<br>
+          <span style="color:var(--accent2);font-weight:600">Proxy Inteligente: ~${totalRec || 0} contas novas estimadas</span><br>
+          <span style="font-size:11px;color:var(--muted)">Cada proxy tem seu limite calculado pelo ban rate real (Métricas). Proxies bons são priorizados.</span>
+        `;
+      } else {
+        displayText = `<b>${count}</b> proxies • Proxy Inteligente (carregando dados de ban rate)`;
+      }
+    } else {
+      // Fixed mode: prefer local input if user changed it
+      const localLimitInput = document.getElementById('ig-fixed-limit');
+      const effectiveLimit = (localLimitInput && parseInt(localLimitInput.value) >= 0) 
+        ? parseInt(localLimitInput.value) 
+        : (globalLimit || 3);
+
+      const items = pool.items || [];
+      let availableProxies = 0;
+      let maxNewAccounts = 0;
+
+      items.forEach(item => {
+        const used = item.used || 0;
+        if (effectiveLimit <= 0 || used < effectiveLimit) {
+          availableProxies++;
+          const room = effectiveLimit > 0 ? (effectiveLimit - used) : 999;
+          maxNewAccounts += room;
+        }
+      });
+
+      if (effectiveLimit <= 0) maxNewAccounts = 999; // unlimited
+
+      displayText = `
+        <b>${count}</b> proxies ativos &nbsp;•&nbsp; ${availableProxies} disponíveis<br>
+        <span style="color:var(--accent2);font-weight:600">Com ${effectiveLimit} contas/proxy → até ~${maxNewAccounts} contas novas</span><br>
+        <span style="font-size:11px;color:var(--muted)">Mude o número acima para ver quantas contas serão criadas.</span>
+      `;
+
+      // Auto-suggest the max number of accounts that will be created when changing "contas por proxy"
+      const qtyInput = document.getElementById('ig-bulk-qty');
+      if (qtyInput && !qtyInput._userManuallyEdited) {
+        qtyInput.value = maxNewAccounts > 0 ? maxNewAccounts : 1;
+      }
+    }
+
+    capEl.innerHTML = displayText;
+  } catch (e) {
+    capEl.innerHTML = 'Erro ao carregar capacidade.<br><span style="font-size:11px">Confira a aba Métricas.</span>';
+  }
+}
+
+function onProxyMethodChange() {
+  const radios = document.querySelectorAll('input[name="proxy-method"]');
+  for (const r of radios) {
+    if (r.checked) currentProxyMethod = r.value;
+  }
+
+  const fixedRow = document.getElementById('ig-fixed-limit-row');
+  const fixedInput = document.getElementById('ig-fixed-limit');
+
+  if (currentProxyMethod === 'fixo') {
+    if (fixedRow) fixedRow.style.display = 'block';
+    // Load current global limit into the local input the first time in this mode
+    if (fixedInput && !fixedInput._userTouched) {
+      // Try to get from last known limits (or default 3)
+      fetchLimitsForFixed().then(lim => {
+        if (fixedInput && !fixedInput._userTouched) fixedInput.value = lim || 3;
+      });
+    }
+  } else {
+    if (fixedRow) fixedRow.style.display = 'none';
+  }
+
+  loadIgProxyCapacity();
+}
+
+async function fetchLimitsForFixed() {
+  try {
+    const lims = await api('GET', '/limits');
+    return lims.proxy_limit || 3;
+  } catch {
+    return 3;
+  }
+}
+
+function syncProxyMethodRadios() {
+  const radios = document.querySelectorAll('input[name="proxy-method"]');
+  for (const r of radios) {
+    r.checked = (r.value === currentProxyMethod);
+  }
+}
+
+
+
+async function createSpecificNumber() {
+  const qty = parseInt(document.getElementById('ig-bulk-qty').value) || 0;
+  const method = currentProxyMethod;
+  if (!qty || qty < 1) { toast('Informe uma quantidade válida', 'error'); return; }
+
+  const useLocalConn = method === 'local';
+  const methodLabel = useLocalConn ? 'Conexão local (sem proxy)'
+                    : (method === 'inteligente' ? 'Proxy Inteligente' : 'Proxy Fixo');
+
+  // Ajusta o limite por proxy conforme o método (inteligente = recomendações por ban rate)
+  try {
+    const cur = await api('GET', '/limits');
+    let proxyLimit = 0;
+    if (method === 'fixo') {
+      const fx = document.getElementById('ig-fixed-limit');
+      proxyLimit = fx ? parseInt(fx.value) : cur.proxy_limit;
+    }
+    await api('POST', '/limits', { proxy_limit: proxyLimit, whatsapp_limit: cur.whatsapp_limit || 1 });
+  } catch (e) { /* segue com o limite atual */ }
+
+  // SMS é opcional — reaproveita os campos da criação manual, se preenchidos
+  const smsKey = (document.getElementById('ig-smskey')?.value || '').trim() || null;
+  const smsCountry = parseInt(document.getElementById('ig-country')?.value) || 73;
+  const warmMin = Math.max(0, parseFloat(document.getElementById('ig-bulk-warm')?.value) || 0);
+  const acctWarmMin = Math.max(0, parseFloat(document.getElementById('ig-bulk-acctwarm')?.value) || 0);
+
+  const passos = ['perfil', 'e-mail'];
+  if (warmMin > 0) passos.push(`aquecer navegador ${warmMin}min`);
+  passos.push('criar conta');
+  if (acctWarmMin > 0) passos.push(`aquecer conta ${acctWarmMin}min`);
+  if (!confirm(`Criar ${qty} conta(s) DO ZERO usando ${methodLabel}?\n\n` +
+               `Por conta, em sequência: ${passos.join(' → ')}.`)) return;
+
+  try {
+    const r = await api('POST', '/instagram/create-batch', {
+      count: qty, use_proxy_pool: !useLocalConn, os: 'random',
+      sms_activate_key: smsKey, sms_country: smsCountry, delay_seconds: 90,
+      warmup_minutes: warmMin, account_warmup_minutes: acctWarmMin,
+    });
+    let msg = `Criando ${r.count} conta(s) no modo ${methodLabel} (perfil + e-mail gerados automaticamente).`;
+    if (r.warning) msg += ' ' + r.warning;
+    toast(msg);
+    if (r.job_id) startIgBatchPolling(r.job_id);
+  } catch (e) {
+    toast(e.message || 'Erro ao iniciar', 'error');
+  }
+}
+
+// ── Acompanhamento da criação em lote (progresso + ETA) ──────────────────────
+let igBatchTimer = null;
+
+function _fmtDur(s) {
+  s = Math.max(0, Math.round(s || 0));
+  const m = Math.floor(s / 60), ss = s % 60;
+  return m ? `${m}m ${String(ss).padStart(2, '0')}s` : `${ss}s`;
+}
+
+function startIgBatchPolling(jobId) {
+  if (igBatchTimer) clearInterval(igBatchTimer);
+  pollIgBatch(jobId);
+  igBatchTimer = setInterval(() => pollIgBatch(jobId), 2500);
+}
+
+async function pollIgBatch(jobId) {
+  try {
+    const j = await api('GET', `/instagram/batch/${jobId}`);
+    renderIgBatch(j);
+    if (j.status === 'completed') {
+      clearInterval(igBatchTimer); igBatchTimer = null;
+    }
+  } catch (e) {
+    clearInterval(igBatchTimer); igBatchTimer = null;
+  }
+}
+
+function renderIgBatch(j) {
+  const box = document.getElementById('ig-batch-progress');
+  if (!box) return;
+  box.style.display = 'block';
+  const pct = j.total ? Math.round(j.done / j.total * 100) : 0;
+  document.getElementById('ig-batch-bar').style.width = pct + '%';
+  const eta = j.status === 'completed'
+    ? '✓ concluído'
+    : j.status === 'stopped'
+      ? '⏹ parado'
+      : (j.eta_seconds != null ? `~${_fmtDur(j.eta_seconds)} restantes` : 'calculando...');
+  document.getElementById('ig-batch-eta').textContent = eta;
+  // Botão Parar só aparece enquanto o lote está rodando
+  const stopBtn = document.getElementById('ig-batch-stop');
+  if (stopBtn) stopBtn.style.display = (j.status === 'running') ? '' : 'none';
+  document.getElementById('ig-batch-summary').textContent =
+    `${j.done}/${j.total} processadas • ${j.created} criadas • ${j.errors} erro(s) • decorrido ${_fmtDur(j.elapsed_seconds)}`
+    + (j.current ? ` • atual: ${j.current}` : '');
+  const ICON = { pending: '•', creating: '⏳', done: '✓', error: '✗' };
+  const COLOR = { pending: 'var(--muted)', creating: 'var(--yellow,#eab308)', done: 'var(--green,#22c55e)', error: 'var(--danger,#ef4444)' };
+  document.getElementById('ig-batch-items').innerHTML = (j.items || []).map(it => {
+    const detail = it.detail ? ` — ${escapeHtml(it.detail)}` : '';
+    const user = it.username ? ` (@${escapeHtml(it.username)})` : '';
+    return `<div style="color:${COLOR[it.status] || 'var(--muted)'}">${ICON[it.status] || '•'} ${escapeHtml(it.email)}${user}${detail}</div>`;
+  }).join('');
+}
+
+async function createMass() {
+  const method = currentProxyMethod;
+  const methodLabel = method === 'local' ? 'Conexão local (sem proxy)'
+                    : (method === 'inteligente' ? 'Proxy Inteligente' : 'Proxy Fixo');
+
+  if (method === 'fixo') {
+    const fixedInput = document.getElementById('ig-fixed-limit');
+    const localLimit = fixedInput ? parseInt(fixedInput.value) : null;
+    if (localLimit != null && localLimit >= 0) {
+      try {
+        const currentLimits = await api('GET', '/limits');
+        await api('POST', '/limits', { 
+          proxy_limit: localLimit, 
+          whatsapp_limit: currentLimits.whatsapp_limit || 1 
+        });
+      } catch (e) { /* ignore */ }
+    }
+  }
+
+  if (!confirm(`Iniciar Criação em Massa usando ${methodLabel}?`)) return;
+
+  try {
+    await api('POST', '/email/create-accounts-free', { delay_seconds: 90 });
+    toast(`Criação em Massa iniciada no modo ${methodLabel}.`);
+    setTimeout(() => showPage('emails'), 900);
+  } catch (e) {
+    toast(e.message || 'Erro', 'error');
+  }
+}
+
+function igRenderStatus(s) {
+  if (!s) return;
+  const color = IG_STATUS_COLORS[s.status] || 'var(--accent2)';
+  const stepLabel = IG_STEP_LABELS[s.step] || s.step || '';
+  const rows = [
+    ['Status',   `<span style="color:${color};font-weight:600">${escapeHtml(s.status)}</span>`],
+    ['Etapa',    escapeHtml(stepLabel)],
+    ['Username', escapeHtml(s.username || '—')],
+    ['Email',    escapeHtml(s.email || '—')],
+    s.phone ? ['Número WA', escapeHtml(s.phone)] : null,
+    s.code  ? ['Código',    `<strong style="color:var(--green)">${escapeHtml(s.code)}</strong>`] : null,
+    s.error ? ['Erro',      `<span style="color:var(--red)">${escapeHtml(s.error)}</span>`] : null,
+  ].filter(Boolean);
+
+  document.getElementById('ig-status-box').innerHTML = `
+    <table style="width:100%">
+      ${rows.map(([k,v]) => `<tr><th style="width:110px">${escapeHtml(k)}</th><td>${v}</td></tr>`).join('')}
+    </table>
+    ${s.status === 'waiting_for_verification'
+      ? `<div style="padding:12px 16px;background:#1a1d27;border-top:1px solid var(--border);font-size:12px;color:var(--yellow)">
+           ⚠️ O Instagram está pedindo verificação. Verifique o browser aberto e insira o código recebido no WhatsApp.
+         </div>` : ''}
+    ${s.status === 'created' || s.status === 'ready'
+      ? `<div style="padding:12px 16px;border-top:1px solid var(--border)">
+           <button class="btn btn-success btn-sm" onclick="igWarmupActive()">🔥 Aquecer conta agora</button>
+         </div>` : ''}
+  `;
+}
+
+async function igPoll(profileId) {
+  try {
+    const s = await api('GET', `/instagram/status/${encodeURIComponent(profileId)}`);
+    igRenderStatus(s);
+    const done = ['created','ready','error','cancelled','warmup_error','warmup_cancelled'].includes(s.status);
+    if (done) {
+      clearInterval(igPollTimer);
+      igPollTimer = null;
+    }
+  } catch(e) { /* perfil sem fluxo ainda */ }
+}
+
+function onIgAutoEmail() {
+  const auto = document.getElementById('ig-auto-email').checked;
+  const email = document.getElementById('ig-email');
+  email.disabled = auto;
+  email.style.opacity = auto ? '.5' : '1';
+  email.placeholder = auto ? 'gerado automaticamente (catch-all)' : 'conta@seudominio.com';
+}
+
+async function stopAccountCreations() {
+  const btn = document.getElementById('ig-batch-stop');
+  if (btn) { btn.disabled = true; btn.textContent = '⏹ Parando...'; }
+  try {
+    await api('POST', '/creations/stop', {});
+    toast('Parando as criações e fechando os navegadores...');
+    // Para o acompanhamento e marca o painel como parado
+    if (igBatchTimer) { clearInterval(igBatchTimer); igBatchTimer = null; }
+    const eta = document.getElementById('ig-batch-eta');
+    if (eta) eta.textContent = '⏹ parado';
+    if (typeof igLoadProfiles === 'function') igLoadProfiles();
+  } catch (e) {
+    toast('Erro ao solicitar parada: ' + (e.message || e), 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '⏹ Parar'; }
+  }
+}
+
+async function igCreate() {
+  const profileId = document.getElementById('ig-profile-id').value;
+  const autoEmail = document.getElementById('ig-auto-email').checked;
+  const email     = document.getElementById('ig-email').value.trim();
+  const password  = document.getElementById('ig-password').value.trim();
+  const fullName  = document.getElementById('ig-fullname').value.trim();
+  const username  = document.getElementById('ig-username').value.trim() || null;
+  const smsKey    = document.getElementById('ig-smskey').value.trim() || null;
+  const country   = parseInt(document.getElementById('ig-country').value);
+
+  // Data de nascimento (opcional): só envia se os 3 campos estiverem preenchidos
+  const bdDay   = parseInt(document.getElementById('ig-bd-day').value);
+  const bdMonth = parseInt(document.getElementById('ig-bd-month').value);
+  const bdYear  = parseInt(document.getElementById('ig-bd-year').value);
+  const bdFilled = [bdDay, bdMonth, bdYear].filter(v => !isNaN(v)).length;
+  let birthday = null;
+  if (bdFilled > 0 && bdFilled < 3) {
+    toast('Preencha dia, mês e ano da data de nascimento — ou deixe os três em branco', 'error');
+    return;
+  }
+  if (bdFilled === 3) birthday = { day: bdDay, month: bdMonth, year: bdYear };
+
+  if (!profileId) { toast('Selecione um perfil', 'error'); return; }
+  if (!email && !autoEmail) { toast('Informe o email ou marque "gerar automaticamente"', 'error'); return; }
+  if (!password)  { toast('Informe a senha', 'error'); return; }
+  if (!fullName)  { toast('Informe o nome completo', 'error'); return; }
+
+  // Guard: navegador deve estar aquecido ANTES de criar a conta
+  const p = igProfilesCache.find(x => x.id === profileId);
+  if (p && !p.warmup_count) {
+    if (!confirm('⚠ O navegador deste perfil ainda NÃO foi aquecido.\n\n' +
+                 'O recomendado é aquecer o navegador primeiro (aba Perfis → 🔥 Aquecer) ' +
+                 'para o IG não ver um navegador "zero km" na criação.\n\n' +
+                 'Criar a conta mesmo assim?')) return;
+  }
+
+  try {
+    const r = await api('POST', '/instagram/create-account', {
+      profile_id: profileId, email, auto_email: autoEmail, password,
+      full_name: fullName, username, birthday,
+      sms_activate_key: smsKey, sms_country: country,
+    });
+    igActiveProfileId = profileId;
+    toast(r?.email && autoEmail ? `Fluxo iniciado! E-mail gerado: ${r.email}` : 'Fluxo iniciado!');
+    document.getElementById('ig-status-box').innerHTML =
+      '<div style="padding:24px;text-align:center;color:var(--yellow)">⏳ Iniciando...</div>';
+    clearInterval(igPollTimer);
+    igPollTimer = setInterval(() => igPoll(profileId), 2500);
+  } catch(e) {
+    toast(e.message || 'Erro ao iniciar', 'error');
+  }
+}
+
+async function igWarmup() {
+  const profileId = document.getElementById('ig-warmup-profile').value;
+  const minutes   = parseInt(document.getElementById('ig-warmup-min').value) || 8;
+  if (!profileId) { toast('Selecione um perfil', 'error'); return; }
+  try {
+    await api('POST', `/instagram/warmup/${encodeURIComponent(profileId)}`,
+              { profile_id: profileId, minutes });
+    toast(`Aquecimento iniciado (${minutes} min)`);
+    igActiveProfileId = profileId;
+    clearInterval(igPollTimer);
+    igPollTimer = setInterval(() => igPoll(profileId), 3000);
+  } catch(e) {
+    toast(e.message || 'Erro ao iniciar aquecimento', 'error');
+  }
+}
+
+async function igWarmupActive() {
+  if (!igActiveProfileId) return;
+  document.getElementById('ig-warmup-profile').value = igActiveProfileId;
+  await igWarmup();
+}
+
+async function checkSmsBalance() {
+  const key = document.getElementById('ig-smskey').value.trim();
+  if (!key) { toast('Informe a chave API do sms-activate', 'error'); return; }
+  try {
+    const r = await api('GET', `/sms-activate/balance?api_key=${encodeURIComponent(key)}`);
+    document.getElementById('ig-balance').textContent = `$${r.balance.toFixed(2)}`;
+    document.getElementById('ig-balance-row').style.display = 'flex';
+    toast(`Saldo: $${r.balance.toFixed(2)}`);
+  } catch(e) {
+    toast(e.message || 'Erro ao verificar saldo', 'error');
+  }
+}
+
+// ── Contas (monitoração) ─────────────────────────────────
+const ACCOUNT_LABELS = {
+  active: 'Ativa', created: 'Criada', creating: 'Criando',
+  waiting_verification: 'Verificação', checkpoint: 'Checkpoint',
+  login_required: 'Sessão expirada', banned: 'Banida',
+  suspended: 'Suspensa', unknown: 'Desconhecido', error: 'Erro',
+};
+function statusBadge(status) {
+  const label = ACCOUNT_LABELS[status] || status || '—';
+  return `<span class="badge badge-${escapeHtml(status || 'unknown')}">${escapeHtml(label)}</span>`;
+}
+function proxyShort(p) {
+  if (!p || !p.host) return '<span style="color:var(--muted)">sem proxy</span>';
+  return escapeHtml(`${p.host}:${p.port}`);
+}
+
+let _accountsCache = [];
+async function loadAccountsPage() {
+  try {
+    const [list, proxyUsage, wppUsage, limits] = await Promise.all([
+      api('GET', '/accounts'),
+      api('GET', '/proxies/usage'),
+      api('GET', '/whatsapp/usage'),
+      api('GET', '/limits'),
+    ]);
+    _accountsCache = list;
+    renderAccounts(list);
+    renderProxyUsage(proxyUsage);
+    renderWhatsappUsage(wppUsage);
+    // Não sobrescreve os campos de limite se o usuário estiver editando
+    const af = document.activeElement?.id;
+    if (af !== 'lim-proxy')    document.getElementById('lim-proxy').value = limits.proxy_limit;
+    if (af !== 'lim-whatsapp') document.getElementById('lim-whatsapp').value = limits.whatsapp_limit;
+    const cEl = document.getElementById('lim-country');
+    if (cEl && af !== 'lim-country') cEl.value = limits.target_country || '';
+  } catch (e) {
+    toast(e.message || 'Erro ao carregar contas', 'error');
+  }
+}
+
+async function testProxies(force) {
+  const sub = document.getElementById('proxies-subtitle');
+  const prev = sub.textContent;
+  sub.textContent = 'Testando conectividade dos proxies...';
+  try {
+    await api('GET', `/proxies/test${force ? '?force=true' : ''}`);
+  } catch (e) {
+    sub.textContent = prev;
+    toast(e.message || 'Erro ao testar conectividade', 'error');
+    return;
+  }
+  loadProxiesPage();
+}
+
+async function loadProxiesPage() {
+  try {
+    const [pool, analytics, test] = await Promise.all([
+      api('GET', '/proxies/pool'),
+      api('GET', '/analytics/bans').catch(() => ({ by_proxy: [] })),
+      api('GET', '/proxies/test').catch(() => ({ results: [], tested_at: null, ok: 0, down: 0, total: 0 })),
+    ]);
+
+    // Enrich pool items with ban rate from analytics
+    const banMap = {};
+    if (analytics.by_proxy) {
+      analytics.by_proxy.forEach(bp => {
+        banMap[bp.proxy_key] = bp.ban_rate_pct;
+      });
+    }
+    pool.items.forEach(item => {
+      item.ban_rate_pct = banMap[item.key] ?? banMap[item.proxy_key] ?? null;
+    });
+
+    // Mapa de conectividade (key -> {ok, ms, error})
+    const connMap = {};
+    (test.results || []).forEach(r => { connMap[r.key] = r; });
+
+    const sub = document.getElementById('proxies-subtitle');
+    const isUnlimited = !pool.limit || pool.limit <= 0;
+    const free = (pool.free_slots != null) ? pool.free_slots : (isUnlimited ? '∞' : '0');
+    const limitText = isUnlimited ? 'sem limite' : `${pool.limit} contas/proxy`;
+    let connTxt = '';
+    if (test.total) {
+      const quando = test.tested_at ? new Date(test.tested_at * 1000).toLocaleTimeString() : '';
+      connTxt = ` • 📶 ${test.ok} online / ${test.down} offline${quando ? ' (' + quando + ')' : ''}`;
+    }
+    sub.textContent = `${pool.count} proxy(s) ativos • ${limitText} • ~${free} contas que ainda podem ser criadas${connTxt}`;
+
+    const body = document.getElementById('proxies-body');
+    if (!pool.items || pool.items.length === 0) {
+      body.innerHTML = `<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:24px">
+        Nenhum proxy encontrado. Adicione proxies no pool (aba Criar Contas → ou arquivos na pasta <code>proxys/</code>).</td></tr>`;
+      return;
+    }
+
+    body.innerHTML = pool.items.map(p => {
+      const key = escapeHtml(p.key || (p.host + ':' + p.port));
+      const proto = escapeHtml(p.protocol || 'http');
+      const auth = p.auth ? '<span style="color:var(--green)">Sim</span>' : '<span style="color:var(--muted)">Não</span>';
+      const used = p.used || 0;
+
+      let remainingText;
+      if (p.recommended_remaining != null) {
+        remainingText = p.recommended_remaining;
+      } else if (pool.limit && pool.limit > 0) {
+        remainingText = Math.max(0, pool.limit - used);
+      } else {
+        remainingText = '∞ (sem limite)';
+      }
+
+      const status = p.blocked
+        ? '<span class="badge badge-banned">limite atingido</span>'
+        : '<span class="badge badge-active">disponível</span>';
+      const banInfo = p.ban_rate_pct != null
+        ? ` • Ban rate: <span style="color:${p.ban_rate_pct > 30 ? 'var(--red)' : p.ban_rate_pct > 15 ? 'var(--yellow)' : 'var(--green)'}">${p.ban_rate_pct}%</span>`
+        : '';
+
+      // Conectividade (do teste de proxies)
+      const c = connMap[p.key];
+      let conn;
+      if (!c) {
+        conn = '<span style="color:var(--muted)">— não testado</span>';
+      } else if (c.ok) {
+        conn = `<span style="color:var(--green)">● online</span> <span style="color:var(--muted)">${c.ms}ms</span>`;
+      } else {
+        conn = `<span style="color:var(--red)" title="${escapeHtml(c.error || '')}">● offline</span>`;
+      }
+
+      return `
+        <tr>
+          <td><code>${key}</code></td>
+          <td>${conn}</td>
+          <td>${proto.toUpperCase()}</td>
+          <td>${auth}</td>
+          <td>${used}</td>
+          <td><b>${remainingText}</b>${banInfo}</td>
+          <td>${status}</td>
+        </tr>`;
+    }).join('');
+  } catch (e) {
+    const body = document.getElementById('proxies-body');
+    if (body) body.innerHTML = `<tr><td colspan="7" style="color:var(--red)">Erro ao carregar proxies: ${escapeHtml(e.message)}</td></tr>`;
+    toast(e.message || 'Erro ao carregar proxies', 'error');
+  }
+}
+
+async function loadAnalytics() {
+  try {
+    const data = await api('GET', '/analytics/bans');
+
+    document.getElementById('an-total').textContent = data.total_accounts ?? '—';
+    document.getElementById('an-ban-rate').textContent = (data.ban_rate_pct != null) ? `${data.ban_rate_pct}%` : '—';
+    document.getElementById('an-avg-life').textContent = (data.average_lifespan_days != null) ? data.average_lifespan_days : '—';
+
+    const breakdown = `${data.active ?? 0} ativas • ${data.banned ?? 0} banidas • ${data.suspended ?? 0} suspensas`;
+    document.getElementById('an-breakdown').textContent = breakdown;
+
+    const tbody = document.getElementById('an-proxy-body');
+    if (!data.by_proxy || data.by_proxy.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="5" style="text-align:center;color:var(--muted)">Sem dados de proxy ainda.</td></tr>`;
+      return;
+    }
+
+    tbody.innerHTML = data.by_proxy.map(p => {
+      const rateColor = (p.ban_rate_pct || 0) > 30 ? 'var(--red)' : (p.ban_rate_pct || 0) > 15 ? 'var(--yellow)' : 'var(--green)';
+      return `<tr>
+        <td><code>${escapeHtml(p.proxy_key)}</code></td>
+        <td>${p.total_accounts}</td>
+        <td>${p.banned}</td>
+        <td>${p.suspended}</td>
+        <td style="color:${rateColor};font-weight:600">${p.ban_rate_pct}%</td>
+      </tr>`;
+    }).join('');
+  } catch (e) {
+    toast(e.message || 'Erro ao carregar métricas', 'error');
+  }
+}
+
+function renderAccounts(list) {
+  const sub = document.getElementById('accounts-subtitle');
+  sub.textContent = `${list.length} conta(s) registrada(s)`;
+  const body = document.getElementById('accounts-body');
+  if (!list.length) {
+    body.innerHTML = `<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:30px">
+      Nenhuma conta ainda. Crie uma conta na aba Instagram.</td></tr>`;
+    return;
+  }
+  body.innerHTML = list.map(a => {
+    const ls = a.lifespan?.label || '—';
+    const px = a.proxy_usage;
+    const pxBadge = px?.blocked ? ' <span class="badge badge-banned" style="font-size:9px">limite</span>' : '';
+    const wpp = a.whatsapp_number
+      ? escapeHtml(a.whatsapp_number)
+      : '<span style="color:var(--muted)">—</span>';
+    const checked = a.last_checked_at
+      ? escapeHtml(a.last_checked_at.replace('T', ' '))
+      : '<span style="color:var(--muted)">nunca</span>';
+    // Aquecimento do NAVEGADOR (perfil) e da CONTA (atividade IG) — distintos
+    const profWarm = a.profile_warmed
+      ? `<span class="badge badge-active" style="font-size:9px">🌐 navegador ✓${a.profile_warmup_count > 1 ? ' ×' + a.profile_warmup_count : ''}</span>`
+      : `<span class="badge badge-creating" style="font-size:9px">🌐 navegador frio</span>`;
+    const warming = a.warming && a.warming.active;
+    const acctWarm = warming
+      ? `<span class="badge badge-checkpoint" style="font-size:9px">🔥 aquecendo ${fmtCountdown(a.warming.remaining_seconds)}</span>`
+      : (a.account_warmed
+          ? `<span class="badge badge-active" style="font-size:9px">📷 conta ✓${a.account_warmup_count > 1 ? ' ×' + a.account_warmup_count : ''}</span>`
+          : `<span class="badge badge-creating" style="font-size:9px">📷 conta fria</span>`);
+    const prof = a.profile_exists
+      ? `<div>${escapeHtml(a.profile_name || '—')}</div>
+         <div style="font-size:11px;color:var(--muted)">${escapeHtml(a.profile_device || '')}</div>
+         <div style="margin-top:3px">${profWarm}</div>`
+      : '<span style="color:var(--red);font-size:12px">perfil removido</span>';
+    return `<tr>
+      <td>
+        <div style="font-weight:600">${escapeHtml(a.username || '(sem username)')}</div>
+        <div style="font-size:11px;color:var(--muted)">${escapeHtml(a.email || '')}</div>
+        <div style="margin-top:3px">${acctWarm}</div>
+      </td>
+      <td>${prof}</td>
+      <td>${statusBadge(a.status)}</td>
+      <td>${escapeHtml(ls)}</td>
+      <td>${proxyShort(a.proxy)}${pxBadge}</td>
+      <td>${wpp}</td>
+      <td style="font-size:12px">${checked}</td>
+      <td style="white-space:nowrap">
+        ${a.profile_exists
+          ? `<button class="btn btn-primary btn-sm" onclick="openAccountProfile('${a.profile_id}', this)">Abrir</button>
+             <button class="btn btn-ghost btn-sm" onclick="warmAccount('${a.id}', this)" ${warming ? 'disabled' : ''}>${warming ? '🔥 …' : '🔥 Aquecer'}</button>`
+          : ''}
+        <button class="btn btn-ghost btn-sm" onclick="accountDetail('${a.id}')">Detalhes</button>
+        <button class="btn btn-success btn-sm" onclick="checkAccount('${a.id}', this)">Verificar</button>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+function renderProxyUsage(list) {
+  const body = document.getElementById('proxy-usage-body');
+  if (!list.length) {
+    body.innerHTML = `<tr><td colspan="4" style="text-align:center;color:var(--muted);padding:20px">Nenhum proxy usado.</td></tr>`;
+    return;
+  }
+  body.innerHTML = list.map(g => {
+    const limit = g.limit || 0;
+    const pct = limit > 0 ? Math.min(100, (g.count / limit) * 100) : 0;
+    const statuses = Object.entries(g.statuses || {})
+      .map(([s, n]) => `${statusBadge(s)} ${n}`).join(' ');
+    const limTxt = limit > 0 ? `${g.count}/${limit}` : `${g.count} (sem limite)`;
+    return `<tr>
+      <td>${escapeHtml(g.proxy_key || '(sem proxy)')}</td>
+      <td><div class="bar ${g.blocked ? 'full' : ''}"><i style="width:${pct}%"></i></div>
+          <span style="margin-left:8px">${limTxt}</span></td>
+      <td>${statuses || '—'}</td>
+      <td>${g.blocked ? '<span class="badge badge-banned">atingido</span>' : '<span style="color:var(--green)">ok</span>'}</td>
+    </tr>`;
+  }).join('');
+}
+
+function renderWhatsappUsage(list) {
+  const body = document.getElementById('whatsapp-usage-body');
+  if (!list.length) {
+    body.innerHTML = `<tr><td colspan="4" style="text-align:center;color:var(--muted);padding:20px">Nenhum número usado.</td></tr>`;
+    return;
+  }
+  body.innerHTML = list.map(g => {
+    const limit = g.limit || 0;
+    const limTxt = limit > 0 ? `${g.count}/${limit}` : `${g.count} (sem limite)`;
+    const accs = (g.accounts || []).map(x => escapeHtml(x.username || x.id.slice(0, 6))).join(', ');
+    return `<tr>
+      <td>${escapeHtml(g.number)}</td>
+      <td>${limTxt}</td>
+      <td style="font-size:12px">${accs}</td>
+      <td>${g.blocked ? '<span class="badge badge-banned">atingido</span>' : '<span style="color:var(--green)">ok</span>'}</td>
+    </tr>`;
+  }).join('');
+}
+
+function detailRow(k, v, copyable) {
+  const val = (v === null || v === undefined || v === '') ? '—' : v;
+  const copy = (copyable && val !== '—')
+    ? `<span class="copy" onclick="copyText('${String(v).replace(/'/g, "\\'")}')">copiar</span>` : '';
+  return `<div class="detail-row"><span class="k">${escapeHtml(k)}</span>
+          <span class="v">${escapeHtml(val)}${copy}</span></div>`;
+}
+
+async function accountDetail(id) {
+  let a;
+  try { a = await api('GET', '/accounts/' + id); }
+  catch (e) { toast(e.message, 'error'); return; }
+
+  const p = a.proxy;
+  let proxyStr = '—';
+  if (p && p.host) {
+    const auth = p.username ? `${p.username}:${p.password || ''}@` : '';
+    proxyStr = `${p.protocol || 'http'}://${auth}${p.host}:${p.port}`;
+  }
+  document.getElementById('ma-title').innerHTML =
+    `${escapeHtml(a.username || 'Conta')} ${statusBadge(a.status)}`;
+  document.getElementById('ma-body').innerHTML =
+    detailRow('Plataforma', a.platform) +
+    detailRow('Username', a.username, true) +
+    detailRow('Email', a.email, true) +
+    detailRow('Senha', a.password, true) +
+    detailRow('WhatsApp', a.whatsapp_number, true) +
+    detailRow('Proxy', proxyStr, true) +
+    detailRow('Uso do proxy', a.proxy_usage ? `${a.proxy_usage.used}/${a.proxy_usage.limit || '∞'}` : '—') +
+    detailRow('Vida útil', a.lifespan?.label) +
+    detailRow('Status detalhe', a.status_detail) +
+    detailRow('Criada em', a.created_at ? a.created_at.replace('T', ' ') : null) +
+    detailRow('Banida em', a.banned_at ? a.banned_at.replace('T', ' ') : null) +
+    detailRow('Última verificação', a.last_checked_at ? a.last_checked_at.replace('T', ' ') : null) +
+    detailRow('Resultado', a.last_check_result) +
+    detailRow('Perfil', a.profile_exists
+      ? `${a.profile_name || '—'} (${a.profile_device || 'Desktop'})`
+      : 'perfil removido') +
+    detailRow('Navegador aquecido', a.profile_exists
+      ? (a.profile_warmed
+          ? `Sim (${a.profile_warmup_count}×` + (a.profile_last_warmup ? `, último ${a.profile_last_warmup.replace('T',' ')}` : '') + ')'
+          : 'Não — aqueça o perfil antes de usar')
+      : '—') +
+    detailRow('Conta aquecida (IG)', a.account_warmed
+      ? `Sim (${a.account_warmup_count}×` + (a.last_warmup_at ? `, último ${a.last_warmup_at.replace('T',' ')}` : '') + ')'
+      : 'Não — rode o aquecimento de conta') +
+    detailRow('ID do perfil', a.profile_id, true);
+
+  document.getElementById('ma-check').onclick = () => checkAccount(id);
+  document.getElementById('ma-delete').onclick = () => deleteAccount(id);
+  document.getElementById('ma-edit').onclick = () => editAccount(id);
+  const openBtn = document.getElementById('ma-open');
+  const warmBtn = document.getElementById('ma-warm');
+  if (a.profile_exists) {
+    openBtn.style.display = '';
+    openBtn.onclick = () => openAccountProfile(a.profile_id);
+    warmBtn.style.display = '';
+    const warming = a.warming && a.warming.active;
+    warmBtn.disabled = !!warming;
+    warmBtn.textContent = warming ? `🔥 aquecendo ${fmtCountdown(a.warming.remaining_seconds)}` : '🔥 Aquecer conta';
+    warmBtn.onclick = () => warmAccount(a.id);
+  } else {
+    openBtn.style.display = 'none';
+    warmBtn.style.display = 'none';
+  }
+  document.getElementById('modal-account').classList.add('open');
+}
+
+async function checkAccount(id, btn) {
+  if (btn) { btn.disabled = true; btn.textContent = '...'; }
+  toast('Verificando status (pode abrir o navegador)...');
+  try {
+    const r = await api('POST', `/accounts/${id}/check`);
+    toast(`Status: ${ACCOUNT_LABELS[r.status] || r.status} — ${r.detail || ''}`);
+    await loadAccountsPage();
+    if (document.getElementById('modal-account').classList.contains('open')) accountDetail(id);
+  } catch (e) {
+    toast(e.message || 'Erro ao verificar', 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Verificar'; }
+  }
+}
+
+async function openAccountProfile(profileId, btn) {
+  if (!profileId) { toast('Esta conta não tem perfil vinculado', 'error'); return; }
+  if (btn) { btn.disabled = true; btn.textContent = '...'; }
+  try {
+    await api('POST', `/profiles/${encodeURIComponent(profileId)}/launch`, {
+      url: 'https://www.instagram.com/', headless: false, mode: 'manual',
+    });
+    toast('Abrindo o perfil no navegador...');
+  } catch (e) {
+    // 409 = já está aberto
+    toast(e.message?.includes('already') ? 'Este perfil já está aberto' : (e.message || 'Erro ao abrir'), e.message?.includes('already') ? 'success' : 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Abrir'; }
+  }
+}
+
+function fmtCountdown(secs) {
+  secs = Math.max(0, parseInt(secs, 10) || 0);
+  const m = Math.floor(secs / 60), s = secs % 60;
+  return `${m}m ${String(s).padStart(2, '0')}s`;
+}
+
+async function warmAccount(id, btn) {
+  const mins = prompt('Aquecer a conta por quantos minutos?\n(navega feed/Explore, segue 1-3 sugestões e re-verifica o status no fim)', '8');
+  if (mins === null) return;
+  const minutes = parseFloat(mins) || 8;
+  if (btn) { btn.disabled = true; btn.textContent = '🔥 …'; }
+  try {
+    await api('POST', `/accounts/${id}/warmup`, { minutes });
+    toast(`Aquecimento iniciado (~${minutes} min) em segundo plano`);
+    loadAccountsPage();
+  } catch (e) {
+    toast(e.message?.includes('aquecendo') ? 'Já está aquecendo esta conta' : (e.message || 'Erro ao aquecer'), 'error');
+    if (btn) { btn.disabled = false; btn.textContent = '🔥 Aquecer'; }
+  }
+}
+
+async function checkAllAccounts() {
+  try {
+    const r = await api('POST', '/accounts/check-all');
+    toast(`Verificando ${r.count} conta(s) em segundo plano...`);
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+async function exportAccountsCsv() {
+  try {
+    const res = await fetch(API + '/accounts/export');
+    if (!res.ok) throw new Error('Falha ao exportar');
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'contas_export.csv';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    toast('CSV exportado');
+  } catch (e) { toast(e.message || 'Erro ao exportar', 'error'); }
+}
+
+async function deleteAccount(id) {
+  if (!confirm('Excluir esta conta?\n\nIsto também REMOVE o perfil vinculado (com a sessão/cookies no disco) e os e-mails ligados a ela. Não afeta a conta no Instagram.')) return;
+  try {
+    await api('DELETE', '/accounts/' + id);
+    closeModal('modal-account');
+    toast('Conta, perfil e e-mails removidos');
+    loadAccountsPage();
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+async function saveLimits() {
+  const proxy_limit = parseInt(document.getElementById('lim-proxy').value, 10);
+  const whatsapp_limit = parseInt(document.getElementById('lim-whatsapp').value, 10);
+  const target_country = (document.getElementById('lim-country')?.value || '').trim().toUpperCase();
+  try {
+    await api('POST', '/limits', { proxy_limit, whatsapp_limit, target_country });
+    toast('Limites salvos');
+    loadAccountsPage();
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+function copyText(t) {
+  navigator.clipboard?.writeText(t).then(
+    () => toast('Copiado'),
+    () => toast('Não foi possível copiar', 'error'));
+}
+
+// ── Criação MANUAL: app gera os dados + abre a janela; você preenche ──────────
+let _manualEmail = null;
+let _manualCode = null;
+let _manualCodeTimer = null;
+
+async function createManual() {
+  const useLocal = currentProxyMethod === 'local';
+  const warmMin = Math.max(0, parseFloat(document.getElementById('ig-bulk-warm')?.value) || 0);
+  try {
+    toast('Preparando conta manual… aquecendo o navegador (a janela abre ao terminar)');
+    const r = await api('POST', '/instagram/create-manual', { use_proxy_pool: !useLocal, os: 'random', warmup_minutes: warmMin });
+    const bd = r.birthday || {};
+    window._manualData = [
+      ['E-mail', r.email],
+      ['Senha', r.password],
+      ['Nome', r.full_name],
+      ['Nascimento (dia/mês/ano)', `${bd.day||''}/${bd.month||''}/${bd.year||''}`],
+      ['Username (sugestão)', r.username],
+    ];
+    document.getElementById('manual-fields').innerHTML = window._manualData.map(([label, val], i) => `
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:8px 10px">
+        <div style="min-width:0">
+          <div style="font-size:11px;color:var(--muted)">${escapeHtml(label)}</div>
+          <div style="font-size:14px;color:var(--text);word-break:break-all">${escapeHtml(String(val||''))}</div>
+        </div>
+        <button class="btn btn-ghost btn-sm" onclick="copyText(window._manualData[${i}][1])">Copiar</button>
+      </div>`).join('');
+    _manualEmail = r.email;
+    _manualCode = null;
+    const cv = document.getElementById('manual-code-val');
+    cv.textContent = 'aguardando…'; cv.style.color = 'var(--muted)';
+    document.getElementById('manual-code-copy').style.display = 'none';
+    document.getElementById('manual-code-hint').textContent = 'O código aparece aqui automaticamente quando o IG enviar (após você enviar o cadastro).';
+    document.getElementById('modal-manual').classList.add('open');
+    startManualWarmBar(r.warmup_minutes || 0);
+    pollManualCode(false);
+  } catch (e) {
+    toast(e.message || 'Erro ao preparar conta manual', 'error');
+  }
+}
+
+function startManualWarmBar(minutes) {
+  const warm = document.getElementById('manual-warm');
+  const ready = document.getElementById('manual-ready-hint');
+  if (window._manualWarmTimer) { clearInterval(window._manualWarmTimer); window._manualWarmTimer = null; }
+  if (!minutes || minutes <= 0) {            // perfil do pool já aquecido
+    warm.style.display = 'none'; ready.style.display = '';
+    return;
+  }
+  warm.style.display = ''; ready.style.display = 'none';
+  const totalMs = minutes * 60000, start = Date.now();
+  window._manualWarmTimer = setInterval(() => {
+    const el = Date.now() - start;
+    const pct = Math.min(100, (el / totalMs) * 100);
+    document.getElementById('manual-warm-bar').style.width = pct.toFixed(1) + '%';
+    const remain = Math.max(0, Math.ceil((totalMs - el) / 1000));
+    document.getElementById('manual-warm-eta').textContent = `~${Math.floor(remain/60)}:${String(remain%60).padStart(2,'0')}`;
+    if (el >= totalMs) {
+      clearInterval(window._manualWarmTimer); window._manualWarmTimer = null;
+      warm.style.display = 'none'; ready.style.display = '';
+    }
+  }, 900);
+}
+
+function closeManual() {
+  document.getElementById('modal-manual').classList.remove('open');
+  if (_manualCodeTimer) { clearTimeout(_manualCodeTimer); _manualCodeTimer = null; }
+  if (window._manualWarmTimer) { clearInterval(window._manualWarmTimer); window._manualWarmTimer = null; }
+}
+
+async function pollManualCode(force) {
+  if (!_manualEmail) return;
+  if (_manualCodeTimer) { clearTimeout(_manualCodeTimer); _manualCodeTimer = null; }
+  try {
+    const r = await api('GET', '/instagram/manual/email-code?email=' + encodeURIComponent(_manualEmail));
+    if (r && r.configured === false) {
+      document.getElementById('manual-code-hint').textContent = 'IMAP não configurado — pegue o código na aba Emails (caixa de entrada) e digite na janela.';
+      return;
+    }
+    if (r && r.code) {
+      _manualCode = r.code;
+      const el = document.getElementById('manual-code-val');
+      el.textContent = r.code; el.style.color = 'var(--text)';
+      document.getElementById('manual-code-copy').style.display = '';
+      document.getElementById('manual-code-hint').textContent = 'Código recebido! Copie e cole na janela.';
+      return;
+    }
+    if (force) toast('Código ainda não chegou — tente de novo em instantes');
+  } catch (e) { /* tenta de novo */ }
+  if (document.getElementById('modal-manual').classList.contains('open')) {
+    _manualCodeTimer = setTimeout(() => pollManualCode(false), 6000);
+  }
+}
+
+let _editingAccountId = null;
+
+async function _loadAccountProfileSelect(selectedId) {
+  const sel = document.getElementById('aa-profile');
+  sel.innerHTML = '<option value="">Carregando...</option>';
+  try {
+    const [profiles, accs] = await Promise.all([
+      api('GET', '/profiles'),
+      api('GET', '/accounts'),
+    ]);
+    // perfis já usados por OUTRAS contas (a própria conta em edição não conta)
+    const usedProfiles = new Set(
+      accs.filter(a => a.id !== _editingAccountId).map(a => a.profile_id).filter(Boolean)
+    );
+    sel.innerHTML = '<option value="">Sem perfil (entrada avulsa)</option>' +
+      profiles.map(p => {
+        const dev = p.fingerprint?.platform || '';
+        const used = usedProfiles.has(p.id) ? ' — já tem conta' : '';
+        const isSel = p.id === selectedId ? ' selected' : '';
+        return `<option value="${p.id}" data-used="${usedProfiles.has(p.id)}"${isSel}>${escapeHtml(p.name)} (${escapeHtml(dev)})${used}</option>`;
+      }).join('');
+    sel.onchange = checkAddProfileWarn;
+    checkAddProfileWarn();
+  } catch (e) {
+    sel.innerHTML = '<option value="">Erro ao carregar perfis</option>';
+  }
+}
+
+async function openAddAccount() {
+  _editingAccountId = null;
+  document.getElementById('aa-title').textContent = 'Adicionar conta';
+  document.getElementById('aa-profile-warn').style.display = 'none';
+  ['aa-username','aa-email','aa-password','aa-whatsapp'].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('aa-platform').value = 'instagram';
+  document.getElementById('aa-status').value = 'active';
+  document.getElementById('modal-add-account').classList.add('open');
+  await _loadAccountProfileSelect(null);
+}
+
+async function editAccount(id) {
+  let a;
+  try { a = await api('GET', '/accounts/' + id); }
+  catch (e) { toast(e.message, 'error'); return; }
+  _editingAccountId = id;
+  document.getElementById('aa-title').textContent = 'Editar conta';
+  document.getElementById('aa-username').value  = a.username || '';
+  document.getElementById('aa-email').value     = a.email || '';
+  document.getElementById('aa-password').value  = a.password || '';
+  document.getElementById('aa-whatsapp').value  = a.whatsapp_number || '';
+  document.getElementById('aa-platform').value  = a.platform || 'instagram';
+  document.getElementById('aa-status').value    = a.status || 'active';
+  closeModal('modal-account');
+  document.getElementById('modal-add-account').classList.add('open');
+  await _loadAccountProfileSelect(a.profile_id || null);
+}
+
+function checkAddProfileWarn() {
+  const opt = document.getElementById('aa-profile').selectedOptions[0];
+  const warn = document.getElementById('aa-profile-warn');
+  if (opt && opt.dataset.used === 'true') {
+    warn.textContent = '⚠ Este perfil já tem uma conta. O ideal é 1 conta por perfil.';
+    warn.style.display = 'block';
+  } else {
+    warn.style.display = 'none';
+  }
+}
+
+async function submitAddAccount() {
+  const body = {
+    profile_id: document.getElementById('aa-profile').value || null,
+    platform: document.getElementById('aa-platform').value,
+    status: document.getElementById('aa-status').value,
+    username: document.getElementById('aa-username').value.trim() || null,
+    email: document.getElementById('aa-email').value.trim() || null,
+    password: document.getElementById('aa-password').value || null,
+    whatsapp_number: document.getElementById('aa-whatsapp').value.trim() || null,
+  };
+  if (!body.username && !body.email) {
+    toast('Informe pelo menos username ou email', 'error');
+    return;
+  }
+  try {
+    if (_editingAccountId) {
+      await api('PATCH', '/accounts/' + _editingAccountId, body);
+      toast('Conta atualizada');
+    } else {
+      await api('POST', '/accounts', body);
+      toast('Conta adicionada');
+    }
+    closeModal('modal-add-account');
+    _editingAccountId = null;
+    loadAccountsPage();
+  } catch (e) {
+    toast(e.message || 'Erro ao salvar', 'error');
+  }
+}
+
+// ── Importar CSV ─────────────────────────────────────────
+let _impRows = [];
+let _impPoll = null;
+
+function parseCSV(text) {
+  const rows = [];
+  let i = 0, field = '', row = [], inQ = false;
+  text = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  while (i < text.length) {
+    const c = text[i];
+    if (inQ) {
+      if (c === '"') { if (text[i+1] === '"') { field += '"'; i++; } else inQ = false; }
+      else field += c;
+    } else {
+      if (c === '"') inQ = true;
+      else if (c === ',') { row.push(field); field = ''; }
+      else if (c === '\n') { row.push(field); rows.push(row); row = []; field = ''; }
+      else field += c;
+    }
+    i++;
+  }
+  if (field !== '' || row.length) { row.push(field); rows.push(row); }
+  const nonEmpty = rows.filter(r => r.some(c => (c || '').trim() !== ''));
+  if (nonEmpty.length < 2) return [];
+  const headers = nonEmpty[0].map(h => h.trim());
+  return nonEmpty.slice(1).map(r => {
+    const o = {};
+    headers.forEach((h, idx) => o[h] = (r[idx] ?? '').trim());
+    return o;
+  });
+}
+
+async function impParse() {
+  const fileInput = document.getElementById('imp-file');
+  let text = document.getElementById('imp-text').value;
+  if (fileInput.files && fileInput.files[0]) {
+    text = await fileInput.files[0].text();
+    document.getElementById('imp-text').value = text;
+  }
+  if (!text.trim()) { toast('Selecione um arquivo ou cole o CSV', 'error'); return; }
+  const raw = parseCSV(text);
+  if (!raw.length) { toast('CSV sem linhas de dados (precisa de cabeçalho + 1 linha)', 'error'); return; }
+  try {
+    const r = await api('POST', '/import/validate', { rows: raw });
+    _impRows = raw;
+    renderImpPreview(r);
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+function renderImpPreview(r) {
+  document.getElementById('imp-preview-wrap').style.display = 'block';
+  document.getElementById('imp-preview-count').textContent =
+    `— ${r.valid}/${r.total} válidas` + (r.problems.length ? `, ${r.problems.length} com problema` : '');
+  const probByRow = {};
+  r.problems.forEach(p => probByRow[p.row] = p.errors.join(', '));
+  document.getElementById('imp-preview-body').innerHTML = r.rows.map((row, i) => {
+    const prob = probByRow[i + 1];
+    const st = prob ? `<span style="color:var(--red)">${escapeHtml(prob)}</span>`
+                    : '<span style="color:var(--green)">ok</span>';
+    return `<tr>
+      <td>${i + 1}</td>
+      <td>${escapeHtml(row.full_name || '—')}</td>
+      <td>${escapeHtml(row.email || '—')}</td>
+      <td>${row.password ? '••••' : '—'}</td>
+      <td>${escapeHtml(row.username || 'auto')}</td>
+      <td style="font-size:11px">${row.birthday ? `${String(row.birthday.day).padStart(2,'0')}/${String(row.birthday.month).padStart(2,'0')}/${row.birthday.year}` : '<span style="color:var(--muted)">auto</span>'}</td>
+      <td style="font-size:11px">${escapeHtml(row.proxy || '—')}</td>
+      <td>${escapeHtml(row.os || 'random')}</td>
+      <td>${st}</td>
+    </tr>`;
+  }).join('');
+}
+
+async function impStart() {
+  if (!_impRows.length) { toast('Pré-visualize um CSV primeiro', 'error'); return; }
+  const body = {
+    rows: _impRows,
+    create_accounts: document.getElementById('imp-create-accounts').checked,
+    delay_seconds: parseFloat(document.getElementById('imp-delay').value) || 45,
+    warm_profile_minutes: parseFloat(document.getElementById('imp-warm').value) || 0,
+    sms_activate_key: document.getElementById('imp-sms').value.trim() || null,
+    sms_country: parseInt(document.getElementById('imp-country').value, 10) || 73,
+    use_proxy_pool: document.getElementById('imp-pool').checked,
+  };
+  const btn = document.getElementById('imp-start-btn');
+  btn.disabled = true;
+  try {
+    const r = await api('POST', '/import/start', body);
+    toast(`Importação iniciada: ${r.queued} linha(s)`);
+    document.getElementById('imp-progress-wrap').style.display = 'block';
+    impPollStart(r.job_id);
+  } catch (e) {
+    toast(e.message, 'error');
+    btn.disabled = false;
+  }
+}
+
+function impPollStart(jobId) {
+  clearInterval(_impPoll);
+  const tick = async () => {
+    try {
+      const j = await api('GET', '/import/status/' + jobId);
+      renderImpProgress(j);
+      if (j.status === 'completed') {
+        clearInterval(_impPoll);
+        document.getElementById('imp-start-btn').disabled = false;
+        toast(`Concluído: ${j.created_profiles} perfil(s), ${j.created_accounts} conta(s), ${j.errors} erro(s)`);
+        if (typeof loadProfiles === 'function') loadProfiles();
+      }
+    } catch (e) { clearInterval(_impPoll); }
+  };
+  tick();
+  _impPoll = setInterval(tick, 2000);
+}
+
+function renderImpProgress(j) {
+  document.getElementById('imp-progress-summary').textContent =
+    `— ${j.done}/${j.total} · perfis ${j.created_profiles} · contas ${j.created_accounts} · erros ${j.errors} · ${j.status}`;
+  const icon = { pending: '⏳', processing: '⚙️', done: '✓', error: '✗' };
+  document.getElementById('imp-progress-body').innerHTML = j.rows.map(r =>
+    `<tr>
+      <td>${r.row}</td>
+      <td>${escapeHtml(r.label || '')}</td>
+      <td>${icon[r.status] || ''} ${escapeHtml(r.status)}</td>
+      <td style="font-size:12px;color:var(--muted)">${escapeHtml(r.detail || '')}</td>
+    </tr>`).join('');
+}
+
+// ── Emails (catch-all + IMAP) ────────────────────────────
+async function loadEmailsPage() {
+  try {
+    const [cfg, list] = await Promise.all([
+      api('GET', '/email/config'),
+      api('GET', '/email/list'),
+    ]);
+    const af = document.activeElement?.id;
+    if (af !== 'em-domain')    document.getElementById('em-domain').value = cfg.email_domain || '';
+    if (af !== 'em-imap-host') document.getElementById('em-imap-host').value = cfg.imap_host || 'imap.hostinger.com';
+    if (af !== 'em-imap-port') document.getElementById('em-imap-port').value = cfg.imap_port || 993;
+    if (af !== 'em-imap-user') document.getElementById('em-imap-user').value = cfg.imap_user || '';
+    if (af !== 'em-imap-pass') document.getElementById('em-imap-pass').value = cfg.imap_pass || '';
+    document.getElementById('em-config-status').textContent =
+      cfg.configured ? '✓ configurado' : 'não configurado';
+    renderEmails(list);
+    // resumo do pool de proxies
+    try {
+      const sp = await api('GET', '/proxies/pool');
+      const info = document.getElementById('em-pool-info');
+      if (info) info.textContent = sp.count
+        ? `(${sp.count} proxies, ${sp.free_slots ?? '∞'} vagas livres)`
+        : '(nenhum proxy na pasta proxys/)';
+    } catch (e) {}
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+function renderEmails(list) {
+  document.getElementById('em-count').textContent = `— ${list.length}`;
+  const body = document.getElementById('emails-body');
+  if (!list.length) {
+    body.innerHTML = `<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:24px">Nenhum email gerado ainda.</td></tr>`;
+    return;
+  }
+  body.innerHTML = list.map(e => {
+    const prof = e.profile_id
+      ? (e.profile_exists ? escapeHtml(e.profile_name || e.profile_id.slice(0,8))
+                          : '<span style="color:var(--red)">perfil removido</span>')
+      : '<span style="color:var(--muted)">—</span>';
+
+    // Status mais amigável: só mostra "Usado" quando realmente tem uma conta IG associada
+    const hasAccount = !!e.account_id;
+    const statusLabel = hasAccount ? 'Usado (conta criada)' : 'Pronta para uso';
+    const statusClass = hasAccount ? 'created' : 'active';
+
+    const canCreate = e.profile_exists && !hasAccount;
+
+    return `<tr>
+      <td><span style="font-family:monospace">${escapeHtml(e.address)}</span>
+          <span class="copy" onclick="copyText('${e.address}')">copiar</span></td>
+      <td>${prof}</td>
+      <td><span class="badge badge-${statusClass}">${escapeHtml(statusLabel)}</span></td>
+      <td style="font-size:12px">${escapeHtml((e.created_at||'').replace('T',' '))}</td>
+      <td style="white-space:nowrap">
+        ${canCreate
+          ? `<button class="btn btn-primary btn-sm" onclick="createAccountFromEmail('${e.id}', this)">Criar conta</button>`
+          : ''}
+        <button class="btn btn-danger btn-sm" onclick="deleteEmail('${e.id}')">Excluir</button>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+async function saveEmailConfig() {
+  const body = {
+    email_domain: document.getElementById('em-domain').value.trim(),
+    imap_host: document.getElementById('em-imap-host').value.trim(),
+    imap_port: parseInt(document.getElementById('em-imap-port').value, 10) || 993,
+    imap_user: document.getElementById('em-imap-user').value.trim(),
+    imap_pass: document.getElementById('em-imap-pass').value,
+  };
+  try {
+    await api('POST', '/email/config', body);
+    toast('Configuração salva');
+    loadEmailsPage();   // recarrega mantendo a senha no campo
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+async function testImap() {
+  toast('Testando conexão IMAP...');
+  try {
+    const r = await api('POST', '/email/test-imap');
+    if (r.ok) {
+      toast(`✓ IMAP conectou (${r.user})`);
+    } else {
+      // mostra exatamente o que foi usado, pra diagnosticar
+      toast(`Falha IMAP: ${r.error || ''} | user=${r.user} pass_len=${r.pass_len} host=${r.host}:${r.port}`, 'error');
+    }
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+async function loadInbox() {
+  const wrap = document.getElementById('em-inbox-wrap');
+  const body = document.getElementById('em-inbox-body');
+  wrap.style.display = 'block';
+  document.getElementById('em-inbox-info').textContent = '— lendo...';
+  body.innerHTML = '';
+  try {
+    const r = await api('GET', '/email/inbox?limit=15');
+    const msgs = r.messages || [];
+    document.getElementById('em-inbox-info').textContent = `— ${msgs.length} mensagem(ns)`;
+    if (!msgs.length) {
+      body.innerHTML = `<tr><td colspan="4" style="text-align:center;color:var(--muted);padding:20px">Caixa vazia (ou catch-all ainda não recebeu nada).</td></tr>`;
+      return;
+    }
+    body.innerHTML = msgs.map(m => `<tr>
+      <td style="font-size:12px">${escapeHtml((m.from||'').slice(0,40))}</td>
+      <td style="font-size:12px">${escapeHtml((m.to||'').slice(0,40))}</td>
+      <td style="font-size:12px">${escapeHtml((m.subject||'').slice(0,50))}</td>
+      <td>${m.code ? `<span class="badge badge-active">${escapeHtml(m.code)}</span>` : '<span style="color:var(--muted)">—</span>'}</td>
+    </tr>`).join('');
+  } catch (e) {
+    document.getElementById('em-inbox-info').textContent = '';
+    body.innerHTML = `<tr><td colspan="4" style="color:var(--red);padding:14px">${escapeHtml(e.message || 'erro')}</td></tr>`;
+  }
+}
+
+async function generateEmails() {
+  const count = parseInt(document.getElementById('em-gen-count').value, 10) || 1;
+  const base = document.getElementById('em-gen-base').value.trim() || null;
+  const with_profile = document.getElementById('em-gen-profile').checked;
+  const use_proxy_pool = document.getElementById('em-gen-pool').checked;
+  const proxy = use_proxy_pool ? null : parseProxy(document.getElementById('em-gen-proxy').value);
+  try {
+    const r = await api('POST', '/email/generate', { count, base, with_profile, proxy, use_proxy_pool, os: 'random' });
+    toast(`${r.count} email(s) gerado(s)`);
+    if (r.warning) toast(r.warning, 'error');
+    loadEmailsPage();
+  } catch (e) { toast(e.message || 'Erro ao gerar', 'error'); }
+}
+
+async function createAccountFromEmail(id, btn) {
+  if (btn) { btn.disabled = true; btn.textContent = '...'; }
+  try {
+    const r = await api('POST', `/email/${id}/create-account`, {});
+    toast(`Criando conta: ${r.username} / senha: ${r.password} (abrindo navegador, código lido automático)`);
+    loadEmailsPage();
+  } catch (e) {
+    toast(e.message || 'Erro ao criar conta', 'error');
+    if (btn) { btn.disabled = false; btn.textContent = 'Criar conta'; }
+  }
+}
+
+async function deleteEmail(id) {
+  if (!confirm('Excluir este email do registro?')) return;
+  try {
+    await api('DELETE', '/email/' + id);
+    toast('Email removido');
+    loadEmailsPage();
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+loadProfiles();
+pollInterval = setInterval(() => {
+  const page = document.querySelector('.page.active')?.id;
+  if (page === 'page-profiles')     loadProfiles();
+  if (page === 'page-sessions')     loadSessions();
+  if (page === 'page-diagnostics')  loadDiagnostics();
+  if (page === 'page-instagram')    igLoadProfiles();
+  if (page === 'page-accounts')     loadAccountsPage();
+}, 3000);
+
+</script>
+</body>
+</html>

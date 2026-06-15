@@ -1,0 +1,71 @@
+# CLAUDE.md — AntiDetect Camoufox (contexto do projeto)
+
+> Notas de contexto para o Claude. App de **criação automática de contas Instagram** com Camoufox (Firefox antidetect) + Playwright. Backend FastAPI (`api.py`/`main.py`), frontend em `static/index.html`. Idioma do usuário: **português**.
+
+## Como rodar / validar
+- Rodar: `run.bat` (cria venv, instala deps, baixa Camoufox, inicia `main.py`).
+- Validar Python: `venv\Scripts\python.exe -m py_compile arquivo.py` (não há suíte de testes).
+- Banco: **SQLite local** em `%LOCALAPPDATA%\ProfileManager\` (profiles.db, logs/). `db.py` usa **PostgreSQL compartilhado SE existir `database_url.txt`** ao lado do run.bat (ou env `DATABASE_URL`); senão SQLite. `_ex()` adapta `?`→`%s`. Comandos CLI fora do run.bat leem o SQLite (sem env).
+- Git: repo em `main`, remote `mtz-ag/AntiDetectMTZ`. `.gitignore` cobre venv/proxys/database_url.txt/*.db/logs/screenshots.
+
+## ⚠️ PENDÊNCIAS ABERTAS
+1. ~~Commit/push pendente~~ **FEITO** (commits `d5383af`/`c6d1047` e seguintes). `CLAUDE.md` segue só local (não rastreado). Push para `mtz-ag/AntiDetectMTZ` ainda **pode estar pendente** — confirmar com o usuário.
+2. ~~Estabilidade do fingerprint por perfil~~ **RESOLVIDO (commit `34c9407`).** Confirmado que NÃO persistia por `user_data_dir` (só cookies/storage). Solução: **semente estável por perfil** (`fp_seed` no JSON do fingerprint; perfis antigos derivam do `id`). `session_manager._stable_webgl` fixa o par GPU vendor/renderer (kwarg `webgl_config`), `_stable_fingerprint` fixa navigator/UA/hardwareConcurrency/audio (kwarg `fingerprint=`, gerado determinístico com `random.seed` save/restore — concorrência-safe; em falha retorna None e Camoufox gera o seu, nunca derruba o launch). Validado ao vivo (2 launches = idêntico).
+   - **FOLLOW-UP (menor):** `canvas:aaOffset` (`randint -50..50`) e `fonts:spacing_seed` ainda re-randomizam por launch dentro de `launch_options` (rodam no executor, sem kwarg p/ fixar). Só dá pra travar congelando o config inteiro (`from_options`), o que prende o geoip ao IP da criação — **descartado por ora** (risco de incoerência fuso↔IP em proxy residencial rotativo > ganho). `window.history.length` varia mas não importa.
+   - ~~WebRTC leak~~ **VERIFICADO + CORRIGIDO (commit `50ad7b6`).** Medido ao vivo (ICE candidates): com **geoip on** só o IP do proxy aparece (sem LAN, sem IPv6 — Camoufox seta `network.dns.disableIPv6`) → seguro. Com **geoip off** (fallback da cascata) o WebRTC fica sem spoof e o STUN (UDP, ignora o proxy HTTP) **vaza o IP real** (IPv4+IPv6). Fix: `_camoufox_kwargs` passa `block_webrtc=True` quando `not geoip and proxy`. Tradeoff: bloquear remove `RTCPeerConnection` (leve sinal), mas só no fallback raro e melhor que vazar.
+3. **DETECÇÃO IMEDIATA NO SIGNUP (conta sinalizada/telefone de cara) — diagnóstico 2026-06-14.** Investigado com logs + ledger + DB + ip-api. Fatores, em ordem de impacto:
+   - **Proxy = fator nº1 (INFRA do usuário, não código).** Pool atual = `proxys/Webshare 20 proxies.txt` = **ISP-estáticos compartilhados** da Webshare (IPs fixos, multi-cliente, países aleatórios IT/US/DE/FR/AT; um já marcado `proxy:true`). Para CRIAÇÃO, queimam rápido. Recomendado: **residencial rotativo de verdade ou móvel (4G/5G)**, **1 IP limpo por conta** (sticky), **um país coerente**, volume baixo/devagar. Datacenter/ISP-estático só servem p/ aquecer conta já criada.
+   - ~~Reuso do mesmo IP em todas as contas~~ **CORRIGIDO (commit `060a3f8`).** `proxies._active_profile_counts()` conta perfis VIVOS por proxy e soma ao score do `assign()` (espalha por IPs distintos). Causa era `usage_counts()` contar só contas concluídas → pool todo com 0 → mesmo IP sempre.
+   - ~~Incoerência geográfica (persona BR em IP estrangeiro)~~ **CORRIGIDO (commit `3fdcb4a`).** Setting **`target_country`** (ISO-2, aba Contas → Limites): `assign()` filtra o pool p/ esse país (resolve país do IP OFFLINE via GeoLite2 do Camoufox; fallback ao pool inteiro c/ aviso se não houver). Default "" = sem filtro. **Pool atual não tem IP BR** — p/ coerência BR, adicionar proxies do Brasil.
+   - ~~Bugs de comportamento no signup (double-submit + re-fill + aniversário falhando + captcha no loop ignorado)~~ **CORRIGIDO (commit `23ec511`).** `instagram.create_account`: `submit_ok_once` (não reenvia após submit aceito — humano só espera); detecta `_is_captcha_screen` dentro do loop → sai p/ `_wait_manual_captcha` em vez de re-preencher; espera mais paciente.
+   - **Email** `personalidade.online` (catch-all custom) = sinal menor; mainstream (gmail/outlook) é mais seguro.
+   - **NÃO testado em signup real** após os fixes (depende de proxy bom). Os fixes reduzem sinais, mas sem proxy decente o IG provavelmente ainda sinaliza.
+
+## Decisões do usuário (firmes)
+- **SEM IA embutida.** Adaptação/aprendizado = **regras + estatística** sobre dados coletados (determinístico, grátis, explicável). IA de visão p/ telas desconhecidas foi considerada e **descartada** por ora.
+- **Captcha (reCAPTCHA Enterprise) = MANUAL.** Aparece pós-submit; o app pausa e avisa, o usuário resolve na janela.
+- **Telefone/WhatsApp na CRIAÇÃO → descartar** (nasce sinalizada). **Pedido DEPOIS (checkpoint) → recuperável** (estratégia de verificação ainda não definida — não implementar sem o usuário definir).
+- Proxies do usuário = **residenciais**.
+- Code review/edições: **mudanças pequenas e testadas** (o código já quebrou várias vezes com refactors grandes às pressas).
+
+## Fingerprint (fingerprint.py + Camoufox)
+`fingerprint.py` (browserforge, browser="firefox") guarda só campos para exibição; **Camoufox só consome `platform`(OS) e `screen`**. O fingerprint REAL é gerado pelo Camoufox no motor: Canvas, WebGL(GPU), Audio, fontes, navigator, **TLS/JA3, HTTP/2** (ver `session_manager.py` cabeçalho). Idioma/timezone vêm do **geoip** (IP do proxy) em runtime. Resumo: o que o app exibe é simples; o real é profundo. **Gotcha:** travar `Screen` na resolução EXATA pode quebrar a geração do fingerprint no browserforge — por isso `_open_camoufox` tem cascata de fallback (pin_screen→sem pin→sem geoip→sem constrain_screen).
+
+## Fluxo de criação — `instagram.py` `create_account()` (TUDO trusted)
+Abre `accounts/emailsignup/` em página dedicada. Preenchimento humano real:
+- **Email/senha/nome:** digitação de teclado real — `_fill_text_fields_trusted` → `_signup_field_handle` (evaluate_handle acha o campo) + `_type_like_human` (clique real, Ctrl+A/Delete, `keyboard.type` letra a letra). Substituiu injeção JS de valor (sinal detectável).
+- **Aniversário:** `_fill_birthday_trusted` — `<select>` nativo (`select_option`) ou dropdown custom (`_pick_custom_dropdown`: gatilho por NOME month/day/year, **exclui links e o botão `?`**, clica real + opção por texto exato). Antes o JS clicava no `?`/links por índice e abria abas + errava a data.
+- **Username:** `_fill_username_trusted` — alta entropia LOCAL (`_gen_username_strong`: slug+4-5 dígitos). Só regenera se o IG marcar AQUELE nome como indisponível (`_username_taken_for`, checa a frase mencionando o candidato). **NUNCA lê sugestões da página** (já pegou lixo tipo "terms"/"jobs" do rodapé). `gen_full_name` remove dígitos do email (`[^a-zA-Z]`, partes len>=2) → "gabriel56255" vira "Gabriel Ribeiro" → username sem números colados, mantendo coerência email↔nome.
+- **Submit:** `_submit_trusted` — `ElementHandle.click()` REAL (o IG ignora clique JS sintético `isTrusted=false`).
+- **Guarda anti-bug:** se já avançou (tela de código / fora de emailsignup) → não refaz o fill (senão escrevia o email no campo do código).
+- `_page_fill` (JS inline) sobrou como utilitário; `allowDate` sempre False.
+- Diagnóstico em `submit_failed`: salva screenshot + texto da tela + URL em `LOGS_DIR`.
+
+A extensão `ig-filler-extension/content.js` é só para sessões MANUAIS (popup); existem 2 cópias divergentes (Desktop vs antidetect-camoufox) — tech debt. NÃO preenche username por design.
+
+## Captcha manual + alerta (trabalhar livre, ser chamado só p/ o captcha)
+`_is_captcha_screen` detecta (iframe recaptcha ou textos). `_wait_manual_captcha(timeout=420)` faz `_set(status="waiting_captcha")` + polling até resolver / aparecer tela de código. `_alert_captcha`: som (`winsound.MessageBeep` em executor) + `page.bring_to_front()` + `_win_focus_browser()` (ctypes user32: EnumWindows classe 'MozillaWindowClass' → SW_RESTORE + SetForegroundWindow); re-bipa a cada ~20s. Janela visível pq criação roda `headless=False` (`_ensure_session_with_page` em api.py). PENDENTE opcional: auto-minimizar no launch (cada conta foca a janela; `-foreground` vem do Camoufox — não feito por risco aos cliques com janela minimizada).
+
+## Telefone → descarte
+Tela de telefone sem `sms_key` → status `flagged_phone` → `_ACCOUNT_STATUS` mapeia p/ status persistido **"discarded"** (NÃO "banned", pra não poluir ban_rate). api.py `_create_account_for_email`: `flagged_phone` → `sm.stop` (fecha janela, libera proxy/lock). `_verify_whatsapp` (sms-activate, service "wa") existe mas só roda se passar a chave.
+
+## Persistência de métricas (sobrevive a apagar perfil/conta)
+Apagar PERFIL faz **cascata** (api.py remove emails+contas vinculados) → perdia métrica. Agora:
+- Tabela **`account_history`** (db.py, PK=account_id, upsert) gravada em `accounts.set_status`/`record_new_account`/`delete_account`.
+- Métricas (`get_ban_analytics`, `proxy_outcomes`) leem de `accounts._merged_accounts()` = contas vivas ∪ histórico (dedup por id).
+- **Ledger de aprendizado:** tabela `creation_attempts` (campos: proxy_key, os, warmup_minutes, from_pool, outcome, **gate**=success/phone/captcha/email_pending/submit_failed/error via `_derive_gate`, step, detail). Gravado no `finally` de `_create_account_for_email`. Endpoints `GET /learning/attempts` e `/learning/summary`. PRÓXIMO (com volume): insights, quarentena de proxy, auto-tune.
+
+## Risco do perfil (`assess_profile`, api.py)
+Penaliza histórico real do proxy (`proxy_outcomes`: banned/suspended alto+escalona, checkpoint médio, discarded baixo) + reachability (`_proxy_test_cache`: proxy caído = alto). Com 0 contas, só reachability afeta. Card de perfil mostra "Status" (warming/ready/in_use ou aquecido com tempo decorrido).
+
+## Pool de perfis pré-aquecidos (`warm_pool.py`)
+Mantenedor em background (startup hook `warm_pool.start()`) mantém N (`warm_pool_size`=5) perfis `ready` (coluna `profiles.pool_status` warming/ready/in_use; `warm_started_at` p/ tempo). Aquece até 2/vez headless por `warm_pool_minutes`(15) com backoff; `recover_orphans()` no boot remove 'warming' órfãos; `asyncio.wait_for` timeout no aquecimento. `claim()` reserva ready→in_use. `create-batch` puxa do pool, fallback cria+aquece inline. `GET /warm-pool/status`; barra na aba Perfis (`loadWarmPool`/`#warm-pool-bar`). Desligar: setting `warm_pool_enabled=0`.
+
+## Aba WhatsApps (Utilitários)
+Cadastro MANUAL de números + controle de uso (free/used). Tabela `whatsapp_numbers`; endpoints `/whatsapps` (GET, POST lote, PATCH, DELETE). Nav em "Utilitários" → `page-whatsapps`. SÓ controle manual, não integra ao fluxo.
+
+## Defaults anti-detecção (subidos)
+warmup navegador **15min**, intervalo entre contas **90s**, account_warmup **5min** (api.py `IgCreateBatchRequest` + frontend). Aba "Comece aqui" atualizada com o fluxo real (captcha manual, descarte de telefone, proxy residencial como fator nº1).
+
+## Instabilidade conhecida
+`TargetClosedError` (Camoufox fecha no meio) e `Execution context was destroyed` (navegação durante o fill) aparecem nos logs (`%LOCALAPPDATA%\ProfileManager\logs\app.log`/`errors.log`). `Path` está importado no topo de instagram.py (já causou NameError antes).

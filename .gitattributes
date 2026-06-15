@@ -1,0 +1,30 @@
+# Normalize line endings across platforms
+* text=auto
+
+# Python source - prefer LF (standard in repos)
+*.py text eol=lf
+
+# Shell / config files
+*.sh text eol=lf
+*.toml text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
+*.json text eol=lf
+requirements*.txt text eol=lf
+
+# Windows-specific
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# Web / HTML / CSS keep LF
+*.html text eol=lf
+*.css text eol=lf
+*.js text eol=lf
+
+# Documentation
+*.md text eol=lf
+
+# Git itself
+.gitattributes text eol=lf
+.gitignore text eol=lf

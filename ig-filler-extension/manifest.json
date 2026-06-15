@@ -1,0 +1,18 @@
+{
+  "manifest_version": 3,
+  "name": "Preenchedor de Cadastro Autorizado - Camoufox/Firefox/Chrome",
+  "version": "2.0.0",
+  "description": "Preenche campos de cadastro Instagram (contato/senha/nome/data nascimento) com dados do usuario. Totalmente compativel com Camoufox (Firefox stealth), Firefox e Chrome. Usa MAIN world para funcionar com React/IG e injecoes do Playwright.",
+  "permissions": ["activeTab", "storage", "scripting"],
+  "host_permissions": ["*://*.instagram.com/*"],
+  "action": {
+    "default_title": "Preencher cadastro",
+    "default_popup": "popup.html"
+  },
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "ig-filler@antidetect.camoufox",
+      "strict_min_version": "115.0"
+    }
+  }
+}
