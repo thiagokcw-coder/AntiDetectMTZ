@@ -27,6 +27,19 @@
 
 **UI/backend recentes desta sessão (commits `9b42998`/`199b69b`/`ede1c17`):** menu **Contas antes de Perfis**; aba **Perfis** com busca+filtros (com/sem conta, conta logada, aquecidos)+ordenação por status+**card verde p/ conta IG logada** (`/profiles` traz `account_status`/`account_username`); aba **Contas** sem as seções "proxies/whatsapps/limites usados" (resquícios); e-mail marcado **"usado"** ao vincular conta e ao detectar ATIVA (`emails.mark_used_by_address`); **auto-verificar status ao FECHAR** perfil aberto manual (`session_manager._run`); perfil do modo manual nomeado pelo username. README atualizado p/ a direção atual.
 
+## 🆕 SESSÃO 2026-06-16 (Mac) — banco compartilhado ativado + estratégia de extração
+
+**`database_url.txt` corrigido.** Estava salvo como `database_url.txt.txt` (`.txt` dobrado), então o app caía no SQLite local em vez do Supabase. Renomeado p/ `database_url.txt` → **Supabase compartilhado agora ATIVO neste Mac** (e o nome certo volta a ser coberto pelo `.gitignore`). Obs.: o `.gitignore` cobre `database_url.txt` exato, não `*.txt.txt` — se reaparecer com nome errado, a senha fica exposta.
+
+**Estratégia de EXTRAÇÃO repensada (decisão PENDENTE — não implementado ainda).** Discussão sobre como raspar com menos risco, dado o fluxo "conta nasce no app do celular":
+- **Spider web atual (fetch na web logada, PC ou Chrome do celular) = mesma classe de risco "web".** O Chrome do celular NÃO resolve: logar no `instagram.com` é evento de login web + fingerprint de navegador; o celular só dá **coerência de IP**, não tira do terreno web (o mais vigiado).
+- **App = superfície confiável (API privada mobile `i.instagram.com/api/v1/...`), "mais brechas"/mais dados.** PORÉM **não dá pra reaproveitar a sessão do app real** sem root: o app usa **certificate pinning** (bloqueia MITM em celular sem root) e ler o token dos dados do app exige root.
+- **Caminhos realistas p/ usar a superfície do app:**
+  1. **instagrapi** (cliente da API mobile em Python): loga emulando o app, **salva a sessão**, roteia pelo **IP do celular (tethering)**. Rápido, API completa, roda no PC. Contra: é login programático (separado do app real) → exige device+IP coerentes e ritmo lento. **← recomendado (acesso + segurança).**
+  2. **Appium/ADB no app real**: automatiza a UI (scroll + lê a tela). É literalmente o app logado (zero login novo, mais seguro), mas lento/frágil e limitado ao que aparece.
+  3. Spider web = plano C.
+- **PRÓXIMO:** usuário escolher entre instagrapi (protótipo: seguidores via tethering + sessão persistida) e Appium. Qualquer um = volume baixo, 1 conta/IP, pausas humanas.
+
 ## Como rodar / validar
 - Rodar: **`MonitorMtzWin.bat`** (Windows) ou **`MonitorMtzMac.command`** (macOS/Linux) — criam venv, instalam deps + Firefox/Playwright + Camoufox, iniciam `main.py`. (Eram `run.bat`/`run.command`.)
 - **macOS:** o `python3` do PATH pode ser antigo (3.7); o launcher tenta `python3.12/3.11/...`. Usa-se o **python3.11 do Homebrew** (`/opt/homebrew`). Branding no `main.py` troca ícone do Dock (MTZ) e nome ("Monitor MTZ"). `.app` foi descartado (Gatekeeper bloqueia bundle não-assinado no macOS 26). Ícones em `icons/` (`MonitorMtzMac.icns` verde, `MonitorMtzWin.ico` azul).
