@@ -647,4 +647,11 @@ async def check_status(account_id: str, headless: bool = True) -> dict:
         if status in ("banned", "suspended") and not acc.get("banned_at"):
             fields["banned_at"] = _now().strftime("%Y-%m-%d %H:%M:%S")
     db.update_account(account_id, **fields)
+    # Conta confirmada logada → marca o e-mail vinculado como 'usado' (se cadastrado).
+    if status == "active" and acc.get("email"):
+        try:
+            import emails as _eb
+            _eb.mark_used_by_address(acc["email"], account_id)
+        except Exception:
+            pass
     return {"status": status, "detail": detail}

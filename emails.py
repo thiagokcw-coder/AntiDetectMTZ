@@ -92,6 +92,21 @@ def mark_used(email_id: str, account_id: str = None):
     db.update_email(email_id, **fields)
 
 
+def mark_used_by_address(address: str, account_id: str = None) -> bool:
+    """Marca como 'usado' o e-mail com este endereço, se existir no registro.
+    Retorna True se encontrou. No-op se o e-mail não está cadastrado (ex.: criado
+    fora, no celular)."""
+    addr = (address or "").strip().lower()
+    if not addr:
+        return False
+    for em in list_emails():
+        if (em.get("address") or "").strip().lower() == addr:
+            if (em.get("status") or "free") != "used":
+                mark_used(em["id"], account_id)
+            return True
+    return False
+
+
 def delete_email(email_id: str):
     db.delete_email(email_id)
 

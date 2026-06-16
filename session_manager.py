@@ -478,6 +478,18 @@ async def _run(profile, url, headless, actions, pid, mode, load_extension=True, 
             pass
         if _sessions.get(pid, {}).get("status") == "running":
             _sessions[pid]["status"] = "stopped"
+        # Auto-verificação: se você ABRIU manualmente o perfil de uma conta (ex.: pra
+        # logar no IG) e fechou a janela, checa o status sozinho (reabre headless,
+        # detecta e atualiza) — sem precisar clicar em "Verificar".
+        if mode == "manual":
+            try:
+                a = db.get_account_by_profile(pid)
+                if a:
+                    import accounts as _acc
+                    asyncio.create_task(_acc.check_status(a["id"], headless=True))
+                    _log(f"profile={pid} fechado — auto-verificando status da conta {a.get('id')}")
+            except Exception:
+                pass
 
 
 async def run_profile_task(profile: dict, fn, headless: bool = False,

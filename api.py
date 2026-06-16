@@ -203,6 +203,10 @@ def get_profiles():
     for item in items:
         item["risk"] = assess_profile(item, outcomes)
         item["lock"] = lock_info(item["id"])
+        # Info da conta vinculada (p/ filtros e cor do card na aba Perfis)
+        a = get_account_by_profile(item["id"])
+        item["account_status"] = (a.get("status") if a else None)
+        item["account_username"] = (a.get("username") if a else None)
     return [public_profile(item) for item in items]
 
 
@@ -656,7 +660,7 @@ async def ig_create_manual(body: IgCreateManualRequest):
             proxy = assigned[0] if assigned else None
             if proxy is None:
                 raise HTTPException(400, "Sem proxy livre no pool. Use a conexão do celular ou adicione proxies.")
-        profile_id = prof.create(name=(body.base or "manual"), os=body.os, proxy=proxy)["id"]
+        profile_id = prof.create(name=(body.base or "conta"), os=body.os, proxy=proxy)["id"]
         already_warm = False
 
     em = eb.create_email(base=body.base or "", profile_id=profile_id)
@@ -667,6 +671,12 @@ async def ig_create_manual(body: IgCreateManualRequest):
     username  = ig._gen_username(full_name)
     password  = ig.gen_password()
     bd        = ig.gen_birthday()
+
+    # Nomeia o perfil pelo username gerado (em vez de "manual"/"conta"/"pool").
+    try:
+        db.update_profile(profile_id, name=(username or base or "conta")[:40])
+    except Exception:
+        pass
 
     warm_minutes = 0.0 if already_warm else max(0.0, float(body.warmup_minutes or 0))
 
@@ -1020,9 +1030,16 @@ def accounts_create(body: AccountCreateRequest):
     data.pop("proxy", None)
     data["profile_id"] = pid or None
     try:
-        return acc.add_manual(data)
+        acct = acc.add_manual(data)
     except ValueError as e:
         raise HTTPException(400, str(e))
+    # Marca o e-mail correspondente (se existir no registro da aba Emails) como
+    # 'usado' — senão ficava 'livre' mesmo já vinculado a uma conta.
+    try:
+        eb.mark_used_by_address(acct.get("email"), acct.get("id"))
+    except Exception:
+        pass
+    return acct
 
 
 @app.patch("/accounts/{account_id}")
