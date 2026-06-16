@@ -261,6 +261,10 @@
     </div>
 
     <div class="nav-section">Utilitários</div>
+    <div class="nav-item" data-page-link="spider" onclick="showPage('spider')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 9V3M12 21v-6M9 12H3M21 12h-6M7 7 4 4M17 7l3-3M7 17l-3 3M17 17l3 3"/></svg>
+      Spider
+    </div>
     <div class="nav-item" data-page-link="import" onclick="showPage('import')">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 3v4a1 1 0 0 0 1 1h4"/><path d="M17 21H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7l5 5v11a2 2 0 0 1-2 2z"/><path d="M12 11v6M9 14l3 3 3-3"/></svg>
       Importar CSV
@@ -1095,6 +1099,48 @@
         <pre id="diag-logs-content" style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:12px;max-height:360px;overflow:auto;font-size:11px;line-height:1.5;white-space:pre-wrap;word-break:break-word;color:var(--muted)"></pre>
       </div>
     </div>
+
+    <!-- SPIDER PAGE (extração de dados do IG via perfil logado) -->
+    <div class="page" id="page-spider">
+      <div class="page-header">
+        <div>
+          <div class="page-title">Spider</div>
+          <div class="page-subtitle">Extrai dados do Instagram usando um perfil JÁ LOGADO (a conta do perfil faz as requisições). Fase 1: seguidores.</div>
+        </div>
+      </div>
+
+      <div class="form-card" style="max-width:560px">
+        <div class="form-group">
+          <label>Perfil (conta que vai raspar)</label>
+          <select id="sp-profile"></select>
+          <div class="form-hint">Use um perfil com uma conta de scraping <b>descartável</b> já logada no Instagram — não use suas contas boas (raspar queima conta).</div>
+        </div>
+        <div class="form-group">
+          <label>Alvo</label>
+          <input id="sp-target" type="text" placeholder="@usuario ou https://www.instagram.com/usuario/">
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>O que extrair</label>
+            <select id="sp-kind"><option value="followers">Seguidores</option></select>
+          </div>
+          <div class="form-group">
+            <label>Limite (0 = todos)</label>
+            <input id="sp-limit" type="number" min="0" value="0">
+          </div>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center">
+          <button id="sp-start" class="btn btn-primary" onclick="spiderStart()">▶ Iniciar</button>
+          <button id="sp-stop" class="btn btn-danger btn-sm" onclick="spiderStop()" style="display:none">⏹ Parar</button>
+          <button id="sp-csv" class="btn btn-success btn-sm" onclick="spiderDownload()" style="display:none">⬇ Baixar CSV</button>
+        </div>
+      </div>
+
+      <div id="sp-status" style="display:none;margin-top:16px;max-width:560px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:14px 16px;font-size:13px">
+        <div><b id="sp-state">—</b> · <span id="sp-count">0</span> registro(s)</div>
+        <div id="sp-detail" style="color:var(--muted);font-size:12px;margin-top:6px"></div>
+      </div>
+    </div>
   </main>
 </div>
 
@@ -1342,6 +1388,7 @@ function showPage(name) {
   if (name === 'whatsapps') loadWhatsapps();
   if (name === 'proxies') loadProxiesPage();
   if (name === 'analytics') loadAnalytics();
+  if (name === 'spider') loadSpider();
 }
 
 function refreshAll() {
@@ -2798,6 +2845,81 @@ async function exportAccountsCsv() {
     URL.revokeObjectURL(url);
     toast('CSV exportado');
   } catch (e) { toast(e.message || 'Erro ao exportar', 'error'); }
+}
+
+// ── Spider (extração de dados do IG via perfil logado) ──────────────────────
+let _spiderJob = null;
+let _spiderTimer = null;
+
+async function loadSpider() {
+  try {
+    const profiles = await api('GET', '/profiles');
+    profiles.sort((a, b) => (b.account_status === 'active') - (a.account_status === 'active'));
+    const sel = document.getElementById('sp-profile');
+    sel.innerHTML = profiles.map(p => {
+      const acct = p.account_username ? ` (@${p.account_username})` : '';
+      const tag = p.account_status === 'active' ? ' ✅ logada' : (p.account_status ? ` · ${p.account_status}` : '');
+      return `<option value="${p.id}">${escapeHtml(p.name)}${escapeHtml(acct + tag)}</option>`;
+    }).join('') || '<option value="">(nenhum perfil)</option>';
+  } catch (e) { toast(e.message || 'Erro ao carregar perfis', 'error'); }
+}
+
+async function spiderStart() {
+  const profile_id = document.getElementById('sp-profile').value;
+  const target = document.getElementById('sp-target').value.trim();
+  const limit = parseInt(document.getElementById('sp-limit').value, 10) || 0;
+  const kind = document.getElementById('sp-kind').value;
+  if (!profile_id) { toast('Selecione um perfil', 'error'); return; }
+  if (!target) { toast('Informe o alvo', 'error'); return; }
+  try {
+    const r = await api('POST', '/spider/extract', { profile_id, target, limit, kind });
+    _spiderJob = r.job_id;
+    document.getElementById('sp-status').style.display = '';
+    document.getElementById('sp-start').disabled = true;
+    document.getElementById('sp-stop').style.display = '';
+    document.getElementById('sp-csv').style.display = 'none';
+    document.getElementById('sp-detail').textContent = 'Abrindo o perfil e raspando… (a janela pode demorar a abrir no 4G).';
+    spiderPoll();
+  } catch (e) { toast(e.message || 'Erro ao iniciar', 'error'); }
+}
+
+async function spiderPoll() {
+  if (!_spiderJob) return;
+  if (_spiderTimer) clearTimeout(_spiderTimer);
+  try {
+    const j = await api('GET', `/spider/jobs/${_spiderJob}`);
+    document.getElementById('sp-state').textContent =
+      j.status === 'running' ? '⏳ Extraindo' : j.status === 'done' ? '✅ Concluído' : '⚠️ Erro';
+    document.getElementById('sp-count').textContent = j.count;
+    if (j.status === 'running') { _spiderTimer = setTimeout(spiderPoll, 2000); return; }
+    document.getElementById('sp-start').disabled = false;
+    document.getElementById('sp-stop').style.display = 'none';
+    if (j.status === 'done') {
+      document.getElementById('sp-detail').textContent = `${j.count} registro(s) de @${j.target}.`;
+      document.getElementById('sp-csv').style.display = j.count ? '' : 'none';
+    } else {
+      document.getElementById('sp-detail').textContent = j.error || 'Falha na extração.';
+    }
+  } catch (e) { _spiderTimer = setTimeout(spiderPoll, 3000); }
+}
+
+async function spiderStop() {
+  if (!_spiderJob) return;
+  try { await api('POST', `/spider/jobs/${_spiderJob}/stop`); toast('Parando…'); } catch (e) {}
+}
+
+async function spiderDownload() {
+  if (!_spiderJob) return;
+  try {
+    const res = await fetch(API + `/spider/jobs/${_spiderJob}/csv`);
+    if (!res.ok) throw new Error('Falha ao baixar');
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'seguidores.csv';
+    document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(url);
+  } catch (e) { toast(e.message || 'Erro ao baixar', 'error'); }
 }
 
 async function deleteAccount(id) {

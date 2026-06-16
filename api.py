@@ -27,6 +27,7 @@ import batch_import as bi
 import emails as eb
 import proxies as pool
 import warm_pool
+import spider
 import time
 
 import logging
@@ -1090,6 +1091,87 @@ def accounts_export():
         media_type="text/csv",
         headers={"Content-Disposition": "attachment; filename=contas_export.csv"},
     )
+
+
+# ─── Spider: extração de dados do IG rodando DENTRO de um perfil logado ───────
+import csv as _csv
+import io as _io
+
+_spider_jobs: dict[str, dict] = {}
+
+
+class SpiderExtractRequest(BaseModel):
+    profile_id: str
+    kind: str = "followers"
+    target: str
+    limit: int = 0
+
+
+@app.post("/spider/extract")
+async def spider_extract(body: SpiderExtractRequest):
+    p = get_profile(body.profile_id)
+    if not p:
+        raise HTTPException(404, "Perfil não encontrado")
+    if not (body.target or "").strip():
+        raise HTTPException(400, "Informe o alvo (@usuário ou URL)")
+    job_id = uuid.uuid4().hex[:12]
+    job = {"id": job_id, "status": "running", "kind": body.kind, "target": body.target,
+           "count": 0, "rows": [], "error": None, "stop": False, "profile": p.get("name")}
+    _spider_jobs[job_id] = job
+
+    def _progress(n): job["count"] = n
+    def _should_stop(): return job.get("stop", False)
+
+    async def _worker():
+        try:
+            res = await spider.extract(p, body.kind, body.target, body.limit,
+                                       progress=_progress, should_stop=_should_stop)
+            if res.get("error"):
+                job["status"] = "error"; job["error"] = res["error"]
+            else:
+                job["rows"] = res.get("rows", [])
+                job["count"] = len(job["rows"])
+                job["status"] = "done"
+        except Exception as e:
+            job["status"] = "error"; job["error"] = str(e)
+
+    asyncio.create_task(_worker())
+    return {"job_id": job_id}
+
+
+@app.get("/spider/jobs/{job_id}")
+def spider_job(job_id: str):
+    j = _spider_jobs.get(job_id)
+    if not j:
+        raise HTTPException(404, "Job não encontrado")
+    return {"id": j["id"], "status": j["status"], "count": j["count"],
+            "kind": j["kind"], "target": j["target"], "error": j["error"]}
+
+
+@app.post("/spider/jobs/{job_id}/stop")
+def spider_job_stop(job_id: str):
+    j = _spider_jobs.get(job_id)
+    if not j:
+        raise HTTPException(404, "Job não encontrado")
+    j["stop"] = True
+    return {"ok": True}
+
+
+@app.get("/spider/jobs/{job_id}/csv")
+def spider_job_csv(job_id: str):
+    from fastapi.responses import Response
+    j = _spider_jobs.get(job_id)
+    if not j:
+        raise HTTPException(404, "Job não encontrado")
+    rows = j.get("rows") or []
+    buf = _io.StringIO()
+    w = _csv.DictWriter(buf, fieldnames=spider.FOLLOWERS_HEADERS, extrasaction="ignore")
+    w.writeheader()
+    for r in rows:
+        w.writerow(r)
+    fname = f"IGFollowers_{spider.clean_username(j['target'])}_{len(rows)}.csv"
+    return Response(content=buf.getvalue(), media_type="text/csv",
+                    headers={"Content-Disposition": f"attachment; filename={fname}"})
 
 
 @app.get("/accounts/{account_id}")
