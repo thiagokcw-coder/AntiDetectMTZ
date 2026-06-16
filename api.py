@@ -28,6 +28,7 @@ import emails as eb
 import proxies as pool
 import warm_pool
 import spider
+import spider_app
 import time
 
 import logging
@@ -1101,7 +1102,9 @@ _spider_jobs: dict[str, dict] = {}
 
 
 class SpiderExtractRequest(BaseModel):
-    profile_id: str
+    method: str = "web"               # "web" (perfil logado) | "app" (instagrapi)
+    profile_id: Optional[str] = None  # usado no modo web
+    account_id: Optional[str] = None  # usado no modo app (precisa usuário+senha)
     kind: str = "followers"
     target: str
     limit: int = 0
@@ -1109,14 +1112,29 @@ class SpiderExtractRequest(BaseModel):
 
 @app.post("/spider/extract")
 async def spider_extract(body: SpiderExtractRequest):
-    p = get_profile(body.profile_id)
-    if not p:
-        raise HTTPException(404, "Perfil não encontrado")
     if not (body.target or "").strip():
         raise HTTPException(400, "Informe o alvo (@usuário ou URL)")
+    method = (body.method or "web").lower()
+    if method == "app":
+        a = db.get_account(body.account_id) if body.account_id else None
+        if not a:
+            raise HTTPException(404, "Conta não encontrada")
+        if not (a.get("username") and a.get("password")):
+            raise HTTPException(400, "A conta precisa de usuário e senha cadastrados para o modo app (instagrapi).")
+        label = a.get("username")
+        async def _do(prog, stop):
+            return await spider_app.extract(a, body.kind, body.target, body.limit, progress=prog, should_stop=stop)
+    else:
+        p = get_profile(body.profile_id) if body.profile_id else None
+        if not p:
+            raise HTTPException(404, "Perfil não encontrado")
+        label = p.get("name")
+        async def _do(prog, stop):
+            return await spider.extract(p, body.kind, body.target, body.limit, progress=prog, should_stop=stop)
+
     job_id = uuid.uuid4().hex[:12]
     job = {"id": job_id, "status": "running", "kind": body.kind, "target": body.target,
-           "count": 0, "rows": [], "error": None, "stop": False, "profile": p.get("name")}
+           "count": 0, "rows": [], "error": None, "stop": False, "profile": label, "method": method}
     _spider_jobs[job_id] = job
 
     def _progress(n): job["count"] = n
@@ -1124,8 +1142,7 @@ async def spider_extract(body: SpiderExtractRequest):
 
     async def _worker():
         try:
-            res = await spider.extract(p, body.kind, body.target, body.limit,
-                                       progress=_progress, should_stop=_should_stop)
+            res = await _do(_progress, _should_stop)
             if res.get("error"):
                 job["status"] = "error"; job["error"] = res["error"]
             else:

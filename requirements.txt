@@ -5,3 +5,4 @@ fastapi[standard]
 uvicorn
 pywebview
 psycopg[binary]
+instagrapi

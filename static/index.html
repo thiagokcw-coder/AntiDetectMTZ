@@ -1111,9 +1111,21 @@
 
       <div class="form-card" style="max-width:560px">
         <div class="form-group">
+          <label>Método</label>
+          <select id="sp-method" onchange="spiderMethodChange()">
+            <option value="web">Web — usa um perfil JÁ LOGADO (sem login novo; superfície web, mais vigiada)</option>
+            <option value="app">App (instagrapi) — loga com usuário/senha da conta (API mobile; login novo)</option>
+          </select>
+        </div>
+        <div class="form-group" id="sp-profile-group">
           <label>Perfil (conta que vai raspar)</label>
           <select id="sp-profile"></select>
           <div class="form-hint">Use um perfil com uma conta de scraping <b>descartável</b> já logada no Instagram — não use suas contas boas (raspar queima conta).</div>
+        </div>
+        <div class="form-group" id="sp-account-group" style="display:none">
+          <label>Conta (com usuário e senha cadastrados)</label>
+          <select id="sp-account"></select>
+          <div class="form-hint">O instagrapi loga com o usuário/senha da conta + o proxy dela. Login programático = use contas <b>descartáveis</b>.</div>
         </div>
         <div class="form-group">
           <label>Alvo</label>
@@ -2851,28 +2863,49 @@ async function exportAccountsCsv() {
 let _spiderJob = null;
 let _spiderTimer = null;
 
+function spiderMethodChange() {
+  const m = document.getElementById('sp-method').value;
+  document.getElementById('sp-profile-group').style.display = m === 'web' ? '' : 'none';
+  document.getElementById('sp-account-group').style.display = m === 'app' ? '' : 'none';
+}
+
 async function loadSpider() {
   try {
-    const profiles = await api('GET', '/profiles');
+    const [profiles, accounts] = await Promise.all([
+      api('GET', '/profiles'),
+      api('GET', '/accounts'),
+    ]);
     profiles.sort((a, b) => (b.account_status === 'active') - (a.account_status === 'active'));
-    const sel = document.getElementById('sp-profile');
-    sel.innerHTML = profiles.map(p => {
+    document.getElementById('sp-profile').innerHTML = profiles.map(p => {
       const acct = p.account_username ? ` (@${p.account_username})` : '';
       const tag = p.account_status === 'active' ? ' ✅ logada' : (p.account_status ? ` · ${p.account_status}` : '');
       return `<option value="${p.id}">${escapeHtml(p.name)}${escapeHtml(acct + tag)}</option>`;
     }).join('') || '<option value="">(nenhum perfil)</option>';
-  } catch (e) { toast(e.message || 'Erro ao carregar perfis', 'error'); }
+    // modo app: só contas com usuário (a senha é validada no backend)
+    const withUser = (accounts || []).filter(a => a.username);
+    document.getElementById('sp-account').innerHTML = withUser.map(a =>
+      `<option value="${a.id}">@${escapeHtml(a.username)}${a.status ? ' · ' + escapeHtml(a.status) : ''}</option>`
+    ).join('') || '<option value="">(nenhuma conta com usuário)</option>';
+    spiderMethodChange();
+  } catch (e) { toast(e.message || 'Erro ao carregar perfis/contas', 'error'); }
 }
 
 async function spiderStart() {
-  const profile_id = document.getElementById('sp-profile').value;
+  const method = document.getElementById('sp-method').value;
   const target = document.getElementById('sp-target').value.trim();
   const limit = parseInt(document.getElementById('sp-limit').value, 10) || 0;
   const kind = document.getElementById('sp-kind').value;
-  if (!profile_id) { toast('Selecione um perfil', 'error'); return; }
   if (!target) { toast('Informe o alvo', 'error'); return; }
+  const payload = { method, target, limit, kind };
+  if (method === 'app') {
+    payload.account_id = document.getElementById('sp-account').value;
+    if (!payload.account_id) { toast('Selecione uma conta', 'error'); return; }
+  } else {
+    payload.profile_id = document.getElementById('sp-profile').value;
+    if (!payload.profile_id) { toast('Selecione um perfil', 'error'); return; }
+  }
   try {
-    const r = await api('POST', '/spider/extract', { profile_id, target, limit, kind });
+    const r = await api('POST', '/spider/extract', payload);
     _spiderJob = r.job_id;
     document.getElementById('sp-status').style.display = '';
     document.getElementById('sp-start').disabled = true;
