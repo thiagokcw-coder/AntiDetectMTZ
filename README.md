@@ -2,7 +2,13 @@
 
 Gerenciador de perfis de navegador **antidetect** baseado em **Camoufox** (Firefox com stealth avançado via Playwright), com backend FastAPI e interface web.
 
-Cria e gerencia perfis com fingerprints realistas, proxies e comportamento humano, e automatiza a criação, verificação e aquecimento de contas (foco em Instagram). Pode rodar **sozinho** (SQLite local) ou **compartilhado entre vários usuários** (PostgreSQL).
+Cria e gerencia perfis com fingerprints realistas e proxies, e serve como **central de cadastro, guarda e monitoramento de contas** (foco em Instagram). Pode rodar **sozinho** (SQLite local) ou **compartilhado entre vários usuários** (PostgreSQL).
+
+> **📌 Direção atual (importante):** os testes mostraram que criar contas de forma **totalmente automatizada pelo PC** esbarra na detecção do Instagram (correlação de dispositivo + automação) — mesmo com IP móvel limpo e comportamento humano, a conta costuma nascer sinalizada. Por isso o **fluxo recomendado** é:
+> 1. **Criar as contas num dispositivo real (Android, app oficial do IG)** — onde o IG menos desconfia;
+> 2. usar este app como **painel central**: cadastrar credenciais, organizar por perfil/proxy e **monitorar o status**.
+>
+> A **criação assistida (modo manual)** — o app gera os dados e abre a janela, você preenche — e a criação automática continuam disponíveis, mas como apoio, não como caminho principal.
 
 ---
 
@@ -11,14 +17,16 @@ Cria e gerencia perfis com fingerprints realistas, proxies e comportamento human
 - **Perfis** com fingerprint coerente (browserforge + Camoufox), proxy e geoip — fuso/idioma derivados do IP do proxy em runtime.
 - **Lançamento persistente** do navegador (cookies/histórico salvos por perfil), com cadeia de fallbacks que evita erros de geração de fingerprint.
 - **Criar / editar / remover perfis** pela interface — incluindo trocar o proxy (manual ou escolhido do pool com status visível).
-- **Criação de contas Instagram** com:
-  - Emails **catch-all + IMAP** (lê o código de verificação automaticamente).
-  - **SMS-Activate** (número de WhatsApp) para contas que pedem telefone.
-  - Preenchimento com **comportamento humano** (mouse, digitação, pausas).
-  - Data de nascimento opcional (gerada aleatória se não informada).
-- **Distribuição inteligente de proxies** por ban rate real (modo "Proxy Inteligente") ou limite fixo.
+- **Cadastro e monitoramento de contas** (foco do uso atual): registre contas criadas em qualquer lugar (ex.: no celular), com usuário/senha/email/WhatsApp/status, e acompanhe o estado de cada uma (ativa, checkpoint, banida…).
+- **Verificação de status automática**: ao abrir um perfil e fechar a janela, o app reabre em segundo plano, detecta no IG e atualiza o status — sem clicar em nada. Também há o botão "Verificar".
+- **Criação de contas Instagram** (apoio):
+  - **Modo manual** (recomendado p/ testes): o app gera os dados (email/senha/nome/nascimento/username), aquece o navegador e abre a janela no cadastro — **você preenche** copiando do popup. O código do email aparece no popup.
+  - **Conexão local (tethering)**: cria/abre pela internet do PC — ex.: ancoragem USB do celular = **IP móvel real** (melhor reputação). O geoip ajusta idioma/fuso ao IP.
+  - Automática em lote com emails **catch-all + IMAP**, **SMS-Activate**, comportamento humano e data de nascimento gerada.
+- **Distribuição inteligente de proxies** por ban rate real (modo "Proxy Inteligente") ou limite fixo, com **país-alvo** (coerência geográfica).
 - **Aquecimento** de perfis (navega sites comuns) e de contas (atividade no IG) em segundo plano.
 - **Importação em massa via CSV** (sequencial, com intervalo entre contas).
+- **Aba Perfis**: busca + filtros (com/sem conta, conta logada, aquecidos), ordenação por status e **destaque verde para perfis com conta IG logada**.
 - **Monitoramento**: status das contas, vida útil, uso de proxies/WhatsApp e métricas de ban.
 - **Lock de perfil em uso**: impede que duas máquinas abram o mesmo perfil ao mesmo tempo (essencial no modo compartilhado).
 - **Modo compartilhado** (PostgreSQL) ou **local** (SQLite) — automático conforme a `DATABASE_URL`.
@@ -37,7 +45,7 @@ Cria e gerencia perfis com fingerprints realistas, proxies e comportamento human
 
 ## 🚀 Como rodar
 
-1. Entre na pasta `antidetect-camoufox`.
+1. Entre na pasta do projeto (`AntiDetectMTZ`).
 2. Execute o inicializador:
    - **macOS / Linux:** `MonitorMtzMac.command` (duplo-clique no Finder) ou `./MonitorMtzMac.command` no terminal
    - **Windows:** `MonitorMtzWin.bat`
@@ -113,10 +121,10 @@ $env:DATABASE_URL = "postgresql://usuario:senha@host:5432/banco?sslmode=require"
 
 ### O que é compartilhado x local
 
-- **Compartilhado (no banco):** contas, emails, limites/config (incl. IMAP) e o pool de proxies.
-- **Local em cada máquina:** os perfis e seus `user_data` — a sessão logada do navegador vive fisicamente numa máquina.
+- **Compartilhado (no banco):** o **registro** de perfis, contas, emails, limites/config (incl. IMAP), pool de proxies e métricas/histórico.
+- **Local em cada máquina:** o `user_data` de cada perfil — os **cookies/sessão logada** do navegador vivem fisicamente na máquina que abriu a conta (não vão pro banco).
 
-Por isso, contas criadas por outro usuário aparecem com as credenciais, mas a sessão só pode ser aberta/aquecida na máquina que a criou. O **lock de perfil** impede que duas máquinas abram o mesmo perfil simultaneamente (a UI mostra "em uso por X" e desabilita o botão).
+Por isso, perfis e contas criados por outro usuário **aparecem para todos** (com as credenciais e o status), mas **abrir/aquecer com a sessão logada** só funciona na máquina que tem o `user_data`. O **lock de perfil** impede que duas máquinas abram o mesmo perfil simultaneamente (a UI mostra "em uso por X" e desabilita o botão).
 
 > ⚠️ **Segurança:** senhas de contas, senha do IMAP e senhas dos proxies são
 > gravadas em **texto puro**. Quem tiver a `DATABASE_URL` enxerga todos esses
@@ -140,18 +148,24 @@ de cada um.
   contas sem ban, evita os que banam muito, e dá folga inicial aos novos.
 - **Proxy Fixo:** o mesmo limite de contas para todos os proxies (previsível).
 
-### Criação de contas
-1. (Recomendado) Aqueça o navegador do perfil antes (acumula cookies/histórico).
-2. Aba **Criar Contas** → automática em lote (usa emails livres com perfil) ou criação manual.
-3. O app preenche o cadastro com comportamento humano, lê o código por email
-   (catch-all/IMAP) e, se a conta pedir telefone, usa o SMS-Activate (se houver chave).
+### Criação e cadastro de contas
+**Fluxo recomendado (mais seguro):**
+1. **Crie a conta num Android real** (app oficial do IG), com IP móvel (4G/5G) e ritmo humano.
+2. No app, **Contas → Adicionar conta**: cadastre usuário/senha/email/WhatsApp. (Se informar um perfil de "conexão local", dá pra abrir/monitorar no PC depois.)
+3. Acompanhe o **status** pela aba Contas/Perfis (verificação automática ao fechar o perfil).
+
+**Criação assistida no PC (modo manual, p/ testes):** na aba **Criar Contas**, "✍️ Criar conta manual" gera os dados, aquece o navegador e abre a janela no cadastro — **você preenche** copiando do popup; o código do email aparece sozinho (catch-all/IMAP).
+
+**Criação automática em lote:** o app preenche com comportamento humano, lê o código por email e, se pedir telefone, usa o SMS-Activate (se houver chave). 
+
+> ⚠️ **Sobre detecção:** criar contas **automaticamente pelo PC** tende a nascer sinalizado (o IG correlaciona dispositivo + automação), mesmo com proxy/fingerprint bons. Para escala e segurança, prefira **criar no dispositivo real** e usar o PC como **central de guarda/monitoramento**.
 
 ---
 
 ## 📁 Estrutura principal
 
 ```
-antidetect-camoufox/
+AntiDetectMTZ/
 ├── main.py                 # entrypoint (sobe a API + janela)
 ├── api.py                  # backend FastAPI (endpoints REST)
 ├── db.py                   # camada de dados (PostgreSQL ou SQLite)
