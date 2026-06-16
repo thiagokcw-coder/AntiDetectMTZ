@@ -95,6 +95,8 @@
   .copy { cursor: pointer; color: var(--accent2); font-size: 11px; margin-left: 6px; }
   .copy:hover { text-decoration: underline; }
   .section-title { font-size: 13px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; margin: 28px 0 12px; }
+  .pf-chip.pf-active { color: var(--accent2); border-color: var(--accent); background: var(--surface2); }
+  .card.has-logged { border-color: #16a34a; box-shadow: inset 3px 0 0 #16a34a; }
   .bar { height: 6px; background: var(--surface2); border-radius: 4px; overflow: hidden; width: 120px; display: inline-block; vertical-align: middle; }
   .bar > i { display: block; height: 100%; background: var(--accent); }
   .bar.full > i { background: var(--red); }
@@ -237,13 +239,13 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4v16"/><path d="M4 4h12l-2 4 2 4H4"/></svg>
       Comece aqui
     </div>
-    <div class="nav-item" data-page-link="profiles" onclick="showPage('profiles')">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 9h6M9 13h4"/></svg>
-      Perfis
-    </div>
     <div class="nav-item" data-page-link="accounts" onclick="showPage('accounts')">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>
       Contas
+    </div>
+    <div class="nav-item" data-page-link="profiles" onclick="showPage('profiles')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 9h6M9 13h4"/></svg>
+      Perfis
     </div>
     <div class="nav-item" data-page-link="emails" onclick="showPage('emails')">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-10 5L2 7"/></svg>
@@ -410,6 +412,22 @@
         <span style="color:var(--muted)">Em uso: <b id="wp-inuse">–</b></span>
         <span style="color:var(--muted)">Meta: <b id="wp-target">–</b></span>
         <span id="wp-info" style="color:var(--muted);margin-left:auto"></span>
+      </div>
+      <div id="profiles-filters" style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:14px">
+        <input id="profiles-search" type="text" placeholder="Buscar por nome…" oninput="renderProfilesGrid()"
+               style="padding:6px 10px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;max-width:200px">
+        <button class="btn btn-ghost btn-sm pf-chip pf-active" data-filter="all" onclick="setProfileFilter('all', this)">Todos</button>
+        <button class="btn btn-ghost btn-sm pf-chip" data-filter="logged" onclick="setProfileFilter('logged', this)">✅ Conta logada</button>
+        <button class="btn btn-ghost btn-sm pf-chip" data-filter="account" onclick="setProfileFilter('account', this)">Com conta</button>
+        <button class="btn btn-ghost btn-sm pf-chip" data-filter="noaccount" onclick="setProfileFilter('noaccount', this)">Sem conta</button>
+        <button class="btn btn-ghost btn-sm pf-chip" data-filter="warm" onclick="setProfileFilter('warm', this)">🔥 Aquecidos</button>
+        <select id="profiles-sort" onchange="renderProfilesGrid()" title="Ordenar por status da conta"
+                style="padding:6px 10px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px">
+          <option value="">Ordenar: padrão</option>
+          <option value="asc">Status ↑ (logada → banida)</option>
+          <option value="desc">Status ↓ (banida → logada)</option>
+        </select>
+        <span id="profiles-filter-count" style="color:var(--muted);font-size:12px;margin-left:auto"></span>
       </div>
       <div class="cards" id="profiles-grid"></div>
     </div>
@@ -930,48 +948,6 @@
         </table>
       </div>
 
-      <div class="section-title">Proxies usados</div>
-      <div class="table-wrap">
-        <table>
-          <thead><tr><th>Proxy</th><th>Uso</th><th>Status das contas</th><th>Limite</th></tr></thead>
-          <tbody id="proxy-usage-body"></tbody>
-        </table>
-      </div>
-
-      <div class="section-title">Números de WhatsApp usados</div>
-      <div class="table-wrap">
-        <table>
-          <thead><tr><th>Número</th><th>Uso</th><th>Contas</th><th>Limite</th></tr></thead>
-          <tbody id="whatsapp-usage-body"></tbody>
-        </table>
-      </div>
-
-      <div class="section-title">Limites</div>
-      <div class="form-card" style="max-width:420px">
-        <div class="form-row">
-          <div class="form-group">
-            <label>Contas por proxy (0 = sem limite)</label>
-            <input id="lim-proxy" type="number" min="0" value="3">
-          </div>
-          <div class="form-group">
-            <label>Usos por WhatsApp (0 = sem limite)</label>
-            <input id="lim-whatsapp" type="number" min="0" value="1">
-          </div>
-        </div>
-        <div class="form-row">
-          <div class="form-group">
-            <label>País-alvo do proxy (ISO-2, ex.: BR — vazio = qualquer)</label>
-            <input id="lim-country" type="text" maxlength="2" placeholder="BR" style="text-transform:uppercase">
-            <small style="color:var(--muted)">Só usa proxies desse país, p/ casar com a persona. Sem proxy do país → usa todos (com aviso no log).</small>
-          </div>
-          <div class="form-group">
-            <label>Re-checar status a cada (horas, 0 = desligado)</label>
-            <input id="lim-recheck" type="number" min="0" value="0">
-            <small style="color:var(--muted)">Verifica o status de todas as contas em segundo plano automaticamente. Cada checagem abre o perfil — use só com contas já logadas no PC.</small>
-          </div>
-        </div>
-        <button class="btn btn-primary btn-sm" onclick="saveLimits()">Salvar limites</button>
-      </div>
     </div>
 
     <!-- PROXIES PAGE -->
@@ -1133,8 +1109,8 @@
     </div>
     <div class="form-group" id="aa-proxy-group">
       <label>Proxy ao abrir no PC <span style="color:var(--muted);font-weight:400">(opcional — não recomendado)</span></label>
-      <input id="aa-proxy" type="text" placeholder="vazio = usar a internet do celular (tethering)">
-      <div class="form-hint">Deixe <b>vazio</b> para abrir no PC pela conexão local (mesmo IP do celular). Só preencha se for usar um proxy — de preferência do <b>mesmo país</b>. Formato: <code>host:porta:usuário:senha</code> ou URL.</div>
+      <input id="aa-proxy" type="text" placeholder="Só preencha se for usar proxy virtual">
+      <div class="form-hint">Por padrão, abre pela <b>conexão local do PC</b> (a internet do celular, se estiver em tethering). <b>Só preencha se for usar um proxy virtual</b> — de preferência do <b>mesmo país</b>. Formato: <code>host:porta:usuário:senha</code> ou URL.</div>
     </div>
     <div class="form-row">
       <div class="form-group">
@@ -1500,28 +1476,82 @@ async function loadWarmPool() {
   } catch (e) { /* silencioso */ }
 }
 
+let _profilesCache = [];
+let _profilesSessionMap = {};
+let _profileFilter = 'all';
+
 async function loadProfiles() {
   loadWarmPool();
   const [profiles, sessions] = await Promise.all([
     api('GET', '/profiles'),
     api('GET', '/sessions'),
   ]);
-  const sessionMap = {};
-  sessions.forEach(s => sessionMap[s.profile_id] = s.status);
+  _profilesSessionMap = {};
+  sessions.forEach(s => _profilesSessionMap[s.profile_id] = s.status);
+  _profilesCache = profiles;
 
-  const sub = document.getElementById('profiles-subtitle');
-  sub.textContent = `${profiles.length} perfil(s) cadastrado(s)`;
-
+  document.getElementById('profiles-subtitle').textContent = `${profiles.length} perfil(s) cadastrado(s)`;
   document.getElementById('sessions-count').textContent =
     sessions.length ? `${sessions.length} sessão(ões) ativa(s)` : '';
 
+  renderProfilesGrid();
+}
+
+function setProfileFilter(f, btn) {
+  _profileFilter = f;
+  document.querySelectorAll('#profiles-filters .pf-chip').forEach(c => c.classList.remove('pf-active'));
+  if (btn) btn.classList.add('pf-active');
+  renderProfilesGrid();
+}
+
+// Ordem dos status p/ ordenar: logada (viva) primeiro → banida por último.
+const _STATUS_RANK = { active: 0, created: 1, waiting_verification: 2, checkpoint: 3, login_required: 4, suspended: 5, banned: 6 };
+function _statusRank(p) {
+  const s = p.account_status;
+  if (!s) return 8;                       // sem conta
+  return (_STATUS_RANK[s] ?? 7);          // status desconhecido fica antes de "sem conta"
+}
+
+function _profileMatchesFilter(p) {
+  const st = p.account_status || null;
+  switch (_profileFilter) {
+    case 'logged':    return st === 'active';
+    case 'account':   return !!st;
+    case 'noaccount': return !st;
+    case 'warm':      return (p.warmup_count > 0) || p.pool_status === 'ready';
+    default:          return true;
+  }
+}
+
+function renderProfilesGrid() {
   const grid = document.getElementById('profiles-grid');
-  if (!profiles.length) {
+  const sessionMap = _profilesSessionMap;
+  const q = (document.getElementById('profiles-search')?.value || '').trim().toLowerCase();
+  let profiles = _profilesCache.filter(_profileMatchesFilter);
+  if (q) profiles = profiles.filter(p => (p.name || '').toLowerCase().includes(q));
+
+  // Ordenação por status da conta (logada → … → banida). Rank menor = "mais viva".
+  const sortDir = document.getElementById('profiles-sort')?.value || '';
+  if (sortDir) {
+    profiles = profiles.slice().sort((a, b) => {
+      const d = _statusRank(a) - _statusRank(b);
+      return sortDir === 'desc' ? -d : d;
+    });
+  }
+
+  const countEl = document.getElementById('profiles-filter-count');
+  if (countEl) countEl.textContent = _profilesCache.length ? `${profiles.length} de ${_profilesCache.length}` : '';
+
+  if (!_profilesCache.length) {
     grid.innerHTML = `<div class="empty" style="grid-column:1/-1">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/></svg>
       <p>Nenhum perfil criado</p>
       <small>Clique em "Novo Perfil" para começar</small>
     </div>`;
+    return;
+  }
+  if (!profiles.length) {
+    grid.innerHTML = `<div class="empty" style="grid-column:1/-1"><p>Nenhum perfil neste filtro</p></div>`;
     return;
   }
 
@@ -1541,8 +1571,14 @@ async function loadProfiles() {
     const lockRow = lockedByOther
       ? `<div class="card-row" style="color:var(--danger,#ef4444)">⛔ Em uso por <span title="desde ${escapeHtml(lock.since||'')} UTC">${escapeHtml(lock.holder||'outro usuário')}</span></div>`
       : '';
+    // Conta IG vinculada: card fica VERDE quando há conta logada (status active).
+    const logged = p.account_status === 'active';
+    const hasAcct = !!p.account_status;
+    const acctRow = hasAcct
+      ? `<div class="card-row">Conta: <span style="color:${logged ? '#16a34a' : 'var(--text)'}">${p.account_username ? '@'+escapeHtml(p.account_username) : '(sem username)'} ${logged ? '✅ logada' : '· '+escapeHtml(p.account_status)}</span></div>`
+      : '';
     return `
-    <div class="card" id="card-${safeId}">
+    <div class="card${logged ? ' has-logged' : ''}" id="card-${safeId}">
       <div class="card-header">
         <div>
           <div class="card-name">${safeName}</div>
@@ -1558,6 +1594,7 @@ async function loadProfiles() {
         <div class="card-row">Proxy: <span>${escapeHtml(proxy)}</span></div>
         <div class="card-row">Risco: <span>${escapeHtml(risk.risk)} (${escapeHtml(risk.score)})</span></div>
         <div class="card-row">Status: <span>${warmStatusHtml(p)}</span></div>
+        ${acctRow}
         ${lockRow}
       </div>
       <div class="card-actions">
@@ -2384,24 +2421,11 @@ function proxyShort(p) {
 let _accountsCache = [];
 async function loadAccountsPage() {
   try {
-    const [list, proxyUsage, wppUsage, limits] = await Promise.all([
-      api('GET', '/accounts'),
-      api('GET', '/proxies/usage'),
-      api('GET', '/whatsapp/usage'),
-      api('GET', '/limits'),
-    ]);
+    // Proxies usados, WhatsApps usados e Limites agora têm aba própria / foram
+    // removidos (eram resquícios da versão antiga). Aqui só listamos as contas.
+    const list = await api('GET', '/accounts');
     _accountsCache = list;
     renderAccounts(list);
-    renderProxyUsage(proxyUsage);
-    renderWhatsappUsage(wppUsage);
-    // Não sobrescreve os campos de limite se o usuário estiver editando
-    const af = document.activeElement?.id;
-    if (af !== 'lim-proxy')    document.getElementById('lim-proxy').value = limits.proxy_limit;
-    if (af !== 'lim-whatsapp') document.getElementById('lim-whatsapp').value = limits.whatsapp_limit;
-    const cEl = document.getElementById('lim-country');
-    if (cEl && af !== 'lim-country') cEl.value = limits.target_country || '';
-    const rEl = document.getElementById('lim-recheck');
-    if (rEl && af !== 'lim-recheck') rEl.value = limits.auto_recheck_hours ?? 0;
   } catch (e) {
     toast(e.message || 'Erro ao carregar contas', 'error');
   }
@@ -2620,47 +2644,6 @@ function renderAccounts(list) {
   }).join('');
 }
 
-function renderProxyUsage(list) {
-  const body = document.getElementById('proxy-usage-body');
-  if (!list.length) {
-    body.innerHTML = `<tr><td colspan="4" style="text-align:center;color:var(--muted);padding:20px">Nenhum proxy usado.</td></tr>`;
-    return;
-  }
-  body.innerHTML = list.map(g => {
-    const limit = g.limit || 0;
-    const pct = limit > 0 ? Math.min(100, (g.count / limit) * 100) : 0;
-    const statuses = Object.entries(g.statuses || {})
-      .map(([s, n]) => `${statusBadge(s)} ${n}`).join(' ');
-    const limTxt = limit > 0 ? `${g.count}/${limit}` : `${g.count} (sem limite)`;
-    return `<tr>
-      <td>${escapeHtml(g.proxy_key || '(sem proxy)')}</td>
-      <td><div class="bar ${g.blocked ? 'full' : ''}"><i style="width:${pct}%"></i></div>
-          <span style="margin-left:8px">${limTxt}</span></td>
-      <td>${statuses || '—'}</td>
-      <td>${g.blocked ? '<span class="badge badge-banned">atingido</span>' : '<span style="color:var(--green)">ok</span>'}</td>
-    </tr>`;
-  }).join('');
-}
-
-function renderWhatsappUsage(list) {
-  const body = document.getElementById('whatsapp-usage-body');
-  if (!list.length) {
-    body.innerHTML = `<tr><td colspan="4" style="text-align:center;color:var(--muted);padding:20px">Nenhum número usado.</td></tr>`;
-    return;
-  }
-  body.innerHTML = list.map(g => {
-    const limit = g.limit || 0;
-    const limTxt = limit > 0 ? `${g.count}/${limit}` : `${g.count} (sem limite)`;
-    const accs = (g.accounts || []).map(x => escapeHtml(x.username || x.id.slice(0, 6))).join(', ');
-    return `<tr>
-      <td>${escapeHtml(g.number)}</td>
-      <td>${limTxt}</td>
-      <td style="font-size:12px">${accs}</td>
-      <td>${g.blocked ? '<span class="badge badge-banned">atingido</span>' : '<span style="color:var(--green)">ok</span>'}</td>
-    </tr>`;
-  }).join('');
-}
-
 function detailRow(k, v, copyable) {
   const val = (v === null || v === undefined || v === '') ? '—' : v;
   const copy = (copyable && val !== '—')
@@ -2823,18 +2806,6 @@ async function deleteAccount(id) {
     await api('DELETE', '/accounts/' + id);
     closeModal('modal-account');
     toast('Conta, perfil e e-mails removidos');
-    loadAccountsPage();
-  } catch (e) { toast(e.message, 'error'); }
-}
-
-async function saveLimits() {
-  const proxy_limit = parseInt(document.getElementById('lim-proxy').value, 10);
-  const whatsapp_limit = parseInt(document.getElementById('lim-whatsapp').value, 10);
-  const target_country = (document.getElementById('lim-country')?.value || '').trim().toUpperCase();
-  const auto_recheck_hours = parseInt(document.getElementById('lim-recheck')?.value, 10) || 0;
-  try {
-    await api('POST', '/limits', { proxy_limit, whatsapp_limit, target_country, auto_recheck_hours });
-    toast('Limites salvos');
     loadAccountsPage();
   } catch (e) { toast(e.message, 'error'); }
 }
