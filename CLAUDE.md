@@ -12,6 +12,21 @@
 - **Aba Emails** virou **registro manual** (livre/usado) espelhando WhatsApps; IMAP/catch-all removido da UI (código IMAP do backend fica dormente). Endpoints `/emails` (GET/POST/PATCH/DELETE).
 - Menu: Início = Comece aqui · Perfis · Contas · Emails · WhatsApps · Métricas; Utilitários = Importar CSV · Novo Perfil · Proxies · Abrir Todos · Sessões · Diagnóstico.
 
+## 🆕 SESSÃO 2026-06-16 (continuar de outro PC daqui)
+
+**Banco compartilhado CONFIGURADO (Supabase Postgres).** Projeto "ManagerMTZ data", região São Paulo. Conexão via **Session pooler** (`postgresql://postgres.lakoruwdfabeyqbqcffg:<senha>@aws-1-sa-east-1.pooler.supabase.com:5432/postgres?sslmode=require`). Dados locais já migrados (`migrate_to_postgres.py`). A URL fica em **`database_url.txt`** ao lado do launcher (**gitignored** — não vai pro git). Compartilhado = registro de perfis/contas/emails/proxies/métricas; **local em cada PC** = `user_data` (cookies/sessão logada).
+- **Para continuar de OUTRO PC:** (1) clone `thiagokcw-coder/AntiDetectMTZ`; (2) crie `database_url.txt` na pasta com a string do Session pooler (senha do Supabase → Settings·Database·Reset se não tiver); (3) rode `MonitorMtzWin.bat` (mostra "PostgreSQL compartilhado"). Os cookies/sessões NÃO migram — logins ficam por máquina.
+
+**Spider (NOVO — aba Utilitários).** Reimplementação do mtzSpider SEM extensão: raspa a API do IG via `fetch` autenticado rodando `page.evaluate` DENTRO de um perfil Camoufox JÁ LOGADO (cada perfil = 1 conta+IP). `spider.py` + endpoints `/spider/extract|jobs/{id}|/stop|/csv` + aba "Spider" (commit `5775403`).
+- **Fase 1 = seguidores (FEITA, não testada ao vivo ainda).** Resolve `username→userId` (`/api/v1/users/web_profile_info/?username=`), pagina `/api/v1/friendships/{id}/followers/?count=50&max_id={next_max_id}` (→ `users[]`, `next_max_id`), jitter humano, trata 429. Headers mínimos: `x-csrftoken`(cookie)+`x-ig-app-id:936619743392459`+`x-asbd-id:129477`+`x-requested-with`.
+- **Fase 2 (PENDENTE) — demais extrações** (receita mapeada do mtzSpider em `C:\Users\T-GAMER\Desktop\APPS\SPIDER + CAMOUFOX\mtzSpider-main\chrome-extension\`):
+  - Posts: `/api/v1/feed/user/{id}/?count=12&max_id=` → `items[]`, `next_max_id`, `more_available`.
+  - Seguindo: igual a seguidores com `/following/`.
+  - Curtidas/comentários/hashtag/local via **GraphQL** `/graphql/query/?query_hash=<hash>&variables={...}` (cursor `after` ← `page_info.end_cursor`/`has_next_page`). Hashes mudam (mtzSpider tem hash-discovery varrendo bundles JS): likes `1cb6ec562846122743b61e492c85999f`, comments `33ba35852cb50da46f5b5e889df7d159`, hashtag `f92f56d47dc7a55b606908374b43a314`, location `36bd0f2bf5911908de389b8ceaa3be6d`.
+- **Fase 3 (PENDENTE):** rotação entre VÁRIOS perfis (espalha por IPs), timing/pausas mais finos, histórico.
+
+**UI/backend recentes desta sessão (commits `9b42998`/`199b69b`/`ede1c17`):** menu **Contas antes de Perfis**; aba **Perfis** com busca+filtros (com/sem conta, conta logada, aquecidos)+ordenação por status+**card verde p/ conta IG logada** (`/profiles` traz `account_status`/`account_username`); aba **Contas** sem as seções "proxies/whatsapps/limites usados" (resquícios); e-mail marcado **"usado"** ao vincular conta e ao detectar ATIVA (`emails.mark_used_by_address`); **auto-verificar status ao FECHAR** perfil aberto manual (`session_manager._run`); perfil do modo manual nomeado pelo username. README atualizado p/ a direção atual.
+
 ## Como rodar / validar
 - Rodar: **`MonitorMtzWin.bat`** (Windows) ou **`MonitorMtzMac.command`** (macOS/Linux) — criam venv, instalam deps + Firefox/Playwright + Camoufox, iniciam `main.py`. (Eram `run.bat`/`run.command`.)
 - **macOS:** o `python3` do PATH pode ser antigo (3.7); o launcher tenta `python3.12/3.11/...`. Usa-se o **python3.11 do Homebrew** (`/opt/homebrew`). Branding no `main.py` troca ícone do Dock (MTZ) e nome ("Monitor MTZ"). `.app` foi descartado (Gatekeeper bloqueia bundle não-assinado no macOS 26). Ícones em `icons/` (`MonitorMtzMac.icns` verde, `MonitorMtzWin.ico` azul).
