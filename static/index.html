@@ -1595,9 +1595,18 @@ async function loadActiveProxy() {
     const s = await api('GET', '/proxies/active');
     _lastProxyState = s;
     box.classList.remove('proxy-ok', 'proxy-warn');
-    if (s && s.level && s.level !== 'idle') box.classList.add(s.level === 'warn' ? 'proxy-warn' : 'proxy-ok');
-    // Linha 1: meu IP real (sem proxy)
-    lineIp.textContent = 'Meu IP: ' + (s && s.my_ip ? (s.my_ip + (s.my_ip_country ? ' · ' + s.my_ip_country : '')) : '—');
+    // Caixa fica vermelha se o proxy estiver em atenção OU se o meu IP foi marcado queimado.
+    const boxWarn = (s && s.level === 'warn') || (s && s.my_ip_flagged);
+    if (s && ((s.level && s.level !== 'idle') || s.my_ip_flagged)) box.classList.add(boxWarn ? 'proxy-warn' : 'proxy-ok');
+    // Linha 1: meu IP real (sem proxy) — verde = bom, vermelho = queimado (marcado)
+    if (s && s.my_ip) {
+      lineIp.style.color = s.my_ip_flagged ? '#ef4444' : '#10b981';
+      lineIp.textContent = 'Meu IP: ' + s.my_ip + (s.my_ip_country ? ' · ' + s.my_ip_country : '')
+        + (s.my_ip_flagged ? ' · 🔥 QUEIMADO' : '');
+    } else {
+      lineIp.style.color = '';
+      lineIp.textContent = 'Meu IP: —';
+    }
     // Linha 2: proxy atual/usado
     lineProxy.textContent = proxyProxyLineText(s);
     // Se o painel estiver aberto, atualiza o conteúdo
@@ -1646,7 +1655,15 @@ function renderProxyPanel(s) {
   if (!panel) return;
   if (!s) { panel.innerHTML = '<span style="color:var(--muted)">Carregando…</span>'; return; }
   const row = (k, v) => `<div class="pp-row"><span style="color:var(--muted)">${k}</span><span>${v}</span></div>`;
-  const myip = s.my_ip ? `<code>${escapeHtml(s.my_ip)}</code>${s.my_ip_country ? ' · ' + escapeHtml(s.my_ip_country) : ''}` : '—';
+  // Meu IP: verde = bom para uso, vermelho = queimado (marcado por você)
+  const ipFlagged = !!s.my_ip_flagged;
+  const ipColor = ipFlagged ? '#ef4444' : '#10b981';
+  const ipBadge = ipFlagged
+    ? '<span style="color:#ef4444;font-weight:700">● QUEIMADO</span>'
+    : '<span style="color:#10b981;font-weight:700">● bom p/ uso</span>';
+  const myip = s.my_ip
+    ? `<code style="color:${ipColor}">${escapeHtml(s.my_ip)}</code>${s.my_ip_country ? ' · ' + escapeHtml(s.my_ip_country) : ''} ${ipBadge}`
+    : '—';
 
   // Bloco do proxy atual/usado
   let proxyBlock = '';
