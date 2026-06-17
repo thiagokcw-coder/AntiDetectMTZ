@@ -13,6 +13,7 @@ import copy
 import json
 import re
 import socket
+import threading
 import uuid
 
 import profiles as prof
@@ -1139,6 +1140,7 @@ async def spider_extract(body: SpiderExtractRequest):
     if not (body.target or "").strip():
         raise HTTPException(400, "Informe o alvo (@usuário ou URL)")
     method = (body.method or "web").lower()
+    a = p = None
     if method == "app":
         a = db.get_account(body.account_id) if body.account_id else None
         if not a:
@@ -1146,33 +1148,57 @@ async def spider_extract(body: SpiderExtractRequest):
         if not (a.get("username") and a.get("password")):
             raise HTTPException(400, "A conta precisa de usuário e senha cadastrados para o modo app (instagrapi).")
         label = a.get("username")
-        async def _do(prog, stop):
-            return await spider_app.extract(a, body.kind, body.target, body.limit, progress=prog, should_stop=stop)
     else:
         p = get_profile(body.profile_id) if body.profile_id else None
         if not p:
             raise HTTPException(404, "Perfil não encontrado")
         label = p.get("name")
-        async def _do(prog, stop):
-            return await spider.extract(p, body.kind, body.target, body.limit, progress=prog, should_stop=stop)
 
     job_id = uuid.uuid4().hex[:12]
     job = {"id": job_id, "status": "running", "kind": body.kind, "target": body.target,
-           "count": 0, "rows": [], "error": None, "stop": False, "profile": label, "method": method}
+           "count": 0, "rows": [], "error": None, "stop": False, "profile": label,
+           "method": method, "detail": "", "code": None, "code_method": None}
     _spider_jobs[job_id] = job
 
     def _progress(n): job["count"] = n
     def _should_stop(): return job.get("stop", False)
 
+    def _status(state):
+        job["detail"] = {"logando": "Logando na conta (o IG pode pedir um código)…",
+                         "extraindo": "Extraindo seguidores…"}.get(state, state or "")
+
+    def _code_provider(username, choice):
+        # Chamado (em thread) quando o IG pede código de confirmação. Pausa o job,
+        # a UI mostra o campo, e bloqueia até o usuário enviar o código.
+        ev = threading.Event()
+        job["_code_event"] = ev
+        job["code"] = None
+        job["code_method"] = str(getattr(choice, "name", choice) or "")
+        job["status"] = "needs_code"
+        job["detail"] = "O Instagram pediu um código de confirmação — digite o código enviado."
+        ev.wait(timeout=300)
+        job["status"] = "running"
+        job["detail"] = "Código enviado, continuando…"
+        return job.get("code") or ""
+
     async def _worker():
         try:
-            res = await _do(_progress, _should_stop)
+            if method == "app":
+                res = await spider_app.extract(
+                    a, body.kind, body.target, body.limit,
+                    progress=_progress, should_stop=_should_stop,
+                    code_provider=_code_provider, status=_status)
+            else:
+                res = await spider.extract(
+                    p, body.kind, body.target, body.limit,
+                    progress=_progress, should_stop=_should_stop)
             if res.get("error"):
                 job["status"] = "error"; job["error"] = res["error"]
             else:
                 job["rows"] = res.get("rows", [])
                 job["count"] = len(job["rows"])
                 job["status"] = "done"
+                job["detail"] = ""
         except Exception as e:
             job["status"] = "error"; job["error"] = str(e)
 
@@ -1186,7 +1212,26 @@ def spider_job(job_id: str):
     if not j:
         raise HTTPException(404, "Job não encontrado")
     return {"id": j["id"], "status": j["status"], "count": j["count"],
-            "kind": j["kind"], "target": j["target"], "error": j["error"]}
+            "kind": j["kind"], "target": j["target"], "error": j["error"],
+            "detail": j.get("detail", ""), "code_method": j.get("code_method")}
+
+
+class SpiderCodeRequest(BaseModel):
+    code: str
+
+
+@app.post("/spider/jobs/{job_id}/code")
+def spider_job_code(job_id: str, body: SpiderCodeRequest):
+    """Recebe o código de confirmação do IG (checkpoint) digitado pelo usuário e
+    libera o login (modo app/instagrapi)."""
+    j = _spider_jobs.get(job_id)
+    if not j:
+        raise HTTPException(404, "Job não encontrado")
+    j["code"] = (body.code or "").strip()
+    ev = j.get("_code_event")
+    if ev:
+        ev.set()
+    return {"ok": True}
 
 
 @app.post("/spider/jobs/{job_id}/stop")

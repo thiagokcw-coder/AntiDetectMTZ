@@ -1151,6 +1151,10 @@
       <div id="sp-status" style="display:none;margin-top:16px;max-width:560px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:14px 16px;font-size:13px">
         <div><b id="sp-state">—</b> · <span id="sp-count">0</span> registro(s)</div>
         <div id="sp-detail" style="color:var(--muted);font-size:12px;margin-top:6px"></div>
+        <div id="sp-code-box" style="display:none;margin-top:10px;gap:8px;align-items:center">
+          <input id="sp-code" type="text" placeholder="Código do Instagram" style="padding:6px 10px;background:var(--surface);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;max-width:160px">
+          <button class="btn btn-primary btn-sm" onclick="spiderSubmitCode()">Enviar código</button>
+        </div>
       </div>
     </div>
   </main>
@@ -2921,10 +2925,13 @@ async function spiderPoll() {
   if (_spiderTimer) clearTimeout(_spiderTimer);
   try {
     const j = await api('GET', `/spider/jobs/${_spiderJob}`);
-    document.getElementById('sp-state').textContent =
-      j.status === 'running' ? '⏳ Extraindo' : j.status === 'done' ? '✅ Concluído' : '⚠️ Erro';
+    const map = { running: '⏳ Em andamento', needs_code: '🔐 Precisa de código',
+                  done: '✅ Concluído', error: '⚠️ Erro' };
+    document.getElementById('sp-state').textContent = map[j.status] || j.status;
     document.getElementById('sp-count').textContent = j.count;
-    if (j.status === 'running') { _spiderTimer = setTimeout(spiderPoll, 2000); return; }
+    if (j.detail) document.getElementById('sp-detail').textContent = j.detail;
+    document.getElementById('sp-code-box').style.display = j.status === 'needs_code' ? 'flex' : 'none';
+    if (j.status === 'running' || j.status === 'needs_code') { _spiderTimer = setTimeout(spiderPoll, 2000); return; }
     document.getElementById('sp-start').disabled = false;
     document.getElementById('sp-stop').style.display = 'none';
     if (j.status === 'done') {
@@ -2934,6 +2941,19 @@ async function spiderPoll() {
       document.getElementById('sp-detail').textContent = j.error || 'Falha na extração.';
     }
   } catch (e) { _spiderTimer = setTimeout(spiderPoll, 3000); }
+}
+
+async function spiderSubmitCode() {
+  const code = (document.getElementById('sp-code').value || '').trim();
+  if (!code) { toast('Digite o código', 'error'); return; }
+  if (!_spiderJob) return;
+  try {
+    await api('POST', `/spider/jobs/${_spiderJob}/code`, { code });
+    document.getElementById('sp-code').value = '';
+    document.getElementById('sp-code-box').style.display = 'none';
+    document.getElementById('sp-detail').textContent = 'Código enviado, continuando…';
+    toast('Código enviado');
+  } catch (e) { toast(e.message || 'Erro ao enviar código', 'error'); }
 }
 
 async function spiderStop() {
