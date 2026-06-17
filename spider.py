@@ -45,6 +45,47 @@ async ([url, referer]) => {
 }
 """
 
+# GraphQL (headers MÍNIMOS, método IGFollow) — paginação real (end_cursor), NÃO
+# capa em 50 como a API v1 /friendships/. Sem x-ig-app-id de propósito (menos
+# fingerprint = menos 'should_limit_list_of_followers').
+_GQL_JS = r"""
+async ([url, referer]) => {
+  const m = document.cookie.match(/(?:^|;\s*)csrftoken=([^;]+)/);
+  const csrf = m ? m[1] : '';
+  try {
+    const r = await fetch(url, {
+      method: 'GET',
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'X-CSRFToken': csrf,
+        'x-requested-with': 'XMLHttpRequest',
+        'x-instagram-ajax': '1',
+        'referer': referer,
+      },
+      referrer: referer,
+    });
+    let body = null;
+    try { body = await r.json(); } catch (e) {}
+    return { ok: r.ok, status: r.status, json: body };
+  } catch (e) {
+    return { ok: false, status: -1, error: String(e) };
+  }
+}
+"""
+
+# query_hash confirmados (engenharia reversa, ref. "SPIDER NEW"/IGFollow).
+_GQL = {"followers": "37479f2b8209594dde7facb0d904896a",
+        "following": "58712303d941c6855d4e888c5f0cd22f"}
+
+
+async def _graphql(page, query_hash: str, variables: dict, referer: str) -> dict:
+    import json as _json
+    from urllib.parse import quote
+    url = f"{IG}/graphql/query/?query_hash={query_hash}&variables={quote(_json.dumps(variables))}"
+    return await page.evaluate(_GQL_JS, [url, referer])
+
+
 FOLLOWERS_HEADERS = ["Username", "User Id", "Full Name", "Verified", "Private",
                      "Profile URL", "Avatar URL"]
 # 'following' usa os mesmos campos de 'followers'.
@@ -91,12 +132,15 @@ async def _resolve_user(page, username: str):
 
 async def _friendship_list(page, user_id, username, edge, limit, progress, should_stop,
                            log=None, start_max_id=None, seed_rows=None, delay_ms=2500):
-    """Lista de relacionamento (edge='followers' ou 'following'). Mesma resposta
-    (`users[]`+`next_max_id`). Retorna (rows, cursor); cursor=None => completo."""
+    """Lista de relacionamento (edge='followers' ou 'following') via GraphQL.
+    Pagina de verdade pelo `end_cursor` (a API v1 /friendships/ capava em ~50).
+    Retorna (rows, cursor); cursor=None => completo. cursor = end_cursor do GraphQL."""
     rows = list(seed_rows or [])
     seen = {str(r.get("User Id")) for r in rows if r.get("User Id")}
-    max_id = start_max_id or None
-    cursor = max_id
+    cursor = start_max_id or None
+    qhash = _GQL["following"] if edge == "following" else _GQL["followers"]
+    edge_key = "edge_follow" if edge == "following" else "edge_followed_by"
+    referer = f"{IG}/{username}/{'following' if edge == 'following' else 'followers'}/"
     rate_hits = 0
     page_n = 0
     next_pause = random.randint(15, 25)   # pausa de proteção a cada ~15-25 páginas
@@ -106,12 +150,11 @@ async def _friendship_list(page, user_id, username, edge, limit, progress, shoul
         if should_stop and should_stop():
             if log:
                 log("⏹ parado pelo usuário")
-            cursor = max_id
             break
-        url = f"{IG}/api/v1/friendships/{user_id}/{edge}/?count=50"
-        if max_id:
-            url += f"&max_id={max_id}"
-        res = await _api_get(page, url, f"{IG}/{username}/")
+        variables = {"id": str(user_id), "first": 50}
+        if cursor:
+            variables["after"] = cursor
+        res = await _graphql(page, qhash, variables, referer)
         st = res.get("status")
         if st in (429, 560):                 # rate limit → espera e tenta de novo
             rate_hits += 1
@@ -120,51 +163,50 @@ async def _friendship_list(page, user_id, username, edge, limit, progress, shoul
             if rate_hits > 5:
                 if log:
                     log("✖ muitas vezes em rate limit — encerrando")
-                cursor = max_id
                 break
             await asyncio.sleep(60)
             continue
         rate_hits = 0
-        if not res.get("ok") or not res.get("json"):
+        data = ((((res.get("json") or {}).get("data") or {}).get("user") or {}).get(edge_key))
+        if not res.get("ok") or not data:
             if log:
                 log(f"✖ resposta inesperada (status {st}) — encerrando")
-            cursor = max_id
             break
-        j = res["json"]
         before = len(rows)
-        for u in (j.get("users") or []):
-            pk = str(u.get("pk") or u.get("id") or "")
+        for e in (data.get("edges") or []):
+            node = e.get("node") or {}
+            pk = str(node.get("id") or "")
             if not pk or pk in seen:
                 continue
             seen.add(pk)
-            uname = u.get("username", "")
+            uname = node.get("username", "")
             rows.append({
                 "Username": uname,
                 "User Id": pk,
-                "Full Name": u.get("full_name", ""),
-                "Verified": bool(u.get("is_verified")),
-                "Private": bool(u.get("is_private")),
+                "Full Name": node.get("full_name", ""),
+                "Verified": bool(node.get("is_verified")),
+                "Private": bool(node.get("is_private")),
                 "Profile URL": f"{IG}/{uname}/" if uname else "",
-                "Avatar URL": u.get("profile_pic_url", ""),
+                "Avatar URL": node.get("profile_pic_url", ""),
             })
             if limit and len(rows) >= limit:
                 if progress:
                     progress(len(rows))
                 if log:
                     log(f"✓ limite de {limit} atingido — total {len(rows)}")
-                return rows, j.get("next_max_id")
+                pi = data.get("page_info") or {}
+                return rows, (pi.get("end_cursor") if pi.get("has_next_page") else None)
         page_n += 1
         if log:
             log(f"página {page_n}: +{len(rows) - before} (total {len(rows)})")
         if progress:
             progress(len(rows))
-        max_id = j.get("next_max_id")
-        if not max_id:
+        pi = data.get("page_info") or {}
+        cursor = pi.get("end_cursor") if pi.get("has_next_page") else None
+        if not cursor:
             if log:
                 log(f"✓ fim da lista — total {len(rows)}")
-            cursor = None
             break
-        cursor = max_id
         await asyncio.sleep(_page_delay_s(delay_ms))
         if page_n >= next_pause:                       # pausa de proteção
             pause = round(random.uniform(5, 20), 1)
