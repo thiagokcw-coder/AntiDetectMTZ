@@ -1130,6 +1130,7 @@ class SpiderExtractRequest(BaseModel):
     method: str = "web"               # "web" (perfil logado) | "app" (instagrapi)
     profile_id: Optional[str] = None  # usado no modo web
     account_id: Optional[str] = None  # usado no modo app (precisa usuário+senha)
+    use_local: bool = False           # modo app: ignora o proxy da conta (sai pelo IP local/celular)
     kind: str = "followers"
     target: str
     limit: int = 0
@@ -1187,7 +1188,7 @@ async def spider_extract(body: SpiderExtractRequest):
                 res = await spider_app.extract(
                     a, body.kind, body.target, body.limit,
                     progress=_progress, should_stop=_should_stop,
-                    code_provider=_code_provider, status=_status)
+                    code_provider=_code_provider, status=_status, use_local=body.use_local)
             else:
                 res = await spider.extract(
                     p, body.kind, body.target, body.limit,

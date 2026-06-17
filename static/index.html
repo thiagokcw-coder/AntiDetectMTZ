@@ -1125,7 +1125,10 @@
         <div class="form-group" id="sp-account-group" style="display:none">
           <label>Conta (com usuário e senha cadastrados)</label>
           <select id="sp-account"></select>
-          <div class="form-hint">O instagrapi loga com o usuário/senha da conta + o proxy dela. Login programático = use contas <b>descartáveis</b>.</div>
+          <label style="display:flex;align-items:flex-start;gap:8px;margin-top:8px;font-weight:400">
+            <input type="checkbox" id="sp-local" checked style="margin-top:3px">
+            <span style="font-size:12px;color:var(--muted)">Usar <b>conexão local</b> (IP do celular/tethering) em vez do proxy da conta. <b>Recomendado</b>: IP coerente = bem menos chance de "challenge_required".</span>
+          </label>
         </div>
         <div class="form-group">
           <label>Alvo</label>
@@ -2903,6 +2906,7 @@ async function spiderStart() {
   const payload = { method, target, limit, kind };
   if (method === 'app') {
     payload.account_id = document.getElementById('sp-account').value;
+    payload.use_local = document.getElementById('sp-local').checked;
     if (!payload.account_id) { toast('Selecione uma conta', 'error'); return; }
   } else {
     payload.profile_id = document.getElementById('sp-profile').value;

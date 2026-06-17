@@ -31,13 +31,15 @@ def _proxy_url(proxy: dict):
     return f"{scheme}://{auth}{proxy['host']}:{proxy['port']}"
 
 
-def _client(account: dict, code_provider=None, status=None):
+def _client(account: dict, code_provider=None, status=None, use_local=False):
     """Cria/loga um Client instagrapi para a conta, reaproveitando a sessão salva.
 
     - code_provider(username, choice) -> str: chamado pelo instagrapi quando o IG
       pede CÓDIGO de confirmação (checkpoint de "novo aparelho"). Deve BLOQUEAR até
       o usuário fornecer o código (vem da UI) e retorná-lo.
     - status(estado): callback p/ a UI saber a etapa ('logando'/'extraindo'/...).
+    - use_local=True: NÃO usa o proxy da conta — sai pela conexão local do PC (ex.:
+      tethering do celular = IP coerente com onde a conta vive → menos desafio).
     """
     from instagrapi import Client
     SESS_DIR.mkdir(parents=True, exist_ok=True)
@@ -50,7 +52,7 @@ def _client(account: dict, code_provider=None, status=None):
     cl.delay_range = [1, 3]                       # pausa humana entre chamadas
     if code_provider:
         cl.challenge_code_handler = code_provider   # resolve checkpoint por código
-    pu = _proxy_url(account.get("proxy"))
+    pu = None if use_local else _proxy_url(account.get("proxy"))
     if pu:
         cl.set_proxy(pu)
     if sess.exists():
@@ -78,8 +80,8 @@ def _row(u) -> dict:
     }
 
 
-def _followers_sync(account, target, limit, progress, should_stop, code_provider, status):
-    cl = _client(account, code_provider, status)
+def _followers_sync(account, target, limit, progress, should_stop, code_provider, status, use_local):
+    cl = _client(account, code_provider, status, use_local)
     if status:
         status("extraindo")
     uname = (target or "").strip().lstrip("@").lower()
@@ -107,14 +109,25 @@ def _followers_sync(account, target, limit, progress, should_stop, code_provider
 
 
 async def extract(account: dict, kind: str, target: str, limit: int = 0,
-                  progress=None, should_stop=None, code_provider=None, status=None) -> dict:
+                  progress=None, should_stop=None, code_provider=None, status=None,
+                  use_local=False) -> dict:
     """Extrai via instagrapi. Fase 1: kind='followers'."""
     if kind != "followers":
         return {"error": f"tipo '{kind}' ainda não implementado no modo app (Fase 1 = followers)"}
     loop = asyncio.get_event_loop()
     try:
         rows = await loop.run_in_executor(
-            None, _followers_sync, account, target, limit, progress, should_stop, code_provider, status)
+            None, _followers_sync, account, target, limit, progress, should_stop,
+            code_provider, status, use_local)
         return {"rows": rows, "target": (target or "").lstrip("@"), "kind": kind}
     except Exception as e:
+        name = type(e).__name__
+        if "Challenge" in name or "challenge_required" in str(e):
+            return {"error": "O Instagram exigiu verificação que o instagrapi não resolve automaticamente "
+                             "(fluxo novo / IP suspeito). Tente: (1) marcar 'usar conexão local' (IP do celular); "
+                             "(2) se persistir, use o método WEB (loga no Camoufox e resolve o desafio na tela)."}
+        if "TwoFactor" in name or "two_factor" in str(e).lower():
+            return {"error": "A conta tem verificação em duas etapas (2FA). O modo app ainda não trata 2FA — use o método Web."}
+        if "Login" in name or "BadPassword" in name or "bad_password" in str(e).lower():
+            return {"error": "Usuário ou senha incorretos para esta conta."}
         return {"error": f"instagrapi: {e}"}
