@@ -2234,6 +2234,23 @@ async function warmupProfile(id, btn) {
   }
 }
 
+// Aquece o NAVEGADOR de uma conta (a partir da aba Contas) — não é a conta no IG.
+async function warmBrowser(profileId, btn) {
+  if (!profileId) { toast('Conta sem perfil', 'error'); return; }
+  const mins = prompt('Aquecer o NAVEGADOR por quantos minutos?\n(em segundo plano: navega sites comuns, acumula cookies/histórico — não mexe na conta do Instagram)', '10');
+  if (mins === null) return;
+  const minutes = parseFloat(mins) || 10;
+  if (btn) { btn.disabled = true; btn.textContent = '🔥 …'; }
+  try {
+    await api('POST', `/profiles/${encodeURIComponent(profileId)}/warmup-profile`, { minutes, headless: true });
+    toast(`Aquecendo o navegador por ~${minutes} min em segundo plano…`);
+    setTimeout(loadAccountsPage, 1500);
+  } catch (e) {
+    toast(e.message?.includes('already') ? 'O perfil já está aberto — feche antes de aquecer' : (e.message || 'Erro ao aquecer'), 'error');
+    if (btn) { btn.disabled = false; btn.textContent = '🔥 Aquecer navegador'; }
+  }
+}
+
 async function launchAll() {
   const profiles = await api('GET', '/profiles');
   if (!profiles.length) { toast('Nenhum perfil cadastrado', 'error'); return; }
@@ -3050,6 +3067,7 @@ function renderAccounts(list) {
       <td style="white-space:nowrap">
         ${a.profile_exists
           ? `<button class="btn btn-primary btn-sm" onclick="openAccountProfile('${a.profile_id}', this)">Abrir</button>
+             <button class="btn btn-ghost btn-sm" onclick="warmBrowser('${a.profile_id}', this)" title="Aquecer o navegador (cookies/histórico)">🔥 Aquecer navegador</button>
              <button class="btn btn-success btn-sm" onclick="checkAccount('${a.id}', this)">Verificar</button>`
           : ''}
         <button class="btn btn-ghost btn-sm" onclick="accountDetail('${a.id}')">Detalhes</button>
