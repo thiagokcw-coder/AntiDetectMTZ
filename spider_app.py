@@ -119,13 +119,14 @@ def _post_row_app(m) -> dict:
 
 
 def _friendship_loop(cl, edge, uid, uname, limit, progress, should_stop, log, start_max_id,
-                     seed_rows, delay_ms=2500):
+                     seed_rows, delay_ms=2500, total=None):
     rows = list(seed_rows or [])
     seen = {str(r.get("User Id")) for r in rows if r.get("User Id")}
     max_id = start_max_id or ""
     cursor = max_id or None
     page_n = 0
     next_pause = [random.randint(15, 25)]
+    _tot = (lambda n: f"{n}/{total}" if total else str(n))
     while True:
         if should_stop and should_stop():
             if log:
@@ -146,16 +147,16 @@ def _friendship_loop(cl, edge, uid, uname, limit, progress, should_stop, log, st
                 if progress:
                     progress(len(rows))
                 if log:
-                    log(f"✓ limite de {limit} atingido — total {len(rows)}")
+                    log(f"✓ limite de {limit} atingido — {_tot(len(rows))}")
                 return rows, (max_id or None)
         page_n += 1
         if log:
-            log(f"página {page_n}: +{len(rows) - before} (total {len(rows)})")
+            log(f"página {page_n}: +{len(rows) - before} ({_tot(len(rows))})")
         if progress:
             progress(len(rows))
         if not max_id:
             if log:
-                log(f"✓ fim da lista — total {len(rows)}")
+                log(f"✓ fim da lista — {_tot(len(rows))}")
             return rows, None
         cursor = max_id
         _page_sleep(delay_ms, page_n, next_pause, log)
@@ -163,13 +164,14 @@ def _friendship_loop(cl, edge, uid, uname, limit, progress, should_stop, log, st
 
 
 def _posts_loop(cl, uid, uname, limit, progress, should_stop, log, start_max_id, seed_rows,
-                delay_ms=2500):
+                delay_ms=2500, total=None):
     rows = list(seed_rows or [])
     seen = {str(r.get("Shortcode")) for r in rows if r.get("Shortcode")}
     end_cursor = start_max_id or ""
     cursor = end_cursor or None
     page_n = 0
     next_pause = [random.randint(15, 25)]
+    _tot = (lambda n: f"{n}/{total}" if total else str(n))
     while True:
         if should_stop and should_stop():
             if log:
@@ -187,16 +189,16 @@ def _posts_loop(cl, uid, uname, limit, progress, should_stop, log, start_max_id,
                 if progress:
                     progress(len(rows))
                 if log:
-                    log(f"✓ limite de {limit} atingido — total {len(rows)}")
+                    log(f"✓ limite de {limit} atingido — {_tot(len(rows))}")
                 return rows, (end_cursor or None)
         page_n += 1
         if log:
-            log(f"página {page_n}: +{len(rows) - before} (total {len(rows)})")
+            log(f"página {page_n}: +{len(rows) - before} ({_tot(len(rows))})")
         if progress:
             progress(len(rows))
         if not end_cursor:
             if log:
-                log(f"✓ fim dos posts — total {len(rows)}")
+                log(f"✓ fim dos posts — {_tot(len(rows))}")
             return rows, None
         cursor = end_cursor
         _page_sleep(delay_ms, page_n, next_pause, log)
@@ -204,8 +206,8 @@ def _posts_loop(cl, uid, uname, limit, progress, should_stop, log, start_max_id,
 
 
 def _extract_sync(account, kind, target, limit, progress, should_stop, code_provider, status,
-                  use_local, log, start_max_id, seed_rows, delay_ms):
-    """Loga uma vez e despacha por tipo. Retorna (rows, cursor)."""
+                  use_local, log, start_max_id, seed_rows, delay_ms, on_total):
+    """Loga uma vez e despacha por tipo. Retorna (rows, cursor, total)."""
     if log:
         log("logando na conta (instagrapi)…")
     cl = _client(account, code_provider, status, use_local)
@@ -215,31 +217,45 @@ def _extract_sync(account, kind, target, limit, progress, should_stop, code_prov
     if log:
         log(f"resolvendo @{uname}…")
     uid = cl.user_id_from_username(uname)
+    total = None
+    try:
+        ui = cl.user_info(uid)
+        total = {"followers": getattr(ui, "follower_count", None),
+                 "following": getattr(ui, "following_count", None),
+                 "posts": getattr(ui, "media_count", None)}.get(kind)
+    except Exception:
+        total = None
+    if on_total and total is not None:
+        on_total(total)
     if log:
         log((f"retomando: {len(seed_rows or [])} já coletado(s) — " if seed_rows else "")
-            + f"alvo @{uname} (id {uid}) — iniciando extração…")
+            + f"alvo @{uname} (id {uid})"
+            + (f" — {total} {kind}" if total is not None else "") + " — iniciando extração…")
     if kind in ("followers", "following"):
-        return _friendship_loop(cl, kind, uid, uname, limit, progress, should_stop, log,
-                                start_max_id, seed_rows, delay_ms)
-    if kind == "posts":
-        return _posts_loop(cl, uid, uname, limit, progress, should_stop, log, start_max_id,
-                           seed_rows, delay_ms)
-    return list(seed_rows or []), None
+        rows, cursor = _friendship_loop(cl, kind, uid, uname, limit, progress, should_stop, log,
+                                        start_max_id, seed_rows, delay_ms, total=total)
+    elif kind == "posts":
+        rows, cursor = _posts_loop(cl, uid, uname, limit, progress, should_stop, log, start_max_id,
+                                   seed_rows, delay_ms, total=total)
+    else:
+        rows, cursor = list(seed_rows or []), None
+    return rows, cursor, total
 
 
 async def extract(account: dict, kind: str, target: str, limit: int = 0,
                   progress=None, should_stop=None, code_provider=None, status=None,
                   use_local=False, log=None, start_max_id=None, seed_rows=None,
-                  delay_ms=2500) -> dict:
+                  delay_ms=2500, on_total=None) -> dict:
     """Extrai via instagrapi: followers/following/posts. Suporta resume + velocidade."""
     if kind not in ("followers", "following", "posts"):
         return {"error": f"tipo '{kind}' não suportado no modo app (use followers/following/posts)"}
     loop = asyncio.get_event_loop()
     try:
-        rows, cursor = await loop.run_in_executor(
+        rows, cursor, total = await loop.run_in_executor(
             None, _extract_sync, account, kind, target, limit, progress, should_stop,
-            code_provider, status, use_local, log, start_max_id, seed_rows, delay_ms)
-        return {"rows": rows, "cursor": cursor, "target": (target or "").lstrip("@"), "kind": kind}
+            code_provider, status, use_local, log, start_max_id, seed_rows, delay_ms, on_total)
+        return {"rows": rows, "cursor": cursor, "total": total,
+                "target": (target or "").lstrip("@"), "kind": kind}
     except Exception as e:
         name = type(e).__name__
         if "Challenge" in name or "challenge_required" in str(e):

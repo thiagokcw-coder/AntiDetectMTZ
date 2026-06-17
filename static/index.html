@@ -1135,7 +1135,7 @@
       </div>
 
       <div id="sp-status" style="display:none;margin-top:16px;max-width:680px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:14px 16px;font-size:13px">
-        <div><b id="sp-state">—</b> · <span id="sp-count">0</span> registro(s)</div>
+        <div><b id="sp-state">—</b> · <span id="sp-count">0</span><span id="sp-total"></span> registro(s)</div>
         <div id="sp-detail" style="color:var(--muted);font-size:12px;margin-top:6px"></div>
         <div id="sp-code-box" style="display:none;margin-top:10px;gap:8px;align-items:center">
           <input id="sp-code" type="text" placeholder="Código do Instagram" style="padding:6px 10px;background:var(--surface);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;max-width:160px">
@@ -3308,6 +3308,7 @@ async function spiderPoll() {
                   done: '✅ Concluído', stopped: '⏸ Parado (dá pra continuar)', error: '⚠️ Erro' };
     document.getElementById('sp-state').textContent = map[j.status] || j.status;
     document.getElementById('sp-count').textContent = j.count;
+    document.getElementById('sp-total').textContent = (j.total != null) ? ('/' + j.total) : '';
     if (j.detail) document.getElementById('sp-detail').textContent = j.detail;
     renderSpiderLog(j.log);
     document.getElementById('sp-code-box').style.display = j.status === 'needs_code' ? 'flex' : 'none';
@@ -3356,14 +3357,18 @@ async function loadSpiderHistory() {
       const dl = it.count ? `<button class="btn btn-ghost btn-sm" style="padding:1px 8px" onclick="spiderHistoryCsv('${it.id}')">⬇ CSV</button>` : '';
       // Continuar: só quando parou no meio (cursor salvo)
       const cont = it.cursor ? `<button class="btn btn-primary btn-sm" style="padding:1px 8px" onclick="spiderResume('${it.id}')" title="Continuar de onde parou">▶</button>` : '';
+      // Re-rodar do zero (sempre disponível) — útil pra refazer com a correção
+      const rerun = `<button class="btn btn-ghost btn-sm" style="padding:1px 8px" onclick="spiderRerun('${it.id}')" title="Rodar de novo (do zero)">↻</button>`;
+      const alvo = (it.target || '').replace(/^@+/, '');           // evita @@
+      const regs = (it.total != null) ? `${it.count || 0}/${it.total}` : `${it.count || 0}`;
       return `<tr>
         <td style="font-size:12px;color:var(--muted)">${escapeHtml(when)}</td>
-        <td><code>@${escapeHtml(it.target || '')}</code></td>
+        <td><code>@${escapeHtml(alvo)}</code></td>
         <td>${escapeHtml(it.kind || '')}</td>
         <td>${escapeHtml(it.method || '')}</td>
-        <td><b>${it.count || 0}</b></td>
+        <td><b>${regs}</b></td>
         <td style="color:${stColor}">${SP_STATUS_LABEL[it.status] || escapeHtml(it.status || '')}</td>
-        <td>${cont} ${dl} <button class="btn btn-ghost btn-sm" style="padding:1px 8px" onclick="spiderHistoryDelete('${it.id}')" title="Remover do histórico">🗑</button></td>
+        <td>${cont} ${rerun} ${dl} <button class="btn btn-ghost btn-sm" style="padding:1px 8px" onclick="spiderHistoryDelete('${it.id}')" title="Remover do histórico">🗑</button></td>
       </tr>`;
     }).join('');
   } catch (e) { /* silencioso */ }
@@ -3406,6 +3411,25 @@ async function spiderSubmitCode() {
 async function spiderStop() {
   if (!_spiderJob) return;
   try { await api('POST', `/spider/jobs/${_spiderJob}/stop`); toast('Parando…'); } catch (e) {}
+}
+
+// Roda de novo (do zero) uma execução do histórico — mesmo alvo/tipo/perfil.
+async function spiderRerun(id) {
+  if (!id) return;
+  try {
+    const r = await api('POST', `/spider/rerun/${id}`);
+    _spiderJob = r.job_id;
+    document.getElementById('sp-status').style.display = '';
+    document.getElementById('sp-log').textContent = '(iniciando…)';
+    document.getElementById('sp-resume').style.display = 'none';
+    document.getElementById('sp-start').disabled = true;
+    document.getElementById('sp-stop').style.display = '';
+    document.getElementById('sp-csv').style.display = 'none';
+    document.getElementById('sp-detail').textContent = 'Rodando de novo…';
+    showPage('spider');
+    spiderPoll();
+    toast('Extração reiniciada');
+  } catch (e) { toast(e.message || 'Erro ao rodar de novo', 'error'); }
 }
 
 // Continua uma execução que parou no meio (do job atual ou do histórico).

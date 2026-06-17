@@ -131,13 +131,14 @@ async def _resolve_user(page, username: str):
 
 
 async def _friendship_list(page, user_id, username, edge, limit, progress, should_stop,
-                           log=None, start_max_id=None, seed_rows=None, delay_ms=2500):
+                           log=None, start_max_id=None, seed_rows=None, delay_ms=2500, total=None):
     """Lista de relacionamento (edge='followers' ou 'following') via GraphQL.
     Pagina de verdade pelo `end_cursor` (a API v1 /friendships/ capava em ~50).
     Retorna (rows, cursor); cursor=None => completo. cursor = end_cursor do GraphQL."""
     rows = list(seed_rows or [])
     seen = {str(r.get("User Id")) for r in rows if r.get("User Id")}
     cursor = start_max_id or None
+    _tot = (lambda n: f"{n}/{total}" if total else str(n))   # "50/19000" ou "50"
     qhash = _GQL["following"] if edge == "following" else _GQL["followers"]
     edge_key = "edge_follow" if edge == "following" else "edge_followed_by"
     referer = f"{IG}/{username}/{'following' if edge == 'following' else 'followers'}/"
@@ -193,19 +194,19 @@ async def _friendship_list(page, user_id, username, edge, limit, progress, shoul
                 if progress:
                     progress(len(rows))
                 if log:
-                    log(f"✓ limite de {limit} atingido — total {len(rows)}")
+                    log(f"✓ limite de {limit} atingido — {_tot(len(rows))}")
                 pi = data.get("page_info") or {}
                 return rows, (pi.get("end_cursor") if pi.get("has_next_page") else None)
         page_n += 1
         if log:
-            log(f"página {page_n}: +{len(rows) - before} (total {len(rows)})")
+            log(f"página {page_n}: +{len(rows) - before} ({_tot(len(rows))})")
         if progress:
             progress(len(rows))
         pi = data.get("page_info") or {}
         cursor = pi.get("end_cursor") if pi.get("has_next_page") else None
         if not cursor:
             if log:
-                log(f"✓ fim da lista — total {len(rows)}")
+                log(f"✓ fim da lista — {_tot(len(rows))}")
             break
         await asyncio.sleep(_page_delay_s(delay_ms))
         if page_n >= next_pause:                       # pausa de proteção
@@ -242,7 +243,7 @@ def _post_row(it) -> dict:
 
 
 async def _posts(page, user_id, username, limit, progress, should_stop, log=None,
-                 start_max_id=None, seed_rows=None, delay_ms=2500):
+                 start_max_id=None, seed_rows=None, delay_ms=2500, total=None):
     """Posts do perfil (`/api/v1/feed/user/{id}/`). Retorna (rows, cursor)."""
     rows = list(seed_rows or [])
     seen = {str(r.get("Shortcode")) for r in rows if r.get("Shortcode")}
@@ -251,6 +252,7 @@ async def _posts(page, user_id, username, limit, progress, should_stop, log=None
     rate_hits = 0
     page_n = 0
     next_pause = random.randint(15, 25)
+    _tot = (lambda n: f"{n}/{total}" if total else str(n))
     if seed_rows and log:
         log(f"retomando: {len(rows)} post(s) já coletado(s)…")
     while True:
@@ -293,17 +295,17 @@ async def _posts(page, user_id, username, limit, progress, should_stop, log=None
                 if progress:
                     progress(len(rows))
                 if log:
-                    log(f"✓ limite de {limit} atingido — total {len(rows)}")
+                    log(f"✓ limite de {limit} atingido — {_tot(len(rows))}")
                 return rows, j.get("next_max_id")
         page_n += 1
         if log:
-            log(f"página {page_n}: +{len(rows) - before} (total {len(rows)})")
+            log(f"página {page_n}: +{len(rows) - before} ({_tot(len(rows))})")
         if progress:
             progress(len(rows))
         max_id = j.get("next_max_id")
         if not max_id or not j.get("more_available", True):
             if log:
-                log(f"✓ fim dos posts — total {len(rows)}")
+                log(f"✓ fim dos posts — {_tot(len(rows))}")
             cursor = None
             break
         cursor = max_id
@@ -317,12 +319,22 @@ async def _posts(page, user_id, username, limit, progress, should_stop, log=None
     return rows, cursor
 
 
+def _total_for(info: dict, kind: str):
+    """Total de itens do alvo (p/ mostrar X/Y) a partir do web_profile_info."""
+    info = info or {}
+    if kind == "following":
+        return (info.get("edge_follow") or {}).get("count")
+    if kind == "posts":
+        return (info.get("edge_owner_to_timeline_media") or {}).get("count")
+    return (info.get("edge_followed_by") or {}).get("count")
+
+
 async def extract(profile: dict, kind: str, target: str, limit: int = 0,
                   progress=None, should_stop=None, log=None,
-                  start_max_id=None, seed_rows=None, delay_ms=2500) -> dict:
+                  start_max_id=None, seed_rows=None, delay_ms=2500, on_total=None) -> dict:
     """Abre o perfil (logado) e extrai (followers/following/posts).
-    Retorna {rows, cursor, target, kind, user} ou {error}. start_max_id/seed_rows
-    permitem CONTINUAR de onde parou; delay_ms = velocidade (delay entre páginas)."""
+    Retorna {rows, cursor, total, target, kind, user} ou {error}. start_max_id/seed_rows
+    permitem CONTINUAR de onde parou; delay_ms = velocidade; on_total(t) avisa o total."""
     async def _run(page):
         if log:
             log("abrindo instagram.com no perfil…")
@@ -334,8 +346,12 @@ async def extract(profile: dict, kind: str, target: str, limit: int = 0,
         if not uid:
             return {"error": "Perfil não encontrado/privado, ou a conta do perfil não está logada no Instagram."}
         uname = clean_username(target)
+        total = _total_for(info, kind)
+        if on_total and total is not None:
+            on_total(total)
         if log:
-            log(f"alvo @{uname} (id {uid}) resolvido — aquecendo (visitando o perfil)…")
+            log(f"alvo @{uname} (id {uid}) resolvido"
+                + (f" — {total} {kind}" if total is not None else "") + " — aquecendo…")
         # Warm-up: visita o perfil alvo antes de raspar (parece navegação humana).
         try:
             await page.goto(f"{IG}/{uname}/", wait_until="domcontentloaded")
@@ -347,16 +363,16 @@ async def extract(profile: dict, kind: str, target: str, limit: int = 0,
                 log(f"iniciando extração de {'seguindo' if kind == 'following' else 'seguidores'}…")
             rows, cursor = await _friendship_list(page, uid, uname, kind, limit, progress,
                                                   should_stop, log, start_max_id=start_max_id,
-                                                  seed_rows=seed_rows, delay_ms=delay_ms)
+                                                  seed_rows=seed_rows, delay_ms=delay_ms, total=total)
         elif kind == "posts":
             if log:
                 log("iniciando extração de posts…")
             rows, cursor = await _posts(page, uid, uname, limit, progress, should_stop, log,
                                         start_max_id=start_max_id, seed_rows=seed_rows,
-                                        delay_ms=delay_ms)
+                                        delay_ms=delay_ms, total=total)
         else:
             return {"error": f"tipo '{kind}' não suportado (use followers/following/posts)"}
-        return {"rows": rows, "cursor": cursor, "target": uname, "kind": kind, "user": info}
+        return {"rows": rows, "cursor": cursor, "total": total, "target": uname, "kind": kind, "user": info}
 
     try:
         return await sm.run_profile_task(profile, _run, headless=True)

@@ -1172,7 +1172,8 @@ def _launch_spider_job(*, method, account, profile, label, kind, target, limit, 
                  "profile_id": profile_id, "account_id": account_id, "use_local": use_local,
                  "limit_n": limit, "delay_ms": delay_ms, "cursor": job.get("cursor"),
                  "target": target, "kind": kind,
-                 "count": job.get("count", 0), "status": job.get("status"),
+                 "count": job.get("count", 0), "total": job.get("total"),
+                 "status": job.get("status"),
                  "error": job.get("error"), "rows_json": json.dumps(job.get("rows") or []),
                  "started_at": started_at, "finished_at": job.get("finished_at")}
             if status_extra:
@@ -1190,6 +1191,7 @@ def _launch_spider_job(*, method, account, profile, label, kind, target, limit, 
 
     def _progress(n): job["count"] = n
     def _should_stop(): return job.get("stop", False)
+    def _on_total(t): job["total"] = t      # total de itens do alvo (p/ mostrar X/Y)
 
     def _status(state):
         job["detail"] = {"logando": "Logando na conta (o IG pode pedir um código)…",
@@ -1214,12 +1216,14 @@ def _launch_spider_job(*, method, account, profile, label, kind, target, limit, 
                     account, kind, target, limit,
                     progress=_progress, should_stop=_should_stop,
                     code_provider=_code_provider, status=_status, use_local=use_local,
-                    log=_log, start_max_id=start_cursor, seed_rows=seed_rows, delay_ms=delay_ms)
+                    log=_log, start_max_id=start_cursor, seed_rows=seed_rows, delay_ms=delay_ms,
+                    on_total=_on_total)
             else:
                 res = await spider.extract(
                     profile, kind, target, limit,
                     progress=_progress, should_stop=_should_stop, log=_log,
-                    start_max_id=start_cursor, seed_rows=seed_rows, delay_ms=delay_ms)
+                    start_max_id=start_cursor, seed_rows=seed_rows, delay_ms=delay_ms,
+                    on_total=_on_total)
             if res.get("error"):
                 job["status"] = "error"; job["error"] = res["error"]
                 _log("✖ " + str(res["error"])[:160])
@@ -1227,6 +1231,8 @@ def _launch_spider_job(*, method, account, profile, label, kind, target, limit, 
                 job["rows"] = res.get("rows", [])
                 job["count"] = len(job["rows"])
                 job["cursor"] = res.get("cursor")
+                if res.get("total") is not None:
+                    job["total"] = res.get("total")
                 # Parou no meio (cursor presente) e não foi erro → 'stopped' (continuável)
                 job["status"] = "stopped" if job.get("cursor") else "done"
                 job["detail"] = ""
@@ -1300,12 +1306,39 @@ async def spider_resume(run_id: str):
     return {"job_id": job_id}
 
 
+@app.post("/spider/rerun/{run_id}")
+async def spider_rerun(run_id: str):
+    """Roda de NOVO uma execução do histórico (do zero, mesmo alvo/tipo/perfil)."""
+    run = db.get_spider_run(run_id)
+    if not run:
+        raise HTTPException(404, "Execução não encontrada")
+    method = (run.get("method") or "web").lower()
+    a = p = None
+    if method == "app":
+        a = db.get_account(run.get("account_id")) if run.get("account_id") else None
+        if not a:
+            raise HTTPException(404, "Conta original não existe mais.")
+        label = a.get("username")
+    else:
+        p = get_profile(run.get("profile_id")) if run.get("profile_id") else None
+        if not p:
+            raise HTTPException(404, "Perfil original não existe mais.")
+        label = p.get("name")
+    job_id = _launch_spider_job(
+        method=method, account=a, profile=p, label=label, kind=run.get("kind") or "followers",
+        target=run.get("target"), limit=int(run.get("limit_n") or 0),
+        use_local=bool(run.get("use_local")), delay_ms=int(run.get("delay_ms") or 2500),
+        profile_id=run.get("profile_id"), account_id=run.get("account_id"))
+    return {"job_id": job_id}
+
+
 @app.get("/spider/jobs/{job_id}")
 def spider_job(job_id: str):
     j = _spider_jobs.get(job_id)
     if not j:
         raise HTTPException(404, "Job não encontrado")
     return {"id": j["id"], "status": j["status"], "count": j["count"],
+            "total": j.get("total"),                   # total do alvo (X/Y)
             "kind": j["kind"], "target": j["target"], "error": j["error"],
             "detail": j.get("detail", ""), "code_method": j.get("code_method"),
             "cursor": j.get("cursor"),                 # != null => dá p/ continuar
