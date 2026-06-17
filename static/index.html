@@ -321,6 +321,10 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>
       Diagnóstico
     </div>
+    <div class="nav-item" data-page-link="localdata" onclick="showPage('localdata')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/><path d="M3 12c0 1.66 4 3 9 3s9-1.34 9-3"/></svg>
+      Informações locais
+    </div>
   </aside>
 
   <main>
@@ -1173,6 +1177,50 @@
         </div>
       </div>
     </div>
+
+    <!-- INFORMAÇÕES LOCAIS (salvar/carregar todo o local data) -->
+    <div class="page" id="page-localdata">
+      <div class="page-header">
+        <div>
+          <div class="page-title">Informações locais</div>
+          <div class="page-subtitle">Salve tudo num arquivo e carregue em outra máquina (banco, perfis/cookies, sessões, proxies)</div>
+        </div>
+        <button class="btn btn-ghost btn-sm" onclick="loadLocalData()">↻ Atualizar</button>
+      </div>
+
+      <div style="max-width:720px">
+        <div class="form-card" style="margin-bottom:18px">
+          <div style="font-weight:600;margin-bottom:8px">💾 Salvar (backup)</div>
+          <div style="color:var(--muted);font-size:13px;line-height:1.6;margin-bottom:12px">
+            Gera <b>um arquivo .zip</b> com todo o seu local data — leva alguns segundos. Copie esse arquivo para a outra máquina e use "Carregar" lá.
+          </div>
+          <button class="btn btn-primary" id="ld-save-btn" onclick="saveLocalData()">💾 Salvar backup (.zip)</button>
+          <span id="ld-save-status" style="margin-left:10px;font-size:12px;color:var(--muted)"></span>
+        </div>
+
+        <div class="form-card" style="margin-bottom:18px">
+          <div style="font-weight:600;margin-bottom:8px">📂 Carregar (restaurar)</div>
+          <div style="color:var(--muted);font-size:13px;line-height:1.6;margin-bottom:12px">
+            Restaura o local data a partir de um <b>.zip</b> gerado aqui. <b style="color:var(--yellow)">⚠ Sobrescreve os dados atuais</b> — pare as sessões antes e <b>reinicie o app</b> depois de carregar.
+          </div>
+          <input type="file" id="ld-file" accept=".zip" style="display:none" onchange="restoreLocalData(this.files[0])">
+          <button class="btn btn-ghost" onclick="document.getElementById('ld-file').click()">📂 Escolher .zip e restaurar</button>
+          <span id="ld-restore-status" style="margin-left:10px;font-size:12px;color:var(--muted)"></span>
+        </div>
+
+        <div class="form-card">
+          <div style="font-weight:600;margin-bottom:8px">O que está no backup</div>
+          <div id="ld-summary" style="font-size:13px;color:var(--muted);margin-bottom:10px">Carregando…</div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Item</th><th>Local</th><th>Arquivos</th><th>Tamanho</th></tr></thead>
+              <tbody id="ld-items"></tbody>
+            </table>
+          </div>
+          <div style="font-size:11px;color:var(--muted);margin-top:8px">O cache dos perfis (lixo regenerável) não entra no backup, pra deixá-lo enxuto.</div>
+        </div>
+      </div>
+    </div>
   </main>
 </div>
 
@@ -1422,6 +1470,7 @@ function showPage(name) {
   if (name === 'analytics') loadAnalytics();
   if (name === 'spider') loadSpider();
   if (name === 'start') loadStartProxyHealth();
+  if (name === 'localdata') loadLocalData();
 }
 
 function refreshAll() {
@@ -1752,6 +1801,79 @@ async function loadStartProxyHealth() {
       return `<div style="padding:3px 0">${renderProxyHealth(it)} <code>${escapeHtml(it.proxy_key)}</code>${infoTxt}</div>`;
     }).join('');
   } catch (e) { /* silencioso */ }
+}
+
+// ── Informações locais: salvar/carregar todo o local data ───────────────────
+function ldFmtBytes(n) {
+  if (!n) return '0';
+  const u = ['B', 'KB', 'MB', 'GB']; let i = 0;
+  while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; }
+  return n.toFixed(i ? 1 : 0) + ' ' + u[i];
+}
+
+async function loadLocalData() {
+  try {
+    const d = await api('GET', '/local-data/info');
+    const s = d.summary || {};
+    document.getElementById('ld-summary').innerHTML =
+      `<b>${escapeHtml(d.app_dir || '')}</b><br>`
+      + `${s.profiles || 0} perfis · ${s.accounts || 0} contas · ${s.emails || 0} e-mails · ${s.proxies || 0} proxies · total <b>${ldFmtBytes(d.total_size)}</b>`;
+    document.getElementById('ld-items').innerHTML = (d.items || []).map(it => `<tr>
+      <td>${escapeHtml(it.name)}</td>
+      <td style="font-size:11px;color:var(--muted);word-break:break-all">${escapeHtml(it.path)}</td>
+      <td>${it.exists ? it.files : '<span style="color:var(--muted)">—</span>'}</td>
+      <td>${it.exists ? ldFmtBytes(it.size) : '<span style="color:var(--muted)">não existe</span>'}</td>
+    </tr>`).join('');
+  } catch (e) { /* silencioso */ }
+}
+
+async function saveLocalData() {
+  const btn = document.getElementById('ld-save-btn');
+  const st = document.getElementById('ld-save-status');
+  btn.disabled = true;
+  st.textContent = 'gerando o .zip… (pode levar ~1 min)';
+  try {
+    const res = await fetch(API + '/local-data/backup');
+    if (!res.ok) throw new Error('Falha ao gerar o backup');
+    const blob = await res.blob();
+    const cd = res.headers.get('Content-Disposition') || '';
+    const m = cd.match(/filename=([^;]+)/);
+    const name = m ? m[1].trim().replace(/"/g, '') : 'profilemanager-backup.zip';
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = name;
+    document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(url);
+    st.textContent = 'pronto — ' + name + ' baixado ✓';
+  } catch (e) {
+    st.textContent = '';
+    toast(e.message || 'Erro ao salvar backup', 'error');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function restoreLocalData(file) {
+  if (!file) return;
+  if (!confirm('Restaurar deste .zip vai SOBRESCREVER os dados atuais.\n\nPare as sessões antes e REINICIE o app depois de carregar.\n\nContinuar?')) {
+    document.getElementById('ld-file').value = '';
+    return;
+  }
+  const st = document.getElementById('ld-restore-status');
+  st.textContent = 'restaurando…';
+  try {
+    const res = await fetch(API + '/local-data/restore', { method: 'POST', body: file });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.detail || 'Falha ao restaurar');
+    st.textContent = 'restaurado ✓ — reinicie o app para aplicar';
+    toast('Restaurado! Reinicie o app para aplicar.', 'success');
+    loadLocalData();
+  } catch (e) {
+    st.textContent = '';
+    toast(e.message || 'Erro ao restaurar', 'error');
+  } finally {
+    document.getElementById('ld-file').value = '';
+  }
 }
 
 async function loadWarmPool() {

@@ -2,7 +2,7 @@
 API REST — iniciar com:
   uvicorn api:app --reload --port 8000
 """
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
@@ -11,6 +11,7 @@ from pathlib import Path
 import asyncio
 import copy
 import json
+import os
 import re
 import socket
 import threading
@@ -30,6 +31,7 @@ import proxies as pool
 import warm_pool
 import spider
 import spider_app
+import backup_data as bdata
 import time
 
 import logging
@@ -1463,6 +1465,82 @@ async def accounts_check_all():
     """Dispara verificação de todas as contas em segundo plano (sequencial)."""
     asyncio.create_task(_check_all_accounts())
     return {"status": "checking", "count": len(acc.list_accounts())}
+
+
+# ─── Informações locais: salvar/carregar todo o local data (migrar de máquina) ──
+@app.get("/local-data/info")
+def local_data_info():
+    """Resumo do que será salvo no backup (caminhos, tamanhos, contagens)."""
+    items = []
+    for src, prefix in bdata._items():
+        exists = src.exists()
+        size = files = 0
+        if exists:
+            if src.is_file():
+                size = src.stat().st_size
+                files = 1
+            else:
+                for f in src.rglob("*"):
+                    if f.is_file() and not bdata._is_junk(f.relative_to(src)):
+                        try:
+                            size += f.stat().st_size
+                        except Exception:
+                            pass
+                        files += 1
+        items.append({"name": prefix, "path": str(src), "exists": exists,
+                      "size": size, "files": files})
+    try:
+        summary = {
+            "profiles": len(db.list_profiles()),
+            "accounts": len(db.list_accounts()),
+            "emails": len(eb.list_emails()),
+            "proxies": pool.summary().get("count", 0),
+        }
+    except Exception:
+        summary = {}
+    return {"app_dir": str(APP_DIR), "items": items, "summary": summary,
+            "total_size": sum(i["size"] for i in items)}
+
+
+@app.get("/local-data/backup")
+def local_data_backup():
+    """Gera o ZIP com todo o local data e devolve para download."""
+    import tempfile
+    from starlette.background import BackgroundTask
+    name = f"profilemanager-backup-{time.strftime('%Y%m%d-%H%M%S')}.zip"
+    tmp = os.path.join(tempfile.gettempdir(), name)
+    bdata.backup(tmp)
+    return FileResponse(tmp, media_type="application/zip", filename=name,
+                        background=BackgroundTask(lambda: _safe_unlink(tmp)))
+
+
+def _safe_unlink(path):
+    try:
+        os.remove(path)
+    except Exception:
+        pass
+
+
+@app.post("/local-data/restore")
+async def local_data_restore(request: Request):
+    """Restaura o local data de um ZIP enviado no corpo (sobrescreve). Recomendado
+    parar as sessões e reiniciar o app depois."""
+    import tempfile
+    tmp = os.path.join(tempfile.gettempdir(), "profilemanager-restore.zip")
+    try:
+        with open(tmp, "wb") as f:
+            async for chunk in request.stream():
+                f.write(chunk)
+        if os.path.getsize(tmp) == 0:
+            raise HTTPException(400, "Envie o arquivo .zip do backup.")
+        bdata.restore(tmp)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(400, f"Falha ao restaurar: {e}")
+    finally:
+        _safe_unlink(tmp)
+    return {"status": "restored"}
 
 
 @app.get("/proxies/usage")
