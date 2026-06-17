@@ -329,7 +329,7 @@
       <div class="page-header">
         <div>
           <div class="page-title">Comece aqui</div>
-          <div class="page-subtitle">Crie as contas no celular (Android) e use o app para cadastrar, monitorar e abrir os perfis no PC</div>
+          <div class="page-subtitle">Crie as contas manualmente no Camoufox (PC) com proxy 4G/5G, amadureça no Android e gerencie tudo aqui</div>
         </div>
       </div>
 
@@ -346,18 +346,16 @@
         <div class="form-card" style="margin-bottom:18px;border:1px solid var(--border);border-radius:10px">
           <div style="font-weight:600;margin-bottom:6px">✅ Como funciona o fluxo</div>
           <div style="color:var(--muted);font-size:13px;line-height:1.65">
-            As contas são criadas <b>no app do Instagram em um celular Android real</b> (IP móvel 4G/5G). Esse é o cenário mais limpo possível — a criação automática pelo PC foi <b>desativada</b> porque queimava as contas na hora. Aqui no app você <b>cadastra, monitora e abre os perfis no PC</b>.<br><br>
+            As contas são criadas <b>manualmente</b> no navegador antidetect <b>Camoufox (no PC)</b>, saindo por um <b>proxy móvel 4G/5G</b>. O app prepara tudo (perfil + e-mail catch-all + dados + fingerprint coerente), <b>aquece o navegador e abre a janela</b> — <b>você cria a conta</b> (preenche e resolve captcha/telefone se aparecer). Depois, <b>amadureça a conta no app do Instagram no Android</b> antes de usar pra valer.<br><br>
 
-            <b>O que você faz no celular:</b><br>
-            • Cria a conta no app do Instagram (nome, usuário, senha, e-mail/telefone do próprio aparelho)<br>
-            • Deixa a conta <b>amadurecer alguns dias</b> no celular antes de mexer nela no PC<br><br>
+            <b>O que o app faz por você:</b><br>
+            • Gera perfil Camoufox + e-mail (catch-all) + dados e abre a janela pronta (aba <b>Criar Contas (PC)</b>)<br>
+            • Mantém <b>fingerprint coerente e estável por perfil</b> e sai pelo <b>proxy 4G/5G</b> do pool<br>
+            • <b>Monitora o status</b> das contas (ativa, checkpoint, banida) e a vida útil (aba <b>Contas</b>)<br>
+            • <b>Extrai dados</b> (seguidores/seguindo/posts) com o <b>Spider</b><br>
+            • Mostra <b>no topo</b> qual proxy/IP está em uso e se está <b>limpo ou queimado</b><br><br>
 
-            <b>O que o app faz por você (no PC):</b><br>
-            • Guarda as contas (usuário/senha) na aba <b>Contas</b> — cadastro manual ou importação por CSV<br>
-            • <b>Monitora o status</b> de cada conta no Instagram (ativa, checkpoint, banida) e a vida útil<br>
-            • <b>Abre o perfil no PC</b> num navegador antidetect (Camoufox) com proxy, pra você operar a conta<br><br>
-
-            <b>⚠️ Atenção ao abrir no PC:</b> logar no PC numa conta nascida no celular é um <b>"novo dispositivo"</b> para o Instagram e pode pedir verificação. Use proxy do <b>mesmo país</b> do celular e só abra no PC depois da conta estar assentada.
+            <b>⚠️ Importante:</b> criar conta no PC historicamente queima contas — por isso o <b>proxy 4G/5G dedicado</b> + <b>ritmo manual lento</b> são essenciais, e o <b>amadurecimento é no Android</b> (logar no PC numa conta recém-criada é "novo dispositivo").
           </div>
         </div>
 
@@ -365,13 +363,14 @@
 
         <div class="form-card" style="margin-bottom:18px">
           <div style="color:var(--muted);font-size:13px;line-height:1.6">
-            • Um <b>celular Android</b> com o app do Instagram para criar as contas (IP móvel 4G/5G é o ideal).<br>
-            • Use <b>proxies móveis (4G/5G) ou residenciais</b> (fator nº 1 contra detecção) na pasta <code>proxys/</code> (<code>host:porta:usuário:senha</code> ou URL) — usados ao <b>abrir o perfil no PC</b>. Prefira o <b>mesmo país</b> do celular. <button class="btn btn-ghost btn-sm" style="padding:1px 8px" onclick="showPage('proxies')">ver guia →</button><br>
-            • Defina os limites de contas por proxy na aba <b>Contas</b>.
+            • <b>Proxy móvel 4G/5G dedicado</b> (fator nº 1 contra detecção) na pasta <code>proxys/</code> ou pela aba Proxies — <b>1 IP limpo por conta</b>, de preferência sticky. Defina o <b>País-alvo</b> (Contas → Limites) pra casar com a persona. <button class="btn btn-ghost btn-sm" style="padding:1px 8px" onclick="showPage('proxies')">ver guia →</button><br>
+            • Um domínio com <b>catch-all</b> + credenciais <b>IMAP</b> (aba Emails) pra gerar o e-mail e ler o código de verificação.<br>
+            • Um <b>celular Android</b> com o app do Instagram para amadurecer a conta depois de criada.
           </div>
           <div style="margin-top:10px">
-            <button class="btn btn-primary btn-sm" onclick="showPage('accounts')">Ir para Contas →</button>
+            <button class="btn btn-primary btn-sm" onclick="showPage('instagram')">Ir para Criar Contas →</button>
             <button class="btn btn-ghost btn-sm" onclick="showPage('proxies')">Ver Proxies →</button>
+            <button class="btn btn-ghost btn-sm" onclick="showPage('emails')">Configurar Emails →</button>
           </div>
         </div>
 
@@ -381,16 +380,29 @@
           <div class="flow-step">
             <div class="flow-left"><div class="flow-num">1</div><div class="flow-line"></div></div>
             <div class="flow-card">
-              <div class="flow-title">📱 Criar a conta no celular (Android)</div>
-              <div class="flow-desc">Crie a conta direto no <b>app do Instagram em um celular Android real</b>, usando o <b>IP móvel (4G/5G)</b>. É o cenário mais limpo — IP de operadora sob CGNAT, dispositivo real. Anote o <b>usuário e a senha</b> de cada conta.</div>
+              <div class="flow-title">🌐 Configurar proxy + emails</div>
+              <div class="flow-desc">Adicione seu <b>proxy 4G/5G</b> na aba Proxies e defina o <b>País-alvo</b> (Contas → Limites). Configure o domínio <b>catch-all + IMAP</b> na aba Emails. Confira no <b>topo</b> se o proxy está limpo.</div>
+              <div class="flow-actions">
+                <button class="btn btn-primary btn-sm" onclick="showPage('proxies')">Proxies →</button>
+                <button class="btn btn-ghost btn-sm" onclick="showPage('emails')">Emails →</button>
+              </div>
             </div>
           </div>
 
           <div class="flow-step">
             <div class="flow-left"><div class="flow-num">2</div><div class="flow-line"></div></div>
             <div class="flow-card">
-              <div class="flow-title">👤 Cadastrar a conta no app</div>
-              <div class="flow-desc">Na aba <b>Contas</b>, clique em <b>"+ Adicionar conta"</b> e informe usuário e senha (uma a uma). Para várias de vez, use <b>Importar CSV</b>.</div>
+              <div class="flow-title">✍️ Criar a conta (manual no Camoufox)</div>
+              <div class="flow-desc">Na aba <b>Criar Contas (PC)</b>, escolha a conexão (proxy 4G/5G) e clique em <b>"Criar conta (abrir Camoufox)"</b>. O app gera os dados, aquece o navegador e <b>abre a janela</b> — você preenche e cria a conta. Resolva captcha/telefone se aparecer.</div>
+              <div class="flow-actions"><button class="btn btn-primary btn-sm" onclick="showPage('instagram')">Criar Contas →</button></div>
+            </div>
+          </div>
+
+          <div class="flow-step">
+            <div class="flow-left"><div class="flow-num">3</div><div class="flow-line"></div></div>
+            <div class="flow-card">
+              <div class="flow-title">📱 Amadurecer no Android</div>
+              <div class="flow-desc">Logue a conta recém-criada no <b>app do Instagram no celular</b> e use alguns dias (poste, navegue) antes de operar pra valer. Cadastre usuário/senha na aba <b>Contas</b> pra acompanhar.</div>
               <div class="flow-actions">
                 <button class="btn btn-primary btn-sm" onclick="showPage('accounts')">Ir para Contas →</button>
                 <button class="btn btn-ghost btn-sm" onclick="showPage('import')">Importar CSV</button>
@@ -399,41 +411,25 @@
           </div>
 
           <div class="flow-step">
-            <div class="flow-left"><div class="flow-num">3</div><div class="flow-line"></div></div>
+            <div class="flow-left"><div class="flow-num">4</div></div>
             <div class="flow-card">
-              <div class="flow-title">⏳ Deixar amadurecer e monitorar</div>
-              <div class="flow-desc">Deixe a conta <b>alguns dias só no celular</b> antes de mexer nela no PC. O app <b>monitora o status</b> de cada conta (ativa, checkpoint, banida) e a vida útil — use <b>"Verificar todas"</b> na aba Contas.</div>
-              <div class="flow-actions"><button class="btn btn-primary btn-sm" onclick="showPage('accounts')">Abrir Contas →</button></div>
-            </div>
-          </div>
-
-          <div class="flow-step">
-            <div class="flow-left"><div class="flow-num">4</div><div class="flow-line"></div></div>
-            <div class="flow-card">
-              <div class="flow-title">🖥️ Abrir o perfil no PC</div>
-              <div class="flow-desc">Quando a conta estiver assentada, abra o perfil no PC no navegador antidetect (Camoufox) pela aba Contas. <b>Atenção:</b> isso é um <b>login de "novo dispositivo"</b> — use proxy do <b>mesmo país</b> do celular e vá com calma para evitar checkpoint.</div>
-              <div class="flow-actions"><button class="btn btn-primary btn-sm" onclick="showPage('accounts')">Abrir Contas →</button></div>
-            </div>
-          </div>
-
-          <div class="flow-step">
-            <div class="flow-left"><div class="flow-num">5</div></div>
-            <div class="flow-card">
-              <div class="flow-title">📊 Acompanhar e exportar</div>
-              <div class="flow-desc">Veja status de cada conta, qual proxy foi usado, se está ativa, banida ou em checkpoint. Exporte tudo em CSV quando quiser.</div>
-              <div class="flow-actions"><button class="btn btn-primary btn-sm" onclick="showPage('accounts')">Abrir Contas →</button></div>
+              <div class="flow-title">📊 Monitorar e extrair</div>
+              <div class="flow-desc">Acompanhe status (ativa/checkpoint/banida) e vida útil na aba <b>Contas</b>. Quando precisar, extraia seguidores/seguindo/posts com o <b>Spider</b>.</div>
+              <div class="flow-actions">
+                <button class="btn btn-primary btn-sm" onclick="showPage('accounts')">Contas →</button>
+                <button class="btn btn-ghost btn-sm" onclick="showPage('spider')">Spider →</button>
+              </div>
             </div>
           </div>
         </div>
 
         <div style="margin-top:8px;padding:12px 14px;background:var(--surface2);border-radius:8px;font-size:12px;color:var(--muted);line-height:1.7">
           <b style="color:var(--text)">Boas práticas para não queimar a conta</b>:<br>
-          • <b>Crie no celular com IP móvel (4G/5G)</b> — IP de operadora sob CGNAT, o IG não consegue punir o IP. Evite Wi-Fi compartilhado na criação.<br>
-          • <b>Deixe a conta amadurecer alguns dias no celular</b> (poste, navegue) antes de abrir no PC.<br>
-          • Ao <b>abrir no PC</b>: use proxy do <b>mesmo país</b> do celular (residencial/móvel &gt; ISP-estático &gt; ❌ datacenter). Lembre que é um <b>"novo dispositivo"</b> para o IG.<br>
-          • <b>1 IP limpo por conta</b> e rotacione o IP entre contas (no celular: modo avião liga/desliga).<br>
-          • O app já mantém <b>fingerprint coerente e estável por perfil</b> (geoip + GPU/navigator/WebRTC fixos) ao abrir no PC.<br>
-          • Defina o <b>País-alvo</b> do proxy em Contas → Limites para casar a geografia.
+          • <b>Proxy móvel 4G/5G dedicado</b> (não ISP-estático compartilhado, ❌ não datacenter), <b>1 IP limpo por conta</b>, de preferência sticky. Marque proxy ruim como <b>queimado</b> na caixa do topo.<br>
+          • <b>Fingerprint desktop coerente</b> (o app já fixa geoip + GPU/navigator/WebRTC por perfil). <b>Não</b> force "cara de celular" no Camoufox — fica incoerente.<br>
+          • <b>Ritmo manual lento</b>: poucas contas por IP/dia, com calma.<br>
+          • Defina o <b>País-alvo</b> (Contas → Limites) pra casar persona ↔ IP.<br>
+          • <b>Amadureça no Android</b> antes de operar — logar no PC numa conta nova é "novo dispositivo".
           <div style="margin-top:10px">
             <button class="btn btn-ghost btn-sm" onclick="showPage('proxies')">📖 Ver guia completo de proxies →</button>
           </div>
