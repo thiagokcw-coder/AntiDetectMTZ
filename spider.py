@@ -47,6 +47,16 @@ async ([url, referer]) => {
 
 FOLLOWERS_HEADERS = ["Username", "User Id", "Full Name", "Verified", "Private",
                      "Profile URL", "Avatar URL"]
+# 'following' usa os mesmos campos de 'followers'.
+POSTS_HEADERS = ["Shortcode", "URL", "Caption", "Likes", "Comments", "Views",
+                 "Taken At", "Media Type", "Product Type"]
+
+_MEDIA_TYPE = {1: "foto", 2: "vídeo", 8: "carrossel"}
+
+
+def headers_for(kind: str) -> list:
+    """Cabeçalhos do CSV conforme o tipo extraído."""
+    return POSTS_HEADERS if kind == "posts" else FOLLOWERS_HEADERS
 
 
 def clean_username(raw: str) -> str:
@@ -73,10 +83,10 @@ async def _resolve_user(page, username: str):
     return None, res
 
 
-async def _followers(page, user_id, username, limit, progress, should_stop, log=None,
-                     start_max_id=None, seed_rows=None):
-    """Retorna (rows, cursor). cursor=None => lista completa; cursor=<max_id> =>
-    parou no meio (pode continuar de onde parou passando start_max_id=cursor)."""
+async def _friendship_list(page, user_id, username, edge, limit, progress, should_stop,
+                           log=None, start_max_id=None, seed_rows=None):
+    """Lista de relacionamento (edge='followers' ou 'following'). Mesma resposta
+    (`users[]`+`next_max_id`). Retorna (rows, cursor); cursor=None => completo."""
     rows = list(seed_rows or [])
     seen = {str(r.get("User Id")) for r in rows if r.get("User Id")}
     max_id = start_max_id or None
@@ -91,7 +101,7 @@ async def _followers(page, user_id, username, limit, progress, should_stop, log=
                 log("⏹ parado pelo usuário")
             cursor = max_id
             break
-        url = f"{IG}/api/v1/friendships/{user_id}/followers/?count=50"
+        url = f"{IG}/api/v1/friendships/{user_id}/{edge}/?count=50"
         if max_id:
             url += f"&max_id={max_id}"
         res = await _api_get(page, url, f"{IG}/{username}/")
@@ -152,6 +162,99 @@ async def _followers(page, user_id, username, limit, progress, should_stop, log=
     return rows, cursor
 
 
+def _post_row(it) -> dict:
+    import time as _t
+    code = it.get("code") or ""
+    cap = (it.get("caption") or {}) or {}
+    ts = it.get("taken_at")
+    when = ""
+    try:
+        if ts:
+            when = _t.strftime("%Y-%m-%d %H:%M", _t.localtime(int(ts)))
+    except Exception:
+        when = ""
+    return {
+        "Shortcode": code,
+        "URL": f"{IG}/p/{code}/" if code else "",
+        "Caption": (cap.get("text") or "").replace("\n", " ").strip(),
+        "Likes": it.get("like_count", 0),
+        "Comments": it.get("comment_count", 0),
+        "Views": it.get("view_count") or it.get("play_count") or "",
+        "Taken At": when,
+        "Media Type": _MEDIA_TYPE.get(it.get("media_type"), it.get("media_type")),
+        "Product Type": it.get("product_type") or "",
+    }
+
+
+async def _posts(page, user_id, username, limit, progress, should_stop, log=None,
+                 start_max_id=None, seed_rows=None):
+    """Posts do perfil (`/api/v1/feed/user/{id}/`). Retorna (rows, cursor)."""
+    rows = list(seed_rows or [])
+    seen = {str(r.get("Shortcode")) for r in rows if r.get("Shortcode")}
+    max_id = start_max_id or None
+    cursor = max_id
+    rate_hits = 0
+    page_n = 0
+    if seed_rows and log:
+        log(f"retomando: {len(rows)} post(s) já coletado(s)…")
+    while True:
+        if should_stop and should_stop():
+            if log:
+                log("⏹ parado pelo usuário")
+            cursor = max_id
+            break
+        url = f"{IG}/api/v1/feed/user/{user_id}/?count=12"
+        if max_id:
+            url += f"&max_id={max_id}"
+        res = await _api_get(page, url, f"{IG}/{username}/")
+        st = res.get("status")
+        if st in (429, 560):
+            rate_hits += 1
+            if log:
+                log(f"⚠ rate limit (status {st}) — aguardando 60s [{rate_hits}/5]")
+            if rate_hits > 5:
+                if log:
+                    log("✖ muitas vezes em rate limit — encerrando")
+                cursor = max_id
+                break
+            await asyncio.sleep(60)
+            continue
+        rate_hits = 0
+        if not res.get("ok") or not res.get("json"):
+            if log:
+                log(f"✖ resposta inesperada (status {st}) — encerrando")
+            cursor = max_id
+            break
+        j = res["json"]
+        before = len(rows)
+        for it in (j.get("items") or []):
+            code = str(it.get("code") or "")
+            if not code or code in seen:
+                continue
+            seen.add(code)
+            rows.append(_post_row(it))
+            if limit and len(rows) >= limit:
+                if progress:
+                    progress(len(rows))
+                if log:
+                    log(f"✓ limite de {limit} atingido — total {len(rows)}")
+                return rows, j.get("next_max_id")
+        page_n += 1
+        if log:
+            log(f"página {page_n}: +{len(rows) - before} (total {len(rows)})")
+        if progress:
+            progress(len(rows))
+        max_id = j.get("next_max_id")
+        if not max_id or not j.get("more_available", True):
+            if log:
+                log(f"✓ fim dos posts — total {len(rows)}")
+            cursor = None
+            break
+        cursor = max_id
+        await asyncio.sleep(round(random.uniform(0.8, 1.7), 2))
+    return rows, cursor
+
+
 async def extract(profile: dict, kind: str, target: str, limit: int = 0,
                   progress=None, should_stop=None, log=None,
                   start_max_id=None, seed_rows=None) -> dict:
@@ -177,13 +280,19 @@ async def extract(profile: dict, kind: str, target: str, limit: int = 0,
             await asyncio.sleep(round(random.uniform(2.0, 4.0), 2))
         except Exception:
             pass
-        if kind == "followers":
+        if kind in ("followers", "following"):
             if log:
-                log("iniciando extração de seguidores…")
-            rows, cursor = await _followers(page, uid, uname, limit, progress, should_stop, log,
-                                            start_max_id=start_max_id, seed_rows=seed_rows)
+                log(f"iniciando extração de {'seguindo' if kind == 'following' else 'seguidores'}…")
+            rows, cursor = await _friendship_list(page, uid, uname, kind, limit, progress,
+                                                  should_stop, log, start_max_id=start_max_id,
+                                                  seed_rows=seed_rows)
+        elif kind == "posts":
+            if log:
+                log("iniciando extração de posts…")
+            rows, cursor = await _posts(page, uid, uname, limit, progress, should_stop, log,
+                                        start_max_id=start_max_id, seed_rows=seed_rows)
         else:
-            return {"error": f"tipo '{kind}' ainda não implementado (Fase 1 = followers)"}
+            return {"error": f"tipo '{kind}' não suportado (use followers/following/posts)"}
         return {"rows": rows, "cursor": cursor, "target": uname, "kind": kind, "user": info}
 
     try:

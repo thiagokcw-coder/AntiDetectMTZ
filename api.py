@@ -1347,6 +1347,7 @@ def spider_job_csv(job_id: str):
     if j:
         rows = j.get("rows") or []
         target = j.get("target", "")
+        kind = j.get("kind", "followers")
     else:
         # Fallback: execução antiga do histórico (rows salvas no banco)
         run = db.get_spider_run(job_id)
@@ -1357,12 +1358,14 @@ def spider_job_csv(job_id: str):
         except Exception:
             rows = []
         target = run.get("target", "")
+        kind = run.get("kind", "followers")
     buf = _io.StringIO()
-    w = _csv.DictWriter(buf, fieldnames=spider.FOLLOWERS_HEADERS, extrasaction="ignore")
+    w = _csv.DictWriter(buf, fieldnames=spider.headers_for(kind), extrasaction="ignore")
     w.writeheader()
     for r in rows:
         w.writerow(r)
-    fname = f"IGFollowers_{spider.clean_username(target)}_{len(rows)}.csv"
+    prefix = {"followers": "IGFollowers", "following": "IGFollowing", "posts": "IGPosts"}.get(kind, "IGData")
+    fname = f"{prefix}_{spider.clean_username(target)}_{len(rows)}.csv"
     return Response(content=buf.getvalue(), media_type="text/csv",
                     headers={"Content-Disposition": f"attachment; filename={fname}"})
 

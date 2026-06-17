@@ -1142,7 +1142,7 @@
       <div class="page-header">
         <div>
           <div class="page-title">Spider</div>
-          <div class="page-subtitle">Extrai dados do Instagram usando um perfil JÁ LOGADO (a conta do perfil faz as requisições). Fase 1: seguidores.</div>
+          <div class="page-subtitle">Extrai dados do Instagram usando um perfil JÁ LOGADO (a conta do perfil faz as requisições). Tipos: seguidores, seguindo e posts.</div>
         </div>
       </div>
 
@@ -1174,7 +1174,11 @@
         <div class="form-row">
           <div class="form-group">
             <label>O que extrair</label>
-            <select id="sp-kind"><option value="followers">Seguidores</option></select>
+            <select id="sp-kind">
+              <option value="followers">Seguidores</option>
+              <option value="following">Seguindo</option>
+              <option value="posts">Posts</option>
+            </select>
           </div>
           <div class="form-group">
             <label>Limite (0 = todos)</label>
