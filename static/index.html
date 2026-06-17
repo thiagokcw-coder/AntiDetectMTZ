@@ -53,7 +53,7 @@
   .layout { display: flex; flex: 1; overflow: hidden; }
 
   /* Sidebar */
-  aside { width: 200px; background: var(--surface); border-right: 1px solid var(--border); padding: 16px 0; flex-shrink: 0; }
+  aside { width: 200px; background: var(--surface); border-right: 1px solid var(--border); padding: 16px 0; flex-shrink: 0; overflow-y: auto; }
   .nav-item { padding: 10px 20px; cursor: pointer; color: var(--muted); display: flex; align-items: center; gap: 10px; transition: all .15s; border-left: 3px solid transparent; font-size: 13px; }
   .nav-item:hover { color: var(--text); background: var(--surface2); }
   .nav-item.active { color: var(--accent2); border-left-color: var(--accent); background: var(--surface2); }
@@ -297,10 +297,6 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 9V3M12 21v-6M9 12H3M21 12h-6M7 7 4 4M17 7l3-3M7 17l-3 3M17 17l3 3"/></svg>
       Spider
     </div>
-    <div class="nav-item" data-page-link="import" onclick="showPage('import')">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 3v4a1 1 0 0 0 1 1h4"/><path d="M17 21H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7l5 5v11a2 2 0 0 1-2 2z"/><path d="M12 11v6M9 14l3 3 3-3"/></svg>
-      Importar CSV
-    </div>
     <div class="nav-item" data-page-link="create" onclick="showPage('create')">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
       Novo Perfil
@@ -308,18 +304,6 @@
     <div class="nav-item" data-page-link="proxies" onclick="showPage('proxies')">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M5 12a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2M5 12a2 2 0 0 0-2 2v4a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-4a2 2 0 0 0-2-2M8 7h.01M8 17h.01"/></svg>
       Proxies
-    </div>
-    <div class="nav-item" onclick="launchAll()">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-      Abrir Todos
-    </div>
-    <div class="nav-item" data-page-link="sessions" onclick="showPage('sessions')">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
-      Sessões Ativas
-    </div>
-    <div class="nav-item" data-page-link="diagnostics" onclick="showPage('diagnostics')">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>
-      Diagnóstico
     </div>
     <div class="nav-item" data-page-link="localdata" onclick="showPage('localdata')">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/><path d="M3 12c0 1.66 4 3 9 3s9-1.34 9-3"/></svg>
@@ -409,7 +393,6 @@
               <div class="flow-desc">Logue a conta recém-criada no <b>app do Instagram no celular</b> e use alguns dias (poste, navegue) antes de operar pra valer. Cadastre usuário/senha na aba <b>Contas</b> pra acompanhar.</div>
               <div class="flow-actions">
                 <button class="btn btn-primary btn-sm" onclick="showPage('accounts')">Ir para Contas →</button>
-                <button class="btn btn-ghost btn-sm" onclick="showPage('import')">Importar CSV</button>
               </div>
             </div>
           </div>
