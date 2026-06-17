@@ -1466,14 +1466,24 @@ async def proxies_test(force: bool = False):
     }
 
 
-def _proxy_status_block(pk: str, host: str) -> dict:
-    """Monta {level, country, status} de um proxy a partir de pool.summary() +
-    reachability (cache, só leitura) + país (offline). Usado pelo indicador do topo."""
-    st = {}
-    try:
-        st = next((i for i in pool.summary().get("items", []) if i.get("key") == pk), {}) or {}
-    except Exception:
-        st = {}
+def _proxy_status_block(pk: str, host: str, summary_items=None, outcomes=None) -> dict:
+    """Monta {level, health, country, status} de um proxy a partir de pool.summary()
+    + desfechos reais (proxy_outcomes) + reachability (cache, só leitura) + país.
+    `health`: limpo/sujo/queimado/sem-dados (mesma regra de /proxies/health) — é o
+    LEMBRETE de proxy sujo. `summary_items`/`outcomes` podem ser pré-computados para
+    evitar re-scan quando avaliando vários proxies."""
+    if summary_items is None:
+        try:
+            summary_items = pool.summary().get("items", [])
+        except Exception:
+            summary_items = []
+    st = next((i for i in summary_items if i.get("key") == pk), {}) or {}
+    if outcomes is None:
+        try:
+            outcomes = acc.proxy_outcomes()
+        except Exception:
+            outcomes = {}
+    out_d = outcomes.get(pk, {}) or {}
     reach = (_proxy_test_cache.get("results") or {}).get(pk)
     reachable = reach.get("ok") if reach else None
     try:
@@ -1482,10 +1492,14 @@ def _proxy_status_block(pk: str, host: str) -> dict:
         country = ""
     ban = st.get("ban_rate_pct")
     blocked = bool(st.get("blocked"))
-    # Vermelho (atenção) se: proxy não responde, no limite, ou ban rate alto.
-    warn = blocked or (reachable is False) or (isinstance(ban, (int, float)) and ban >= 20)
+    health = _derive_proxy_health(out_d, 0, reachable)
+    # Vermelho (atenção) se: proxy não responde, no limite, ban alto, ou sujo/queimado.
+    warn = (blocked or (reachable is False)
+            or (isinstance(ban, (int, float)) and ban >= 20)
+            or health in ("dirty", "banned"))
     return {
         "level": "warn" if warn else "ok",
+        "health": health,
         "country": country or None,
         "status": {
             "used": st.get("used"),
@@ -1493,21 +1507,25 @@ def _proxy_status_block(pk: str, host: str) -> dict:
             "blocked": blocked,
             "reachable": reachable,
             "recommended_remaining": st.get("recommended_remaining"),
+            "accounts": out_d,
         },
     }
 
 
 @app.get("/proxies/active")
 def proxies_active():
-    """Proxy ATUAL para o indicador do topo, em ordem de prioridade:
-      1) criação em andamento  -> proxy da conta sendo criada agora (mode=creating);
-      2) sessão aberta no PC    -> proxy do perfil aberto agora (mode=in_use);
-      3) último proxy usado     -> do ledger de criação (mode=last);
-      4) nada                   -> mode=idle.
-    NUNCA mostra "próximo" calculado por assign() — sempre o proxy REAL em uso/usado.
+    """Proxy ATUAL + saúde para o indicador do topo (LEMBRETE de proxy sujo),
+    em ordem de prioridade:
+      1) criação em andamento -> proxy da conta sendo criada (mode=creating);
+      2) sessão aberta no PC   -> proxy do perfil aberto agora (mode=in_use);
+      3) parado, 1 proxy no pool -> mostra ELE + saúde (mode=pool_one);
+      4) parado, vários proxies  -> resume pelo PIOR (mode=pool_many, dirty_count);
+      5) pool vazio              -> mode=empty.
+    NUNCA mostra "próximo" do assign() — mostra o proxy REAL em uso ou o que você TEM
+    no pool, sempre com `health` (limpo/sujo/queimado) pra ver se o IP está limpo.
 
-    Reaproveita: _ig_batch_jobs + sm.list_active() + creation_attempts +
-    pool.summary()/proxy_country() + cache de reachability (só LEITURA).
+    Reaproveita: _ig_batch_jobs + sm.list_active() + pool.summary() +
+    proxy_outcomes() + proxy_country() + cache de reachability (só LEITURA).
     """
     # 1) Criação em andamento — item sendo criado no job em execução mais recente.
     cur = None
@@ -1544,22 +1562,39 @@ def proxies_active():
             return {"mode": "in_use", "local": False, "proxy_key": pk, "host": px["host"],
                     "profile_id": s.get("profile_id"), **_proxy_status_block(pk, px["host"])}
 
-    # 3) Último proxy realmente usado (ledger de criação, mais recente primeiro).
-    last_pk = None
+    # 3) Nada em uso AGORA → LEMBRETE: mostra o(s) proxy(s) do pool e a saúde deles,
+    #    pra você sempre ver se seu IP está limpo ou sujo (não é "próximo", é o que
+    #    você TEM). 1 proxy → mostra ele; vários → resume pelo PIOR (lembrete de sujo).
     try:
-        for r in db.list_creation_attempts(50):
-            if r.get("proxy_key"):
-                last_pk = r["proxy_key"]
-                break
+        summary_items = pool.summary().get("items", [])
     except Exception:
-        last_pk = None
-    if last_pk:
-        host = last_pk.split(":")[0]
-        return {"mode": "last", "local": False, "proxy_key": last_pk, "host": host,
-                **_proxy_status_block(last_pk, host)}
+        summary_items = []
+    if not summary_items:
+        return {"mode": "empty", "level": "idle"}
 
-    # 4) Nada em uso nem usado.
-    return {"mode": "idle", "level": "idle"}
+    try:
+        outcomes = acc.proxy_outcomes()
+    except Exception:
+        outcomes = {}
+
+    if len(summary_items) == 1:
+        k = summary_items[0].get("key")
+        host = k.split(":")[0] if k else ""
+        return {"mode": "pool_one", "local": False, "proxy_key": k, "host": host,
+                **_proxy_status_block(k, host, summary_items, outcomes)}
+
+    # Vários proxies: avalia todos (sem re-scan) e resume pelo pior.
+    rank = {"banned": 0, "dirty": 1, "unknown": 2, "clean": 3}
+    blocks = []
+    for it in summary_items:
+        k = it.get("key")
+        host = k.split(":")[0] if k else ""
+        blocks.append((k, host, _proxy_status_block(k, host, summary_items, outcomes)))
+    blocks.sort(key=lambda x: rank.get(x[2].get("health"), 9))
+    wk, whost, wb = blocks[0]
+    dirty_n = sum(1 for _, _, b in blocks if b.get("health") in ("dirty", "banned"))
+    return {"mode": "pool_many", "local": False, "proxy_key": wk, "host": whost,
+            "count": len(blocks), "dirty_count": dirty_n, **wb}
 
 
 def _derive_proxy_health(accounts_d: dict, attempts_total: int, reachable) -> str:

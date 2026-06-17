@@ -1562,10 +1562,10 @@ async function loadActiveProxy() {
   try {
     const s = await api('GET', '/proxies/active');
     pill.classList.remove('proxy-ok', 'proxy-warn');
-    // Nada em uso nem usado.
-    if (!s || s.mode === 'idle' || (!s.proxy_key && !s.local)) {
-      txt.textContent = 'Proxy: nenhum em uso';
-      pill.title = 'Nenhum proxy em uso (abra um perfil ou inicie a criação)';
+    // Pool vazio.
+    if (!s || s.mode === 'empty' || (!s.proxy_key && !s.local)) {
+      txt.textContent = 'Proxy: pool vazio';
+      pill.title = 'Nenhum proxy no pool — adicione na aba Proxies';
       return;
     }
     // Conexão local (sem proxy) durante criação.
@@ -1575,19 +1575,28 @@ async function loadActiveProxy() {
       pill.title = 'Em uso: conexão local (sem proxy) — ' + (s.email || '');
       return;
     }
+    pill.classList.add(s.level === 'warn' ? 'proxy-warn' : 'proxy-ok');
+    const HW = { clean: 'limpo', dirty: 'SUJO', banned: 'QUEIMADO', unknown: '' };
+    const hw = HW[s.health] || '';
+    // Vários proxies parados: resumo pelo pior (lembrete de sujo).
+    if (s.mode === 'pool_many') {
+      txt.textContent = '🌐 ' + s.count + ' proxies'
+        + (s.dirty_count ? ' · ' + s.dirty_count + ' sujo(s)' : ' · todos ok');
+      pill.title = (s.dirty_count ? '⚠ ' + s.dirty_count + ' proxy(s) sujo(s) no pool — '
+        : '✓ Pool ok — ') + s.count + ' proxies. Pior: ' + (s.proxy_key || '');
+      return;
+    }
+    // creating / in_use / pool_one: mostra o proxy + se está limpo/sujo.
     const st = s.status || {};
     const flag = s.country ? (s.country + ' · ') : '';
-    // Rótulo por modo: criação/sessão = "em uso"; último = "Último:".
-    const isLast = s.mode === 'last';
-    pill.classList.add(s.level === 'warn' ? 'proxy-warn' : 'proxy-ok');
-    txt.textContent = (isLast ? 'Último: ' : '🌐 ') + flag + (s.host || s.proxy_key);
+    txt.textContent = '🌐 ' + flag + (s.host || s.proxy_key) + (hw ? ' · ' + hw : '');
     const bits = [];
     if (st.reachable === false) bits.push('proxy não responde');
     if (st.blocked) bits.push('no limite');
     if (st.ban_rate_pct != null) bits.push('ban ' + st.ban_rate_pct + '%');
     if (st.used != null) bits.push(st.used + ' uso(s)');
-    const modeTxt = { creating: 'Em uso (criando)', in_use: 'Em uso (perfil aberto)', last: 'Último usado' }[s.mode] || 'Em uso';
-    const head = (s.level === 'warn' ? '⚠ ' : '✓ ') + modeTxt + ' — ';
+    const modeTxt = { creating: 'Em uso (criando)', in_use: 'Em uso (perfil aberto)', pool_one: 'Seu proxy' }[s.mode] || 'Proxy';
+    const head = (s.level === 'warn' ? '⚠ ' : '✓ ') + modeTxt + (hw ? ' (' + hw.toLowerCase() + ')' : '') + ' — ';
     pill.title = head + (s.proxy_key || '')
       + (s.email ? (' • criando ' + s.email) : '')
       + (bits.length ? (' • ' + bits.join(' • ')) : '');
@@ -1605,20 +1614,27 @@ async function loadStartProxyHealth() {
       api('GET', '/proxies/active').catch(() => null),
       api('GET', '/proxies/health').catch(() => ({ items: [] })),
     ]);
-    // Linha do proxy ATUAL (em uso / último usado)
-    if (!a || a.mode === 'idle' || (!a.proxy_key && !a.local)) {
-      now.innerHTML = '<span style="color:var(--muted)">Nenhum proxy em uso (abra um perfil ou inicie a criação).</span>';
+    // Linha do proxy ATUAL + saúde (lembrete de limpo/sujo)
+    const HW = { clean: 'limpo', dirty: 'SUJO', banned: 'QUEIMADO', unknown: 'sem dados' };
+    if (!a || a.mode === 'empty' || (!a.proxy_key && !a.local)) {
+      now.innerHTML = '<b style="color:var(--yellow)">Pool vazio.</b> Adicione um proxy na aba Proxies.';
     } else if (a.local) {
       now.innerHTML = '<b style="color:var(--green)">Em uso:</b> conexão local (celular)';
+    } else if (a.mode === 'pool_many') {
+      const color = a.level === 'warn' ? 'var(--red)' : 'var(--green)';
+      now.innerHTML = `<b style="color:${color}">Pool:</b> ${a.count} proxies`
+        + (a.dirty_count ? ` <span style="color:var(--red)">— ${a.dirty_count} sujo(s)</span>` : ' <span style="color:var(--green)">— todos ok</span>');
     } else {
       const color = a.level === 'warn' ? 'var(--red)' : 'var(--green)';
-      const label = { creating: 'Em uso (criando)', in_use: 'Em uso (perfil aberto)', last: 'Último usado' }[a.mode] || 'Em uso';
+      const label = { creating: 'Em uso (criando)', in_use: 'Em uso (perfil aberto)', pool_one: 'Seu proxy' }[a.mode] || 'Proxy';
       const flag = a.country ? (a.country + ' · ') : '';
+      const hw = HW[a.health];
       const st = a.status || {};
       const extra = [];
       if (st.reachable === false) extra.push('não responde');
       if (st.ban_rate_pct != null) extra.push('ban ' + st.ban_rate_pct + '%');
       now.innerHTML = `<b style="color:${color}">${label}:</b> <code>${escapeHtml(flag + (a.host || a.proxy_key))}</code>`
+        + (hw ? ` <b style="color:${color}">[${hw}]</b>` : '')
         + (extra.length ? ` <span style="color:var(--muted)">(${extra.join(' • ')})</span>` : '');
     }
     // Lista de saúde (compacta — até 6)
