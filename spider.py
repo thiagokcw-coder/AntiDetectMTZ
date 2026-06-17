@@ -73,11 +73,14 @@ async def _resolve_user(page, username: str):
     return None, res
 
 
-async def _followers(page, user_id, username, limit, progress, should_stop):
+async def _followers(page, user_id, username, limit, progress, should_stop, log=None):
     rows, seen, max_id = [], set(), None
     rate_hits = 0
+    page_n = 0
     while True:
         if should_stop and should_stop():
+            if log:
+                log("⏹ parado pelo usuário")
             break
         url = f"{IG}/api/v1/friendships/{user_id}/followers/?count=50"
         if max_id:
@@ -86,14 +89,21 @@ async def _followers(page, user_id, username, limit, progress, should_stop):
         st = res.get("status")
         if st in (429, 560):                 # rate limit → espera e tenta de novo
             rate_hits += 1
+            if log:
+                log(f"⚠ rate limit (status {st}) — aguardando 60s [{rate_hits}/5]")
             if rate_hits > 5:
+                if log:
+                    log("✖ muitas vezes em rate limit — encerrando")
                 break
             await asyncio.sleep(60)
             continue
         rate_hits = 0
         if not res.get("ok") or not res.get("json"):
+            if log:
+                log(f"✖ resposta inesperada (status {st}) — encerrando")
             break
         j = res["json"]
+        before = len(rows)
         for u in (j.get("users") or []):
             pk = str(u.get("pk") or u.get("id") or "")
             if not pk or pk in seen:
@@ -112,27 +122,40 @@ async def _followers(page, user_id, username, limit, progress, should_stop):
             if limit and len(rows) >= limit:
                 if progress:
                     progress(len(rows))
+                if log:
+                    log(f"✓ limite de {limit} atingido — total {len(rows)}")
                 return rows
+        page_n += 1
+        if log:
+            log(f"página {page_n}: +{len(rows) - before} (total {len(rows)})")
         if progress:
             progress(len(rows))
         max_id = j.get("next_max_id")
         if not max_id:
+            if log:
+                log(f"✓ fim da lista — total {len(rows)}")
             break
         await asyncio.sleep(round(random.uniform(0.8, 1.7), 2))   # jitter humano
     return rows
 
 
 async def extract(profile: dict, kind: str, target: str, limit: int = 0,
-                  progress=None, should_stop=None) -> dict:
+                  progress=None, should_stop=None, log=None) -> dict:
     """Abre o perfil (logado) e extrai. Fase 1: kind='followers'.
     Retorna {rows, target, kind, user} ou {error}."""
     async def _run(page):
+        if log:
+            log("abrindo instagram.com no perfil…")
         await page.goto(IG + "/", wait_until="domcontentloaded")
         await asyncio.sleep(round(random.uniform(2.0, 4.0), 2))
+        if log:
+            log(f"resolvendo @{clean_username(target)}…")
         uid, info = await _resolve_user(page, target)
         if not uid:
             return {"error": "Perfil não encontrado/privado, ou a conta do perfil não está logada no Instagram."}
         uname = clean_username(target)
+        if log:
+            log(f"alvo @{uname} (id {uid}) resolvido — aquecendo (visitando o perfil)…")
         # Warm-up: visita o perfil alvo antes de raspar (parece navegação humana).
         try:
             await page.goto(f"{IG}/{uname}/", wait_until="domcontentloaded")
@@ -140,7 +163,9 @@ async def extract(profile: dict, kind: str, target: str, limit: int = 0,
         except Exception:
             pass
         if kind == "followers":
-            rows = await _followers(page, uid, uname, limit, progress, should_stop)
+            if log:
+                log("iniciando extração de seguidores…")
+            rows = await _followers(page, uid, uname, limit, progress, should_stop, log)
         else:
             return {"error": f"tipo '{kind}' ainda não implementado (Fase 1 = followers)"}
         return {"rows": rows, "target": uname, "kind": kind, "user": info}
@@ -148,4 +173,6 @@ async def extract(profile: dict, kind: str, target: str, limit: int = 0,
     try:
         return await sm.run_profile_task(profile, _run, headless=True)
     except Exception as e:
+        if log:
+            log(f"✖ erro: {e}")
         return {"error": f"falha ao abrir/raspar: {e}"}

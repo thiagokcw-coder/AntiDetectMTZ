@@ -1188,12 +1188,29 @@
         </div>
       </div>
 
-      <div id="sp-status" style="display:none;margin-top:16px;max-width:560px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:14px 16px;font-size:13px">
+      <div id="sp-status" style="display:none;margin-top:16px;max-width:680px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:14px 16px;font-size:13px">
         <div><b id="sp-state">—</b> · <span id="sp-count">0</span> registro(s)</div>
         <div id="sp-detail" style="color:var(--muted);font-size:12px;margin-top:6px"></div>
         <div id="sp-code-box" style="display:none;margin-top:10px;gap:8px;align-items:center">
           <input id="sp-code" type="text" placeholder="Código do Instagram" style="padding:6px 10px;background:var(--surface);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;max-width:160px">
           <button class="btn btn-primary btn-sm" onclick="spiderSubmitCode()">Enviar código</button>
+        </div>
+        <!-- Terminal do processo (log ao vivo) -->
+        <div style="margin-top:12px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em">Terminal do processo</div>
+        <pre id="sp-log" style="margin:6px 0 0;max-height:240px;overflow:auto;background:#0b0f17;border:1px solid var(--border);border-radius:8px;padding:10px 12px;font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.5;color:#cbd5e1;white-space:pre-wrap;word-break:break-word"></pre>
+      </div>
+
+      <!-- Histórico de execuções -->
+      <div style="margin-top:22px;max-width:680px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+          <div style="font-weight:600">📜 Histórico de execuções</div>
+          <button class="btn btn-ghost btn-sm" onclick="loadSpiderHistory()">↻ Atualizar</button>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Quando</th><th>Alvo</th><th>Tipo</th><th>Método</th><th>Registros</th><th>Status</th><th>Ações</th></tr></thead>
+            <tbody id="sp-history"></tbody>
+          </table>
         </div>
       </div>
     </div>
@@ -3181,6 +3198,7 @@ async function loadSpider() {
       `<option value="${a.id}">@${escapeHtml(a.username)}${a.status ? ' · ' + escapeHtml(a.status) : ''}</option>`
     ).join('') || '<option value="">(nenhuma conta com usuário)</option>';
     spiderMethodChange();
+    loadSpiderHistory();
   } catch (e) { toast(e.message || 'Erro ao carregar perfis/contas', 'error'); }
 }
 
@@ -3203,6 +3221,7 @@ async function spiderStart() {
     const r = await api('POST', '/spider/extract', payload);
     _spiderJob = r.job_id;
     document.getElementById('sp-status').style.display = '';
+    document.getElementById('sp-log').textContent = '(iniciando…)';
     document.getElementById('sp-start').disabled = true;
     document.getElementById('sp-stop').style.display = '';
     document.getElementById('sp-csv').style.display = 'none';
@@ -3221,6 +3240,7 @@ async function spiderPoll() {
     document.getElementById('sp-state').textContent = map[j.status] || j.status;
     document.getElementById('sp-count').textContent = j.count;
     if (j.detail) document.getElementById('sp-detail').textContent = j.detail;
+    renderSpiderLog(j.log);
     document.getElementById('sp-code-box').style.display = j.status === 'needs_code' ? 'flex' : 'none';
     if (j.status === 'running' || j.status === 'needs_code') { _spiderTimer = setTimeout(spiderPoll, 2000); return; }
     document.getElementById('sp-start').disabled = false;
@@ -3231,7 +3251,68 @@ async function spiderPoll() {
     } else {
       document.getElementById('sp-detail').textContent = j.error || 'Falha na extração.';
     }
+    loadSpiderHistory();   // atualiza o histórico ao terminar
   } catch (e) { _spiderTimer = setTimeout(spiderPoll, 3000); }
+}
+
+// Renderiza o terminal do processo (auto-scroll se já estava no fim).
+function renderSpiderLog(lines) {
+  const el = document.getElementById('sp-log');
+  if (!el) return;
+  const atBottom = (el.scrollHeight - el.scrollTop - el.clientHeight) < 30;
+  el.textContent = (lines && lines.length) ? lines.join('\n') : '(aguardando…)';
+  if (atBottom) el.scrollTop = el.scrollHeight;
+}
+
+const SP_STATUS_LABEL = { running: '⏳ rodando', needs_code: '🔐 código',
+                          done: '✅ ok', error: '⚠️ erro' };
+
+async function loadSpiderHistory() {
+  const tb = document.getElementById('sp-history');
+  if (!tb) return;
+  try {
+    const r = await api('GET', '/spider/history');
+    const items = r.items || [];
+    if (!items.length) {
+      tb.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:18px">Nenhuma execução ainda.</td></tr>';
+      return;
+    }
+    tb.innerHTML = items.map(it => {
+      const when = it.finished_at || it.started_at || '—';
+      const stColor = it.status === 'done' ? 'var(--green)' : (it.status === 'error' ? 'var(--red)' : 'var(--yellow)');
+      const dl = it.count ? `<button class="btn btn-ghost btn-sm" style="padding:1px 8px" onclick="spiderHistoryCsv('${it.id}')">⬇ CSV</button>` : '';
+      return `<tr>
+        <td style="font-size:12px;color:var(--muted)">${escapeHtml(when)}</td>
+        <td><code>@${escapeHtml(it.target || '')}</code></td>
+        <td>${escapeHtml(it.kind || '')}</td>
+        <td>${escapeHtml(it.method || '')}</td>
+        <td><b>${it.count || 0}</b></td>
+        <td style="color:${stColor}">${SP_STATUS_LABEL[it.status] || escapeHtml(it.status || '')}</td>
+        <td>${dl} <button class="btn btn-ghost btn-sm" style="padding:1px 8px" onclick="spiderHistoryDelete('${it.id}')" title="Remover do histórico">🗑</button></td>
+      </tr>`;
+    }).join('');
+  } catch (e) { /* silencioso */ }
+}
+
+async function spiderHistoryCsv(id) {
+  try {
+    const res = await fetch(API + `/spider/jobs/${id}/csv`);
+    if (!res.ok) throw new Error('Falha ao baixar');
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'seguidores.csv';
+    document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(url);
+  } catch (e) { toast(e.message || 'Erro ao baixar', 'error'); }
+}
+
+async function spiderHistoryDelete(id) {
+  if (!confirm('Remover esta execução do histórico?')) return;
+  try {
+    await api('DELETE', `/spider/history/${id}`);
+    loadSpiderHistory();
+  } catch (e) { toast(e.message || 'Erro ao remover', 'error'); }
 }
 
 async function spiderSubmitCode() {

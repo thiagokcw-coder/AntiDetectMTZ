@@ -1164,10 +1164,27 @@ async def spider_extract(body: SpiderExtractRequest):
         label = p.get("name")
 
     job_id = uuid.uuid4().hex[:12]
+    started_at = time.strftime("%Y-%m-%d %H:%M:%S")
     job = {"id": job_id, "status": "running", "kind": body.kind, "target": body.target,
            "count": 0, "rows": [], "error": None, "stop": False, "profile": label,
-           "method": method, "detail": "", "code": None, "code_method": None}
+           "method": method, "detail": "", "code": None, "code_method": None,
+           "log": [], "started_at": started_at}
     _spider_jobs[job_id] = job
+
+    # Histórico persistente (sobrevive a reiniciar o app)
+    try:
+        db.spider_run_upsert({"id": job_id, "method": method, "profile": label,
+                              "target": body.target, "kind": body.kind, "count": 0,
+                              "status": "running", "error": None, "rows_json": None,
+                              "started_at": started_at, "finished_at": None})
+    except Exception:
+        logger.exception("falha ao registrar início do spider run")
+
+    def _log(msg):
+        # Terminal do processo: linha com horário. Mantém as últimas 500.
+        job["log"].append(f"[{time.strftime('%H:%M:%S')}] {msg}")
+        if len(job["log"]) > 500:
+            del job["log"][:len(job["log"]) - 500]
 
     def _progress(n): job["count"] = n
     def _should_stop(): return job.get("stop", False)
@@ -1196,13 +1213,15 @@ async def spider_extract(body: SpiderExtractRequest):
                 res = await spider_app.extract(
                     a, body.kind, body.target, body.limit,
                     progress=_progress, should_stop=_should_stop,
-                    code_provider=_code_provider, status=_status, use_local=body.use_local)
+                    code_provider=_code_provider, status=_status, use_local=body.use_local,
+                    log=_log)
             else:
                 res = await spider.extract(
                     p, body.kind, body.target, body.limit,
-                    progress=_progress, should_stop=_should_stop)
+                    progress=_progress, should_stop=_should_stop, log=_log)
             if res.get("error"):
                 job["status"] = "error"; job["error"] = res["error"]
+                _log("✖ " + str(res["error"])[:160])
             else:
                 job["rows"] = res.get("rows", [])
                 job["count"] = len(job["rows"])
@@ -1210,6 +1229,20 @@ async def spider_extract(body: SpiderExtractRequest):
                 job["detail"] = ""
         except Exception as e:
             job["status"] = "error"; job["error"] = str(e)
+            _log("✖ erro: " + str(e)[:160])
+        finally:
+            # Persiste o resultado no histórico (metadados + linhas p/ baixar depois).
+            try:
+                db.spider_run_upsert({
+                    "id": job_id, "method": method, "profile": label,
+                    "target": body.target, "kind": body.kind, "count": job.get("count", 0),
+                    "status": job.get("status"), "error": job.get("error"),
+                    "rows_json": json.dumps(job.get("rows") or []),
+                    "started_at": started_at,
+                    "finished_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+                })
+            except Exception:
+                logger.exception("falha ao salvar spider run no histórico")
 
     asyncio.create_task(_worker())
     return {"job_id": job_id}
@@ -1222,7 +1255,20 @@ def spider_job(job_id: str):
         raise HTTPException(404, "Job não encontrado")
     return {"id": j["id"], "status": j["status"], "count": j["count"],
             "kind": j["kind"], "target": j["target"], "error": j["error"],
-            "detail": j.get("detail", ""), "code_method": j.get("code_method")}
+            "detail": j.get("detail", ""), "code_method": j.get("code_method"),
+            "log": j.get("log", [])[-300:]}   # terminal do processo (tail)
+
+
+@app.get("/spider/history")
+def spider_history(limit: int = 50):
+    """Histórico persistente das execuções do Spider (metadados)."""
+    return {"items": db.list_spider_runs(limit)}
+
+
+@app.delete("/spider/history/{run_id}", status_code=204)
+def spider_history_delete(run_id: str):
+    db.delete_spider_run(run_id)
+    _spider_jobs.pop(run_id, None)
 
 
 class SpiderCodeRequest(BaseModel):
@@ -1256,15 +1302,25 @@ def spider_job_stop(job_id: str):
 def spider_job_csv(job_id: str):
     from fastapi.responses import Response
     j = _spider_jobs.get(job_id)
-    if not j:
-        raise HTTPException(404, "Job não encontrado")
-    rows = j.get("rows") or []
+    if j:
+        rows = j.get("rows") or []
+        target = j.get("target", "")
+    else:
+        # Fallback: execução antiga do histórico (rows salvas no banco)
+        run = db.get_spider_run(job_id)
+        if not run:
+            raise HTTPException(404, "Job não encontrado")
+        try:
+            rows = json.loads(run.get("rows_json") or "[]")
+        except Exception:
+            rows = []
+        target = run.get("target", "")
     buf = _io.StringIO()
     w = _csv.DictWriter(buf, fieldnames=spider.FOLLOWERS_HEADERS, extrasaction="ignore")
     w.writeheader()
     for r in rows:
         w.writerow(r)
-    fname = f"IGFollowers_{spider.clean_username(j['target'])}_{len(rows)}.csv"
+    fname = f"IGFollowers_{spider.clean_username(target)}_{len(rows)}.csv"
     return Response(content=buf.getvalue(), media_type="text/csv",
                     headers={"Content-Disposition": f"attachment; filename={fname}"})
 

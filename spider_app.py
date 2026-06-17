@@ -80,17 +80,27 @@ def _row(u) -> dict:
     }
 
 
-def _followers_sync(account, target, limit, progress, should_stop, code_provider, status, use_local):
+def _followers_sync(account, target, limit, progress, should_stop, code_provider, status, use_local, log):
+    if log:
+        log("logando na conta (instagrapi)…")
     cl = _client(account, code_provider, status, use_local)
     if status:
         status("extraindo")
     uname = (target or "").strip().lstrip("@").lower()
+    if log:
+        log(f"resolvendo @{uname}…")
     uid = cl.user_id_from_username(uname)
+    if log:
+        log(f"alvo @{uname} (id {uid}) — iniciando extração…")
     rows, seen, max_id = [], set(), ""
+    page_n = 0
     while True:
         if should_stop and should_stop():
+            if log:
+                log("⏹ parado pelo usuário")
             break
         chunk, max_id = cl.user_followers_v1_chunk(uid, max_amount=0, max_id=max_id)
+        before = len(rows)
         for u in chunk:
             pk = str(getattr(u, "pk", "") or "")
             if not pk or pk in seen:
@@ -100,17 +110,24 @@ def _followers_sync(account, target, limit, progress, should_stop, code_provider
             if limit and len(rows) >= limit:
                 if progress:
                     progress(len(rows))
+                if log:
+                    log(f"✓ limite de {limit} atingido — total {len(rows)}")
                 return rows
+        page_n += 1
+        if log:
+            log(f"página {page_n}: +{len(rows) - before} (total {len(rows)})")
         if progress:
             progress(len(rows))
         if not max_id:
+            if log:
+                log(f"✓ fim da lista — total {len(rows)}")
             break
     return rows
 
 
 async def extract(account: dict, kind: str, target: str, limit: int = 0,
                   progress=None, should_stop=None, code_provider=None, status=None,
-                  use_local=False) -> dict:
+                  use_local=False, log=None) -> dict:
     """Extrai via instagrapi. Fase 1: kind='followers'."""
     if kind != "followers":
         return {"error": f"tipo '{kind}' ainda não implementado no modo app (Fase 1 = followers)"}
@@ -118,7 +135,7 @@ async def extract(account: dict, kind: str, target: str, limit: int = 0,
     try:
         rows = await loop.run_in_executor(
             None, _followers_sync, account, target, limit, progress, should_stop,
-            code_provider, status, use_local)
+            code_provider, status, use_local, log)
         return {"rows": rows, "target": (target or "").lstrip("@"), "kind": kind}
     except Exception as e:
         name = type(e).__name__
