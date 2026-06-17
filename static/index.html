@@ -28,15 +28,26 @@
   header { background: var(--surface); border-bottom: 1px solid var(--border); padding: 0 24px; height: 56px; display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; }
   header h1 { font-size: 16px; font-weight: 600; color: var(--text); display: flex; align-items: center; gap: 8px; }
   header h1 span { color: var(--accent); }
-  .header-actions { display: flex; gap: 8px; align-items: center; }
-  /* Indicador global do proxy em uso (sempre visível no topo) */
-  .proxy-pill { display:flex; align-items:center; gap:7px; font-size:12px; padding:4px 11px; border-radius:999px; border:1px solid var(--border); background:var(--surface2); color:var(--muted); max-width:330px; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; cursor:default; }
-  .proxy-pill .proxy-dot { width:9px; height:9px; border-radius:50%; background:var(--muted); flex-shrink:0; }
-  .proxy-pill #proxy-pill-text { overflow:hidden; text-overflow:ellipsis; }
-  .proxy-pill.proxy-ok { color:#10b981; border-color:rgba(16,185,129,.45); background:rgba(16,185,129,.08); }
-  .proxy-pill.proxy-ok .proxy-dot { background:#10b981; box-shadow:0 0 6px rgba(16,185,129,.6); }
-  .proxy-pill.proxy-warn { color:#ef4444; border-color:rgba(239,68,68,.45); background:rgba(239,68,68,.09); }
-  .proxy-pill.proxy-warn .proxy-dot { background:#ef4444; box-shadow:0 0 6px rgba(239,68,68,.6); }
+  .header-actions { display: flex; gap: 8px; align-items: center; position: relative; }
+  /* Caixa de status do proxy (sempre visível: Meu IP vs Proxy em uso) */
+  .proxy-box { display:flex; align-items:center; gap:9px; padding:5px 12px; border-radius:10px; border:1px solid var(--border); background:var(--surface2); cursor:pointer; max-width:430px; }
+  .proxy-box .proxy-dot { width:10px; height:10px; border-radius:50%; background:var(--muted); flex-shrink:0; }
+  .proxy-box-lines { display:flex; flex-direction:column; line-height:1.3; min-width:0; }
+  .proxy-box-lines > div { font-size:11.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:360px; }
+  #proxy-line-ip { color:var(--muted); }
+  #proxy-line-proxy { font-weight:600; color:var(--text); }
+  .proxy-box.proxy-ok { border-color:rgba(16,185,129,.45); background:rgba(16,185,129,.08); }
+  .proxy-box.proxy-ok .proxy-dot { background:#10b981; box-shadow:0 0 6px rgba(16,185,129,.6); }
+  .proxy-box.proxy-ok #proxy-line-proxy { color:#10b981; }
+  .proxy-box.proxy-warn { border-color:rgba(239,68,68,.45); background:rgba(239,68,68,.09); }
+  .proxy-box.proxy-warn .proxy-dot { background:#ef4444; box-shadow:0 0 6px rgba(239,68,68,.6); }
+  .proxy-box.proxy-warn #proxy-line-proxy { color:#ef4444; }
+  /* Painel com TODAS as infos (abre ao clicar na caixa) */
+  .proxy-panel { position:absolute; top:calc(100% + 6px); right:0; z-index:60; width:360px; max-width:calc(100vw - 32px); background:var(--surface); border:1px solid var(--border); border-radius:10px; box-shadow:0 10px 34px rgba(0,0,0,.45); padding:14px 16px; font-size:12.5px; line-height:1.6; }
+  .proxy-panel h4 { margin:0 0 8px; font-size:12px; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); }
+  .proxy-panel .pp-row { display:flex; justify-content:space-between; gap:10px; padding:2px 0; }
+  .proxy-panel .pp-sep { border-top:1px solid var(--border); margin:10px 0; }
+  .proxy-panel code { background:var(--surface2); padding:1px 5px; border-radius:4px; }
 
   /* Layout */
   .layout { display: flex; flex: 1; overflow: hidden; }
@@ -232,10 +243,14 @@
     Profile <span>Manager</span>
   </h1>
   <div class="header-actions">
-    <div id="proxy-indicator" class="proxy-pill" title="Proxy em uso na criação de contas">
+    <div id="proxy-indicator" class="proxy-box" onclick="toggleProxyPanel(event)" title="Clique para ver todas as informações">
       <span class="proxy-dot"></span>
-      <span id="proxy-pill-text">Proxy: sem criação ativa</span>
+      <div class="proxy-box-lines">
+        <div id="proxy-line-ip">Meu IP: —</div>
+        <div id="proxy-line-proxy">Proxy: —</div>
+      </div>
     </div>
+    <div id="proxy-panel" class="proxy-panel" style="display:none"></div>
     <span id="sessions-count" style="font-size:12px;color:var(--muted)"></span>
     <button class="btn btn-ghost btn-sm" onclick="refreshAll()">↻ Atualizar</button>
   </div>
@@ -1552,55 +1567,113 @@ setInterval(() => {
   if (pp && pp.classList.contains('active')) loadProfiles();
 }, 15000);
 
-// Indicador global do proxy em uso (topo, visível em qualquer aba).
-// Verde = livre pra ir; vermelho = atenção. Lê /proxies/active (reaproveita
-// jobs de criação + pool.summary + reachability, sem disparar teste de proxy).
+// Caixa de status do topo (sempre visível): Meu IP real vs Proxy em uso/atual,
+// para comparar. Clique abre painel com TODAS as infos. Verde=limpo/vermelho=sujo.
+const PROXY_HW = { clean: 'limpo', dirty: 'SUJO', banned: 'QUEIMADO', unknown: 'sem dados' };
+let _lastProxyState = null;
+
+function proxyProxyLineText(s) {
+  // Texto da 2ª linha (o proxy atual/usado).
+  if (!s || s.mode === 'empty' || (!s.proxy_key && !s.local)) return 'Proxy: pool vazio';
+  if (s.local) return 'Proxy: conexão local (celular)';
+  if (s.mode === 'pool_many') {
+    return 'Proxy: ' + s.count + (s.dirty_count ? ' · ' + s.dirty_count + ' sujo(s)' : ' · todos ok');
+  }
+  const flag = s.country ? (s.country + ' · ') : '';
+  const hw = PROXY_HW[s.health];
+  const lbl = { creating: 'usando', in_use: 'usando', pool_one: '' }[s.mode];
+  return 'Proxy' + (lbl ? ' (' + lbl + ')' : '') + ': ' + flag + (s.host || s.proxy_key)
+    + (hw && hw !== 'sem dados' ? ' · ' + hw : '');
+}
+
 async function loadActiveProxy() {
-  const pill = document.getElementById('proxy-indicator');
-  const txt = document.getElementById('proxy-pill-text');
-  if (!pill || !txt) return;
+  const box = document.getElementById('proxy-indicator');
+  const lineIp = document.getElementById('proxy-line-ip');
+  const lineProxy = document.getElementById('proxy-line-proxy');
+  if (!box || !lineIp || !lineProxy) return;
   try {
     const s = await api('GET', '/proxies/active');
-    pill.classList.remove('proxy-ok', 'proxy-warn');
-    // Pool vazio.
-    if (!s || s.mode === 'empty' || (!s.proxy_key && !s.local)) {
-      txt.textContent = 'Proxy: pool vazio';
-      pill.title = 'Nenhum proxy no pool — adicione na aba Proxies';
-      return;
-    }
-    // Conexão local (sem proxy) durante criação.
-    if (s.local) {
-      pill.classList.add('proxy-ok');
-      txt.textContent = '🌐 Conexão local (celular)';
-      pill.title = 'Em uso: conexão local (sem proxy) — ' + (s.email || '');
-      return;
-    }
-    pill.classList.add(s.level === 'warn' ? 'proxy-warn' : 'proxy-ok');
-    const HW = { clean: 'limpo', dirty: 'SUJO', banned: 'QUEIMADO', unknown: '' };
-    const hw = HW[s.health] || '';
-    // Vários proxies parados: resumo pelo pior (lembrete de sujo).
-    if (s.mode === 'pool_many') {
-      txt.textContent = '🌐 ' + s.count + ' proxies'
-        + (s.dirty_count ? ' · ' + s.dirty_count + ' sujo(s)' : ' · todos ok');
-      pill.title = (s.dirty_count ? '⚠ ' + s.dirty_count + ' proxy(s) sujo(s) no pool — '
-        : '✓ Pool ok — ') + s.count + ' proxies. Pior: ' + (s.proxy_key || '');
-      return;
-    }
-    // creating / in_use / pool_one: mostra o proxy + se está limpo/sujo.
-    const st = s.status || {};
-    const flag = s.country ? (s.country + ' · ') : '';
-    txt.textContent = '🌐 ' + flag + (s.host || s.proxy_key) + (hw ? ' · ' + hw : '');
-    const bits = [];
-    if (st.reachable === false) bits.push('proxy não responde');
-    if (st.blocked) bits.push('no limite');
-    if (st.ban_rate_pct != null) bits.push('ban ' + st.ban_rate_pct + '%');
-    if (st.used != null) bits.push(st.used + ' uso(s)');
-    const modeTxt = { creating: 'Em uso (criando)', in_use: 'Em uso (perfil aberto)', pool_one: 'Seu proxy' }[s.mode] || 'Proxy';
-    const head = (s.level === 'warn' ? '⚠ ' : '✓ ') + modeTxt + (hw ? ' (' + hw.toLowerCase() + ')' : '') + ' — ';
-    pill.title = head + (s.proxy_key || '')
-      + (s.email ? (' • criando ' + s.email) : '')
-      + (bits.length ? (' • ' + bits.join(' • ')) : '');
+    _lastProxyState = s;
+    box.classList.remove('proxy-ok', 'proxy-warn');
+    if (s && s.level && s.level !== 'idle') box.classList.add(s.level === 'warn' ? 'proxy-warn' : 'proxy-ok');
+    // Linha 1: meu IP real (sem proxy)
+    lineIp.textContent = 'Meu IP: ' + (s && s.my_ip ? (s.my_ip + (s.my_ip_country ? ' · ' + s.my_ip_country : '')) : '—');
+    // Linha 2: proxy atual/usado
+    lineProxy.textContent = proxyProxyLineText(s);
+    // Se o painel estiver aberto, atualiza o conteúdo
+    const panel = document.getElementById('proxy-panel');
+    if (panel && panel.style.display !== 'none') renderProxyPanel(s);
   } catch (e) { /* silencioso */ }
+}
+
+function toggleProxyPanel(ev) {
+  if (ev) ev.stopPropagation();
+  const panel = document.getElementById('proxy-panel');
+  if (!panel) return;
+  if (panel.style.display === 'none') {
+    renderProxyPanel(_lastProxyState);
+    panel.style.display = 'block';
+    setTimeout(() => document.addEventListener('click', _closeProxyPanelOnce), 0);
+  } else {
+    panel.style.display = 'none';
+  }
+}
+function _closeProxyPanelOnce(e) {
+  const panel = document.getElementById('proxy-panel');
+  const box = document.getElementById('proxy-indicator');
+  if (panel && !panel.contains(e.target) && box && !box.contains(e.target)) {
+    panel.style.display = 'none';
+    document.removeEventListener('click', _closeProxyPanelOnce);
+  }
+}
+
+function renderProxyPanel(s) {
+  const panel = document.getElementById('proxy-panel');
+  if (!panel) return;
+  if (!s) { panel.innerHTML = '<span style="color:var(--muted)">Carregando…</span>'; return; }
+  const row = (k, v) => `<div class="pp-row"><span style="color:var(--muted)">${k}</span><span>${v}</span></div>`;
+  const myip = s.my_ip ? `<code>${escapeHtml(s.my_ip)}</code>${s.my_ip_country ? ' · ' + escapeHtml(s.my_ip_country) : ''}` : '—';
+
+  // Bloco do proxy atual/usado
+  let proxyBlock = '';
+  if (s.mode === 'empty' || (!s.proxy_key && !s.local)) {
+    proxyBlock = '<div style="color:var(--yellow)">Pool vazio — adicione um proxy na aba Proxies.</div>';
+  } else if (s.local) {
+    proxyBlock = '<div style="color:var(--green)">Em uso: conexão local (sem proxy)</div>';
+  } else if (s.mode === 'pool_many') {
+    proxyBlock = row('Proxies no pool', s.count)
+      + row('Pior do pool', `${renderProxyHealth({health: s.health, accounts: (s.status||{}).accounts})} <code>${escapeHtml(s.proxy_key)}</code>`);
+  } else {
+    const st = s.status || {}, flag = s.country ? (s.country + ' · ') : '';
+    const modeTxt = { creating: 'Em uso (criando conta)', in_use: 'Em uso (perfil aberto no PC)', pool_one: 'Seu proxy' }[s.mode] || 'Proxy';
+    proxyBlock = row('Situação', modeTxt)
+      + row('Proxy', `<code>${escapeHtml(flag + (s.host || s.proxy_key))}</code>`)
+      + row('Saúde', renderProxyHealth({health: s.health, accounts: st.accounts, attempts: {}, reachable: st.reachable}))
+      + row('Conectividade', st.reachable === false ? '<span style="color:var(--red)">não responde</span>' : (st.reachable ? '<span style="color:var(--green)">online</span>' : '—'))
+      + (st.ban_rate_pct != null ? row('Ban rate', st.ban_rate_pct + '%') : '')
+      + (st.used != null ? row('Contas neste proxy', st.used) : '');
+    if (s.email) proxyBlock += row('Criando agora', escapeHtml(s.email));
+  }
+
+  // Comparação de país (informativo)
+  let cmp = '';
+  const pc = s.country, mc = s.my_ip_country;
+  if (pc && mc && !s.local) {
+    cmp = pc === mc
+      ? `<div style="color:var(--green);margin-top:6px">✓ Proxy e sua conexão no mesmo país (${escapeHtml(pc)})</div>`
+      : `<div style="color:var(--yellow);margin-top:6px">⚠ Proxy (${escapeHtml(pc)}) ≠ sua conexão (${escapeHtml(mc)}) — normal, o proxy é que vale para a conta.</div>`;
+  }
+
+  const p = s.pool || {};
+  const poolLine = p.total
+    ? `${p.total} no total · <span style="color:var(--green)">${p.clean||0} limpo(s)</span> · <span style="color:var(--yellow)">${p.dirty||0} sujo(s)</span> · <span style="color:var(--red)">${p.banned||0} queimado(s)</span> · ${p.unknown||0} sem dados`
+    : '—';
+
+  panel.innerHTML =
+    `<h4>Meu IP (real, sem proxy)</h4>${row('IP', myip)}`
+    + `<div class="pp-sep"></div><h4>Proxy</h4>${proxyBlock}${cmp}`
+    + `<div class="pp-sep"></div><h4>Pool</h4><div style="font-size:12px">${poolLine}</div>`
+    + `<div style="margin-top:10px"><button class="btn btn-ghost btn-sm" onclick="showPage('proxies')">Ver todos os proxies →</button></div>`;
 }
 
 // Card de saúde dos proxies na aba "Comece aqui": proxy em uso/próximo +
@@ -1614,15 +1687,19 @@ async function loadStartProxyHealth() {
       api('GET', '/proxies/active').catch(() => null),
       api('GET', '/proxies/health').catch(() => ({ items: [] })),
     ]);
+    // Linha do MEU IP real (sem proxy) — pra comparar com o proxy
+    const myIp = (a && a.my_ip) ? (escapeHtml(a.my_ip) + (a.my_ip_country ? ' · ' + escapeHtml(a.my_ip_country) : '')) : '—';
+    const myIpLine = `<div style="margin-bottom:4px"><span style="color:var(--muted)">Meu IP (real, sem proxy):</span> <code>${myIp}</code></div>`;
     // Linha do proxy ATUAL + saúde (lembrete de limpo/sujo)
     const HW = { clean: 'limpo', dirty: 'SUJO', banned: 'QUEIMADO', unknown: 'sem dados' };
+    let proxyLine = '';
     if (!a || a.mode === 'empty' || (!a.proxy_key && !a.local)) {
-      now.innerHTML = '<b style="color:var(--yellow)">Pool vazio.</b> Adicione um proxy na aba Proxies.';
+      proxyLine = '<b style="color:var(--yellow)">Pool vazio.</b> Adicione um proxy na aba Proxies.';
     } else if (a.local) {
-      now.innerHTML = '<b style="color:var(--green)">Em uso:</b> conexão local (celular)';
+      proxyLine = '<b style="color:var(--green)">Em uso:</b> conexão local (celular)';
     } else if (a.mode === 'pool_many') {
       const color = a.level === 'warn' ? 'var(--red)' : 'var(--green)';
-      now.innerHTML = `<b style="color:${color}">Pool:</b> ${a.count} proxies`
+      proxyLine = `<b style="color:${color}">Pool:</b> ${a.count} proxies`
         + (a.dirty_count ? ` <span style="color:var(--red)">— ${a.dirty_count} sujo(s)</span>` : ' <span style="color:var(--green)">— todos ok</span>');
     } else {
       const color = a.level === 'warn' ? 'var(--red)' : 'var(--green)';
@@ -1633,10 +1710,11 @@ async function loadStartProxyHealth() {
       const extra = [];
       if (st.reachable === false) extra.push('não responde');
       if (st.ban_rate_pct != null) extra.push('ban ' + st.ban_rate_pct + '%');
-      now.innerHTML = `<b style="color:${color}">${label}:</b> <code>${escapeHtml(flag + (a.host || a.proxy_key))}</code>`
+      proxyLine = `<b style="color:${color}">${label}:</b> <code>${escapeHtml(flag + (a.host || a.proxy_key))}</code>`
         + (hw ? ` <b style="color:${color}">[${hw}]</b>` : '')
         + (extra.length ? ` <span style="color:var(--muted)">(${extra.join(' • ')})</span>` : '');
     }
+    now.innerHTML = myIpLine + proxyLine;
     // Lista de saúde (compacta — até 6)
     const items = (h.items || []).slice(0, 6);
     if (!items.length) {

@@ -1512,8 +1512,7 @@ def _proxy_status_block(pk: str, host: str, summary_items=None, outcomes=None) -
     }
 
 
-@app.get("/proxies/active")
-def proxies_active():
+def _active_core():
     """Proxy ATUAL + saúde para o indicador do topo (LEMBRETE de proxy sujo),
     em ordem de prioridade:
       1) criação em andamento -> proxy da conta sendo criada (mode=creating);
@@ -1593,8 +1592,60 @@ def proxies_active():
     blocks.sort(key=lambda x: rank.get(x[2].get("health"), 9))
     wk, whost, wb = blocks[0]
     dirty_n = sum(1 for _, _, b in blocks if b.get("health") in ("dirty", "banned"))
+    clean_n = sum(1 for _, _, b in blocks if b.get("health") == "clean")
     return {"mode": "pool_many", "local": False, "proxy_key": wk, "host": whost,
-            "count": len(blocks), "dirty_count": dirty_n, **wb}
+            "count": len(blocks), "dirty_count": dirty_n, "clean_count": clean_n, **wb}
+
+
+# IP público REAL do PC (sem proxy) — p/ comparar com o proxy em uso. Cache ~120s.
+_myip_cache = {"at": 0.0, "ip": None, "country": None}
+
+
+def _my_public_ip() -> dict:
+    now = time.time()
+    if _myip_cache["ip"] and (now - _myip_cache["at"] < 120):
+        return {"ip": _myip_cache["ip"], "country": _myip_cache["country"]}
+    try:
+        import urllib.request
+        with urllib.request.urlopen(
+                "http://ip-api.com/json/?fields=query,countryCode", timeout=4) as r:
+            d = json.loads(r.read().decode("utf-8", "ignore"))
+        _myip_cache.update(at=now, ip=d.get("query") or _myip_cache["ip"],
+                           country=(d.get("countryCode") or _myip_cache["country"]))
+    except Exception:
+        _myip_cache["at"] = now   # evita martelar o serviço em falha
+    return {"ip": _myip_cache["ip"], "country": _myip_cache["country"]}
+
+
+def _pool_health_counts() -> dict:
+    """Resumo de saúde do pool (total/limpos/sujos/queimados/sem-dados) p/ a caixa."""
+    out = {"total": 0, "clean": 0, "dirty": 0, "banned": 0, "unknown": 0}
+    try:
+        items = pool.summary().get("items", [])
+        outcomes = acc.proxy_outcomes()
+    except Exception:
+        return out
+    out["total"] = len(items)
+    for it in items:
+        k = it.get("key")
+        out_d = outcomes.get(k, {}) or {}
+        reach = (_proxy_test_cache.get("results") or {}).get(k)
+        h = _derive_proxy_health(out_d, 0, reach.get("ok") if reach else None)
+        out[h] = out.get(h, 0) + 1
+    return out
+
+
+@app.get("/proxies/active")
+def proxies_active():
+    """Endpoint do indicador do topo: junta o proxy ATUAL (_active_core) com o
+    MEU IP real (sem proxy, p/ comparar) e o resumo de saúde do pool — tudo o que
+    a caixa de status mostra."""
+    core = _active_core()
+    mip = _my_public_ip()
+    core["my_ip"] = mip.get("ip")
+    core["my_ip_country"] = mip.get("country")
+    core["pool"] = _pool_health_counts()
+    return core
 
 
 def _derive_proxy_health(accounts_d: dict, attempts_total: int, reachable) -> str:
