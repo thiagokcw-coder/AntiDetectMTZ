@@ -258,13 +258,18 @@
 
 <div class="layout">
   <aside>
-    <!-- Aba "Criar Contas" (criação automática por Camoufox) removida do menu: fluxo mudou
-         p/ criação no celular Android. A página #page-instagram e os endpoints continuam no
-         código, apenas sem link no menu. -->
+    <!-- "Criar Contas" (criação automática por Camoufox no PC): voltou ao menu p/ o
+         teste de criação no PC com proxy 4G/5G. A página #page-instagram tem todas as
+         opções antidetecção (aquecer navegador/conta, intervalo, País-alvo, conexão local).
+         Fluxo principal segue sendo criação no Android (aba "Comece aqui"). -->
     <div class="nav-section">Início</div>
     <div class="nav-item active" data-page-link="start" onclick="showPage('start')">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4v16"/><path d="M4 4h12l-2 4 2 4H4"/></svg>
       Comece aqui
+    </div>
+    <div class="nav-item" data-page-link="instagram" onclick="showPage('instagram')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="20" rx="5"/><circle cx="12" cy="12" r="4"/><circle cx="17.5" cy="6.5" r="1" fill="currentColor" stroke="none"/></svg>
+      Criar Contas (PC)
     </div>
     <div class="nav-item" data-page-link="accounts" onclick="showPage('accounts')">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>

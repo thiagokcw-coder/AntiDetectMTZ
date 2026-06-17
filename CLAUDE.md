@@ -111,6 +111,7 @@ Cadastro MANUAL de números + controle de uso (free/used). Tabela `whatsapp_numb
 
 ## Defaults anti-detecção (subidos)
 warmup navegador **15min**, intervalo entre contas **90s**, account_warmup **5min** (api.py `IgCreateBatchRequest` + frontend). Aba "Comece aqui" atualizada com o fluxo real (captcha manual, descarte de telefone, proxy residencial como fator nº1).
+- **Aba "Criar Contas (PC)" VOLTOU ao menu (2026-06-17).** No pivot Android (2026-06-15) o link foi removido do menu (a página `#page-instagram` e os endpoints sempre continuaram). Como o usuário vai **testar criação no PC com proxy 4G/5G**, o link voltou (em "Início", abaixo de "Comece aqui", rotulado **"Criar Contas (PC)"** → `showPage('instagram')`). É aí que estão TODAS as opções antidetecção: aquecer navegador/conta, intervalo entre contas, conexão local (sem proxy) vs pool, etc. Fluxo principal segue Android.
 
 ## Instabilidade conhecida
 `TargetClosedError` (Camoufox fecha no meio) e `Execution context was destroyed` (navegação durante o fill) aparecem nos logs (`%LOCALAPPDATA%\ProfileManager\logs\app.log`/`errors.log`). `Path` está importado no topo de instagram.py (já causou NameError antes).
