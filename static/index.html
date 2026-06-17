@@ -984,6 +984,7 @@
           <thead>
             <tr>
               <th>Proxy (host:porta)</th>
+              <th>Saúde</th>
               <th>Conectividade</th>
               <th>Protocolo</th>
               <th>Autenticação</th>
@@ -2560,13 +2561,42 @@ async function testProxies(force) {
   loadProxiesPage();
 }
 
+// Badge de saúde do proxy (do /proxies/health). Verde=clean, amarelo=dirty,
+// vermelho=banned, cinza=unknown. Tooltip detalha desfechos reais + funil.
+function renderProxyHealth(h) {
+  if (!h) return '<span style="color:var(--muted)">—</span>';
+  const map = {
+    clean:   { txt: 'limpo',        color: 'var(--green)' },
+    dirty:   { txt: 'atenção',      color: 'var(--yellow)' },
+    banned:  { txt: 'queimado',     color: 'var(--red)' },
+    unknown: { txt: 'sem dados',    color: 'var(--muted)' },
+  };
+  const m = map[h.health] || map.unknown;
+  const a = h.accounts || {};
+  const at = h.attempts || {};
+  const tip = [];
+  if (a.total) {
+    tip.push(`${a.total} conta(s): ${a.banned||0} ban, ${a.suspended||0} susp, ${a.checkpoint||0} chk, ${a.discarded||0} descartada(s)`);
+    tip.push(`taxa ruim ${a.bad_rate||0}%`);
+  }
+  if (at.total) tip.push(`criação: ${at.success||0}/${at.total} ok (${at.success_rate_pct||0}%)`);
+  if (h.reachable === false) tip.push('proxy não responde');
+  if (!tip.length) tip.push('nunca usado');
+  return `<span style="color:${m.color}" title="${escapeHtml(tip.join(' • '))}">● ${m.txt}</span>`;
+}
+
 async function loadProxiesPage() {
   try {
-    const [pool, analytics, test] = await Promise.all([
+    const [pool, analytics, test, health] = await Promise.all([
       api('GET', '/proxies/pool'),
       api('GET', '/analytics/bans').catch(() => ({ by_proxy: [] })),
       api('GET', '/proxies/test').catch(() => ({ results: [], tested_at: null, ok: 0, down: 0, total: 0 })),
+      api('GET', '/proxies/health').catch(() => ({ items: [] })),
     ]);
+
+    // Mapa de saúde por proxy (desfechos reais + funil de criação)
+    const healthMap = {};
+    (health.items || []).forEach(h => { healthMap[h.proxy_key] = h; });
 
     // Enrich pool items with ban rate from analytics
     const banMap = {};
@@ -2596,7 +2626,7 @@ async function loadProxiesPage() {
 
     const body = document.getElementById('proxies-body');
     if (!pool.items || pool.items.length === 0) {
-      body.innerHTML = `<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:24px">
+      body.innerHTML = `<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:24px">
         Nenhum proxy encontrado. Adicione proxies no pool (aba Criar Contas → ou arquivos na pasta <code>proxys/</code>).</td></tr>`;
       return;
     }
@@ -2634,9 +2664,13 @@ async function loadProxiesPage() {
         conn = `<span style="color:var(--red)" title="${escapeHtml(c.error || '')}">● offline</span>`;
       }
 
+      // Saúde (do /proxies/health): rótulo derivado + tooltip com desfechos reais
+      const health = renderProxyHealth(healthMap[p.key]);
+
       return `
         <tr>
           <td><code>${key}</code></td>
+          <td>${health}</td>
           <td>${conn}</td>
           <td>${proto.toUpperCase()}</td>
           <td>${auth}</td>
@@ -2647,7 +2681,7 @@ async function loadProxiesPage() {
     }).join('');
   } catch (e) {
     const body = document.getElementById('proxies-body');
-    if (body) body.innerHTML = `<tr><td colspan="7" style="color:var(--red)">Erro ao carregar proxies: ${escapeHtml(e.message)}</td></tr>`;
+    if (body) body.innerHTML = `<tr><td colspan="8" style="color:var(--red)">Erro ao carregar proxies: ${escapeHtml(e.message)}</td></tr>`;
     toast(e.message || 'Erro ao carregar proxies', 'error');
   }
 }

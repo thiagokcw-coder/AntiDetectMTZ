@@ -1515,6 +1515,108 @@ def proxies_active():
     }
 
 
+def _derive_proxy_health(accounts_d: dict, attempts_total: int, reachable) -> str:
+    """Rotula a saude do proxy por REGRA (sem IA, sem coluna nova).
+    Combina desfechos reais das contas (proxy_outcomes) com volume de tentativas.
+      - unknown: nunca usado (sem conta nem tentativa).
+      - banned:  queimado (bad_rate alto com volume) — evitar.
+      - dirty:   sinais ruins (bad_rate medio) — atencao.
+      - clean:   sem sinais ruins relevantes.
+    'reachable' nao muda o rotulo de saude (e separado), mas a UI usa os dois.
+    """
+    total = accounts_d.get("total", 0)
+    bad_rate = accounts_d.get("bad_rate", 0.0)
+    if total == 0 and attempts_total == 0:
+        return "unknown"
+    if total >= 3 and bad_rate >= 60:
+        return "banned"
+    if total >= 1 and bad_rate >= 30:
+        return "dirty"
+    return "clean"
+
+
+@app.get("/proxies/health")
+def proxies_health():
+    """Saude por proxy (regua do teste 4G/5G): junta uso/ban do pool + desfechos
+    reais das contas (proxy_outcomes) + funil de criacao (creation_attempts) +
+    reachability (cache) + pais (offline). NAO dispara teste de proxy.
+
+    Reaproveita tudo o que ja existe; nenhuma tabela/coluna nova. Rotulo de saude
+    derivado por regra em _derive_proxy_health.
+    """
+    summ = pool.summary()
+    by_outcome = acc.proxy_outcomes()              # {key: {total,banned,suspended,checkpoint,discarded,bad,bad_rate}}
+    reach = _proxy_test_cache.get("results") or {}
+
+    # Funil de criacao por proxy (gates: success/phone/captcha/email_pending/...).
+    funnel: dict = {}
+    try:
+        for r in db.list_creation_attempts(5000):
+            pk = r.get("proxy_key") or "(sem proxy)"
+            g = r.get("gate") or "?"
+            d = funnel.setdefault(pk, {"total": 0, "success": 0, "by_gate": {}})
+            d["total"] += 1
+            d["by_gate"][g] = d["by_gate"].get(g, 0) + 1
+            if g == "success":
+                d["success"] += 1
+    except Exception:
+        funnel = {}
+
+    # Chaves: pool + quaisquer que apareceram em contas/tentativas (historicas).
+    keys = [it["key"] for it in summ.get("items", [])]
+    pool_keys = set(keys)
+    for extra in list(by_outcome.keys()) + list(funnel.keys()):
+        if extra and extra != "(sem proxy)" and extra not in pool_keys:
+            keys.append(extra)
+
+    pool_item = {it["key"]: it for it in summ.get("items", [])}
+    items = []
+    for k in keys:
+        host = k.split(":")[0] if k and ":" in k else k
+        out_d = by_outcome.get(k, {"total": 0, "banned": 0, "suspended": 0,
+                                   "checkpoint": 0, "discarded": 0, "bad": 0, "bad_rate": 0.0})
+        fn = funnel.get(k, {"total": 0, "success": 0, "by_gate": {}})
+        pit = pool_item.get(k, {})
+        r = reach.get(k)
+        reachable = r.get("ok") if r else None
+        try:
+            country = pool.proxy_country(host) if host else ""
+        except Exception:
+            country = ""
+
+        health = _derive_proxy_health(out_d, fn.get("total", 0), reachable)
+        ban_rate = pit.get("ban_rate_pct")
+        warn = (health in ("dirty", "banned") or reachable is False or bool(pit.get("blocked"))
+                or (isinstance(ban_rate, (int, float)) and ban_rate >= 20))
+
+        items.append({
+            "proxy_key": k,
+            "host": host,
+            "country": country or None,
+            "in_pool": k in pool_keys,
+            "reachable": reachable,
+            "health": health,
+            "level": "warn" if warn else "ok",
+            "used": pit.get("used", 0),
+            "ban_rate_pct": ban_rate,
+            "blocked": bool(pit.get("blocked")),
+            "recommended_remaining": pit.get("recommended_remaining"),
+            "accounts": out_d,
+            "attempts": {
+                "total": fn.get("total", 0),
+                "success": fn.get("success", 0),
+                "success_rate_pct": (round(fn["success"] / fn["total"] * 100, 1)
+                                     if fn.get("total") else 0.0),
+                "by_gate": fn.get("by_gate", {}),
+            },
+        })
+
+    # Pior primeiro: banned > dirty > clean > unknown; depois por bad_rate.
+    rank = {"banned": 0, "dirty": 1, "clean": 2, "unknown": 3}
+    items.sort(key=lambda x: (rank.get(x["health"], 9), -x["accounts"].get("bad_rate", 0)))
+    return {"count": len(items), "items": items}
+
+
 @app.get("/whatsapp/usage")
 def whatsapp_usage():
     return acc.whatsapp_usage_summary()
@@ -1757,8 +1859,9 @@ async def _create_account_for_email(em: dict, full_name: str, username: str,
             fp = (prof_row or {}).get("fingerprint") or {}
             pk = (a or {}).get("proxy_key")
             if not pk:
-                px = (prof_row or {}).get("proxy") or {}
-                pk = f"{px.get('host')}:{px.get('port')}" if px.get("host") else None
+                # Mesma funcao de chave do pool/contas -> join consistente em
+                # /proxies/health, proxy_outcomes e learning/summary.
+                pk = pool.proxy_key((prof_row or {}).get("proxy") or {}) or None
             db.record_creation_attempt({
                 "id": uuid.uuid4().hex,
                 "profile_id": em.get("profile_id"),
