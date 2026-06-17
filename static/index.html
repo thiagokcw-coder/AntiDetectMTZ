@@ -552,76 +552,46 @@
         </div>
       </div>
 
-      <section class="ig-panel ig-panel-primary">
+      <div class="form-card" style="max-width:720px;margin-bottom:18px;border:1px solid var(--border)">
+        <div style="font-weight:600;margin-bottom:6px">Como funciona o fluxo</div>
+        <div style="color:var(--muted);font-size:13px;line-height:1.75">
+          1. Escolha a conexão: <b>proxy 4G/5G do pool</b> (defina o País-alvo em Contas → Limites) ou conexão local.<br>
+          2. O app gera perfil + e-mail (catch-all) + dados, <b>aquece o navegador</b> e abre o <b>Camoufox</b>.<br>
+          3. <b>Você cria a conta na janela</b> — preenche e resolve captcha/telefone se aparecer.<br>
+          4. Depois, <b>logue no app do Instagram no Android</b> para amadurecer a conta antes de usar.
+        </div>
+      </div>
+
+      <section class="ig-panel ig-panel-primary" style="max-width:720px">
         <div class="ig-panel-head">
           <div>
-            <div class="ig-panel-title">Criar conta (manual no Camoufox)</div>
-            <div class="ig-panel-subtitle">O app gera perfil + e-mail (catch-all) + os dados, aquece o navegador e abre a janela do Camoufox — <b>você preenche e cria a conta</b>. Escolha abaixo como sair (internet do celular ou proxy do pool).</div>
+            <div class="ig-panel-title">Criar conta (abrir Camoufox)</div>
+            <div class="ig-panel-subtitle">O app prepara tudo e abre a janela do Camoufox — <b>você preenche e cria a conta</b>.</div>
           </div>
         </div>
 
-        <!-- separador entre o cabeçalho e as opções de conexão -->
         <div style="border-top:1px solid var(--border);margin:2px 0 16px"></div>
 
-        <!-- OPÇÃO RECOMENDADA: conexão do celular (ancoragem/tethering) -->
-        <div style="margin:0 0 6px 2px"><span class="ig-tag">Recomendado</span></div>
-        <label class="ig-method-card" style="display:flex;align-items:flex-start;gap:8px;margin-bottom:6px;border-left:3px solid var(--accent)">
-          <input type="radio" id="ig-local-conn" name="proxy-method" value="local" onchange="onProxyMethodChange()" style="margin-top:3px">
-          <span>
-            <span class="ig-method-name">📱 Usar a internet do celular (ancoragem)</span>
-            <span class="ig-method-copy">Ligue a <strong>ancoragem USB</strong> do celular: o IP é <strong>móvel real</strong> (a melhor reputação contra detecção). Ignora o pool de proxies; idioma e fuso seguem o IP do celular automaticamente.</span>
-          </span>
-        </label>
-        <div class="form-hint" style="margin:0 0 16px 2px">Sem proxy próprio? Esta é a melhor opção. Ative a ancoragem USB no celular <strong>antes</strong> de criar.</div>
-
-        <div style="font-size:12px;color:var(--muted);margin:0 0 8px 2px;font-weight:600">Ou use proxies do pool:</div>
+        <!-- Conexão de saída (a marcação 'local' é lida por createManual) -->
+        <div style="font-size:12px;color:var(--muted);margin:0 0 8px 2px;font-weight:600">Conexão de saída</div>
         <div class="ig-method-grid">
-          <label class="ig-method-card">
+          <label class="ig-method-card" style="border-left:3px solid var(--accent)">
             <input type="radio" name="proxy-method" value="inteligente" checked onchange="onProxyMethodChange()">
             <span>
-              <span class="ig-method-name">Proxy Inteligente</span>
-              <span class="ig-method-copy">Prioriza proxies com melhor histórico e usa o ban rate real coletado na aba Métricas.</span>
+              <span class="ig-method-name">🌐 Proxy do pool (4G/5G)</span>
+              <span class="ig-method-copy">Usa o melhor proxy do pool. Defina o <b>País-alvo</b> em Contas → Limites pra casar com a persona. Veja o proxy e a saúde na caixa do topo.</span>
             </span>
           </label>
-
           <label class="ig-method-card">
-            <input type="radio" name="proxy-method" value="fixo" onchange="onProxyMethodChange()">
+            <input type="radio" id="ig-local-conn" name="proxy-method" value="local" onchange="onProxyMethodChange()">
             <span>
-              <span class="ig-method-name">Proxy Fixo</span>
-              <span class="ig-method-copy">Aplica o mesmo limite para cada proxy. Bom para manter uma distribuição previsível.</span>
-              <span id="ig-fixed-limit-row" class="ig-fixed-limit">
-                <span class="ig-fixed-limit-inner">
-                  <span style="font-size:12px; color:var(--muted);">Contas por proxy</span>
-                  <input id="ig-fixed-limit" type="number" min="0" value="3" onchange="loadIgProxyCapacity()" oninput="this._userTouched = true; loadIgProxyCapacity();">
-                  <span style="font-size:11px; color:var(--muted);">0 = sem limite</span>
-                </span>
-              </span>
+              <span class="ig-method-name">💻 Conexão local (sem proxy)</span>
+              <span class="ig-method-copy">Usa a internet atual do PC. Só vale se o PC já estiver num IP coerente.</span>
             </span>
           </label>
         </div>
 
-        <details class="ig-proxy-explain" style="background:var(--surface2);border:1px solid var(--border);border-left:3px solid var(--accent);border-radius:8px;padding:12px 14px;margin-bottom:14px;font-size:12.5px;line-height:1.55;color:var(--muted)">
-          <summary style="cursor:pointer;font-weight:600;color:var(--text)">❓ O que é o Proxy Inteligente?</summary>
-          <div style="margin-top:8px">
-            Em vez de você chutar um limite de contas por proxy, o app decide sozinho
-            quanto usar cada proxy com base no <strong>histórico real de banimentos</strong>
-            (o que ele aprendeu na aba <strong>Métricas</strong>). Na prática:
-            <ul style="margin:8px 0 8px 18px;padding:0">
-              <li>Proxy que vem segurando contas <strong>sem ban</strong> → é usado mais vezes.</li>
-              <li>Proxy com <strong>muitos bans</strong> → é usado menos ou evitado.</li>
-              <li>Proxy <strong>novo</strong> (ainda sem histórico) → começa com folga e vai sendo ajustado conforme os resultados aparecem.</li>
-            </ul>
-            Assim você aproveita ao máximo os proxies bons sem queimar os ruins — sem precisar
-            calcular o limite na mão.
-            <div style="margin-top:8px">👉 Use o <strong>Proxy Fixo</strong> só se preferir o mesmo limite para todos os proxies, de forma previsível.</div>
-          </div>
-        </details>
-
-        <div id="ig-proxy-cap" class="ig-proxy-cap">
-          Carregando capacidade de proxies...
-        </div>
-
-        <div class="ig-bulk-row">
+        <div class="ig-bulk-row" style="margin-top:14px">
           <div class="ig-bulk-field">
             <label>Aquecer navegador antes de abrir (min)</label>
             <input id="ig-bulk-warm" type="number" min="0" step="1" value="15">
@@ -634,23 +604,9 @@
           <button class="btn btn-ghost btn-sm" onclick="showPage('analytics')">Métricas</button>
         </div>
 
-        <div id="ig-batch-progress" style="display:none;margin-top:16px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:14px 16px">
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;gap:10px">
-            <strong style="color:var(--text);font-size:13px">Progresso da criação em lote</strong>
-            <div style="display:flex;align-items:center;gap:10px">
-              <span id="ig-batch-eta" style="font-size:12px;color:var(--muted)"></span>
-              <button id="ig-batch-stop" class="btn btn-danger btn-sm" onclick="stopAccountCreations()">⏹ Parar</button>
-            </div>
-          </div>
-          <div style="height:8px;background:var(--surface);border-radius:6px;overflow:hidden;margin-bottom:8px">
-            <div id="ig-batch-bar" style="height:100%;width:0%;background:var(--accent);transition:width .4s"></div>
-          </div>
-          <div id="ig-batch-summary" style="font-size:12px;color:var(--muted);margin-bottom:10px"></div>
-          <div id="ig-batch-items" style="max-height:200px;overflow:auto;font-size:12px;display:flex;flex-direction:column;gap:4px"></div>
-        </div>
       </section>
 
-      <div class="ig-workspace">
+      <div class="ig-workspace" style="display:none">
         <section class="ig-panel">
           <div class="ig-card-title">
             Criação manual
@@ -778,8 +734,8 @@
         </aside>
       </div>
 
-      <div class="ig-note">
-        <b style="color:var(--text)">Regra:</b> aqueça o navegador antes de criar a conta e a conta depois de criada. O app já respeita 1 conta por perfil.
+      <div class="ig-note" style="max-width:720px">
+        <b style="color:var(--text)">Lembrete:</b> aqueça o navegador antes de abrir. Depois de criar a conta no Camoufox, <b>amadureça no app do Instagram no Android</b> antes de usar — logar no PC numa conta recém-criada é evento de "novo dispositivo".
       </div>
     </div>
 
@@ -2311,8 +2267,11 @@ async function igLoadProfiles() {
     return `<option value="${escapeHtml(p.id)}">${escapeHtml(p.name)}${p.proxy ? ' ✓proxy' : ' ⚠️sem proxy'}${warm}</option>`;
   }).join('');
   const empty = '<option value="">— selecione um perfil —</option>';
-  document.getElementById('ig-profile-id').innerHTML = empty + opts;
-  document.getElementById('ig-warmup-profile').innerHTML = empty + opts;
+  // Elementos opcionais (a aba agora é só criação manual; estes podem não existir)
+  const elProf = document.getElementById('ig-profile-id');
+  if (elProf) elProf.innerHTML = empty + opts;
+  const elWarm = document.getElementById('ig-warmup-profile');
+  if (elWarm) elWarm.innerHTML = empty + opts;
 
   // Inicializa o método a partir do rádio marcado no HTML (se ainda não definido pelo usuário)
   if (!window._proxyMethodInitialized) {
