@@ -3364,8 +3364,11 @@ async function createManual() {
     toast('Preparando conta manual… aquecendo o navegador (a janela abre ao terminar)');
     const r = await api('POST', '/instagram/create-manual', { use_proxy_pool: !useLocal, os: 'random', warmup_minutes: warmMin });
     const bd = r.birthday || {};
+    const emailRow = r.email_suggested
+      ? ['E-mail (sugestão — comprado)', r.email]
+      : ['E-mail', '⚠ Nenhum e-mail livre — cadastre na aba Emails ou use o seu'];
     window._manualData = [
-      ['E-mail', r.email],
+      emailRow,
       ['Senha', r.password],
       ['Nome', r.full_name],
       ['Nascimento (dia/mês/ano)', `${bd.day||''}/${bd.month||''}/${bd.year||''}`],
@@ -3379,15 +3382,14 @@ async function createManual() {
         </div>
         <button class="btn btn-ghost btn-sm" onclick="copyText(window._manualData[${i}][1])">Copiar</button>
       </div>`).join('');
-    _manualEmail = r.email;
+    _manualEmail = r.email || null;
     _manualCode = null;
     const cv = document.getElementById('manual-code-val');
-    cv.textContent = 'aguardando…'; cv.style.color = 'var(--muted)';
+    cv.textContent = '—'; cv.style.color = 'var(--muted)';
     document.getElementById('manual-code-copy').style.display = 'none';
-    document.getElementById('manual-code-hint').textContent = 'O código aparece aqui automaticamente quando o IG enviar (após você enviar o cadastro).';
+    document.getElementById('manual-code-hint').textContent = 'O código de verificação você pega no provedor do e-mail comprado e digita na janela do Camoufox.';
     document.getElementById('modal-manual').classList.add('open');
     startManualWarmBar(r.warmup_minutes || 0);
-    pollManualCode(false);
   } catch (e) {
     toast(e.message || 'Erro ao preparar conta manual', 'error');
   }

@@ -81,6 +81,18 @@ def list_emails() -> list:
     return db.list_emails()
 
 
+def claim_free_email(profile_id: str = None) -> "dict|None":
+    """Reserva um e-mail LIVRE já cadastrado (comprado de terceiros, sem perfil
+    vinculado) para este perfil — usado como SUGESTÃO na criação manual. Liga o
+    e-mail ao perfil e o devolve. Retorna None se não houver e-mail livre."""
+    for em in db.list_emails():
+        if (em.get("status") or "free") == "free" and not em.get("profile_id"):
+            if profile_id:
+                db.update_email(em["id"], profile_id=profile_id)
+            return db.get_email(em["id"])
+    return None
+
+
 def get_email(email_id: str):
     return db.get_email(email_id)
 

@@ -690,10 +690,14 @@ async def ig_create_manual(body: IgCreateManualRequest):
         profile_id = prof.create(name=(body.base or "conta"), os=body.os, proxy=proxy)["id"]
         already_warm = False
 
-    em = eb.create_email(base=body.base or "", profile_id=profile_id)
+    # E-mail: SUGERE um e-mail comprado já cadastrado (livre) e o liga ao perfil.
+    # Não gera mais catch-all. Se não houver e-mail livre, segue sem e-mail (você
+    # digita o seu na janela) e a UI avisa para cadastrar na aba Emails.
+    em = eb.claim_free_email(profile_id)
+    email_addr = em["address"] if em else ""
 
     # 2) Gera os dados (mesmos geradores do fluxo automático)
-    base = em["address"].split("@")[0].split("+")[0]
+    base = email_addr.split("@")[0].split("+")[0] if email_addr else (body.base or "")
     full_name = ig.gen_full_name(base=base)
     username  = ig._gen_username(full_name)
     password  = ig.gen_password()
@@ -735,7 +739,8 @@ async def ig_create_manual(body: IgCreateManualRequest):
 
     return {
         "profile_id": profile_id,
-        "email": em["address"],
+        "email": email_addr,          # sugestão (e-mail comprado livre) ou "" se não houver
+        "email_suggested": bool(email_addr),
         "password": password,
         "full_name": full_name,
         "username": username,
