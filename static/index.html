@@ -886,7 +886,17 @@
           <div class="page-title">Contas</div>
           <div class="page-subtitle" id="accounts-subtitle">Carregando...</div>
         </div>
-        <div style="display:flex;gap:8px">
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted)">
+            🔁 Auto-verificar
+            <select id="auto-recheck-hours" onchange="setAutoRecheck(this.value)" style="padding:4px 8px;background:var(--surface);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:12px">
+              <option value="0">Desligado</option>
+              <option value="6">a cada 6h</option>
+              <option value="12">a cada 12h</option>
+              <option value="24">a cada 24h</option>
+              <option value="48">a cada 48h</option>
+            </select>
+          </label>
           <button class="btn btn-ghost btn-sm" onclick="loadAccountsPage()">↻ Atualizar</button>
           <button class="btn btn-ghost btn-sm" onclick="openAddAccount()">+ Adicionar conta</button>
           <button class="btn btn-ghost btn-sm" onclick="exportAccountsCsv()">⤓ Exportar CSV</button>
@@ -2826,6 +2836,7 @@ async function loadAccountsPage() {
     const list = await api('GET', '/accounts');
     _accountsCache = list;
     renderAccounts(list);
+    loadAutoRecheck();
   } catch (e) {
     toast(e.message || 'Erro ao carregar contas', 'error');
   }
@@ -3205,6 +3216,25 @@ async function checkAllAccounts() {
     const r = await api('POST', '/accounts/check-all');
     toast(`Verificando ${r.count} conta(s) em segundo plano...`);
   } catch (e) { toast(e.message, 'error'); }
+}
+
+// Verificação periódica automática (auto_recheck_hours)
+async function loadAutoRecheck() {
+  const sel = document.getElementById('auto-recheck-hours');
+  if (!sel) return;
+  try {
+    const r = await api('GET', '/settings/auto-recheck');
+    sel.value = String(r.hours || 0);
+  } catch (e) { /* silencioso */ }
+}
+
+async function setAutoRecheck(hours) {
+  try {
+    await api('POST', '/settings/auto-recheck', { hours: parseInt(hours, 10) || 0 });
+    toast(parseInt(hours, 10) > 0
+      ? `Auto-verificação ligada: a cada ${hours}h (pula banidas e contas em uso)`
+      : 'Auto-verificação desligada');
+  } catch (e) { toast(e.message || 'Erro ao salvar', 'error'); }
 }
 
 async function exportAccountsCsv() {

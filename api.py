@@ -1526,12 +1526,25 @@ async def accounts_warmup(account_id: str, body: AccountWarmupRequest = AccountW
 
 
 async def _check_all_accounts():
-    """Verifica o status de todas as contas, sequencial e headless."""
-    for a in acc.list_accounts():
+    """Verifica o status das contas VIVAS, sequencial e headless. Pula terminais
+    (banida/descartada — sem volta), sem perfil, ou em uso agora; pausa entre contas."""
+    try:
+        busy = {s.get("profile_id") for s in sm.list_active()}
+    except Exception:
+        busy = set()
+    terminal = {"banned", "discarded"}
+    pending = [a for a in acc.list_accounts()
+               if (a.get("status") or "").lower() not in terminal
+               and a.get("profile_id") and a.get("profile_id") not in busy]
+    for i, a in enumerate(pending):
+        if _creation_stop:
+            break
         try:
             await acc.check_status(a["id"], headless=True)
         except Exception:
             pass
+        if i < len(pending) - 1:
+            await asyncio.sleep(8)   # ritmo leve entre contas
 
 
 @app.post("/accounts/check-all")
@@ -1539,6 +1552,28 @@ async def accounts_check_all():
     """Dispara verificação de todas as contas em segundo plano (sequencial)."""
     asyncio.create_task(_check_all_accounts())
     return {"status": "checking", "count": len(acc.list_accounts())}
+
+
+class AutoRecheckRequest(BaseModel):
+    hours: int = 0
+
+
+@app.get("/settings/auto-recheck")
+def auto_recheck_get():
+    """Config da verificação periódica automática (0 = desligada)."""
+    hours = int(db.get_setting("auto_recheck_hours", "0") or 0)
+    last = float(db.get_setting("auto_recheck_last", "0") or 0)
+    nxt = int(last + hours * 3600) if (hours > 0 and last > 0) else 0
+    return {"hours": hours, "last": int(last) if last else 0, "next": nxt}
+
+
+@app.post("/settings/auto-recheck")
+def auto_recheck_set(body: AutoRecheckRequest):
+    h = max(0, int(body.hours or 0))
+    db.set_setting("auto_recheck_hours", str(h))
+    if h > 0:                                   # ao ligar, conta a partir de agora
+        db.set_setting("auto_recheck_last", str(int(time.time())))
+    return {"hours": h}
 
 
 # ─── Informações locais: salvar/carregar todo o local data (migrar de máquina) ──
