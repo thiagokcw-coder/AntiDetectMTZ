@@ -346,10 +346,10 @@
         <div class="form-card" style="margin-bottom:18px;border:1px solid var(--border);border-radius:10px">
           <div style="font-weight:600;margin-bottom:6px">✅ Como funciona o fluxo</div>
           <div style="color:var(--muted);font-size:13px;line-height:1.65">
-            As contas são criadas <b>manualmente</b> no navegador antidetect <b>Camoufox (no PC)</b>, saindo por um <b>proxy móvel 4G/5G</b>. O app prepara tudo (perfil + e-mail catch-all + dados + fingerprint coerente), <b>aquece o navegador e abre a janela</b> — <b>você cria a conta</b> (preenche e resolve captcha/telefone se aparecer). Depois, <b>amadureça a conta no app do Instagram no Android</b> antes de usar pra valer.<br><br>
+            As contas são criadas <b>manualmente</b> no navegador antidetect <b>Camoufox (no PC)</b>, saindo por um <b>proxy móvel 4G/5G</b>. O app prepara o perfil (proxy + fingerprint coerente), <b>aquece o navegador e abre a janela</b> — <b>você cria a conta</b> usando um <b>e-mail comprado</b> (preenche e resolve captcha/telefone se aparecer). Depois, <b>amadureça a conta no app do Instagram no Android</b> antes de usar pra valer.<br><br>
 
             <b>O que o app faz por você:</b><br>
-            • Gera perfil Camoufox + e-mail (catch-all) + dados e abre a janela pronta (aba <b>Criar Contas (PC)</b>)<br>
+            • Gera o perfil Camoufox (proxy + fingerprint) e abre a janela pronta (aba <b>Criar Contas (PC)</b>)<br>
             • Mantém <b>fingerprint coerente e estável por perfil</b> e sai pelo <b>proxy 4G/5G</b> do pool<br>
             • <b>Monitora o status</b> das contas (ativa, checkpoint, banida) e a vida útil (aba <b>Contas</b>)<br>
             • <b>Extrai dados</b> (seguidores/seguindo/posts) com o <b>Spider</b><br>
@@ -364,7 +364,7 @@
         <div class="form-card" style="margin-bottom:18px">
           <div style="color:var(--muted);font-size:13px;line-height:1.6">
             • <b>Proxy móvel 4G/5G dedicado</b> (fator nº 1 contra detecção) na pasta <code>proxys/</code> ou pela aba Proxies — <b>1 IP limpo por conta</b>, de preferência sticky. Defina o <b>País-alvo</b> (Contas → Limites) pra casar com a persona. <button class="btn btn-ghost btn-sm" style="padding:1px 8px" onclick="showPage('proxies')">ver guia →</button><br>
-            • Um domínio com <b>catch-all</b> + credenciais <b>IMAP</b> (aba Emails) pra gerar o e-mail e ler o código de verificação.<br>
+            • <b>E-mails comprados de terceiros</b> (com acesso/senha do provedor). Cadastre-os na aba <b>Emails</b>. O código de verificação você pega no <b>provedor do e-mail</b> e digita na janela.<br>
             • Um <b>celular Android</b> com o app do Instagram para amadurecer a conta depois de criada.
           </div>
           <div style="margin-top:10px">
@@ -381,7 +381,7 @@
             <div class="flow-left"><div class="flow-num">1</div><div class="flow-line"></div></div>
             <div class="flow-card">
               <div class="flow-title">🌐 Configurar proxy + emails</div>
-              <div class="flow-desc">Adicione seu <b>proxy 4G/5G</b> na aba Proxies e defina o <b>País-alvo</b> (Contas → Limites). Configure o domínio <b>catch-all + IMAP</b> na aba Emails. Confira no <b>topo</b> se o proxy está limpo.</div>
+              <div class="flow-desc">Adicione seu <b>proxy 4G/5G</b> na aba Proxies e defina o <b>País-alvo</b> (Contas → Limites). Cadastre os <b>e-mails comprados</b> na aba Emails. Confira no <b>topo</b> se o proxy está limpo.</div>
               <div class="flow-actions">
                 <button class="btn btn-primary btn-sm" onclick="showPage('proxies')">Proxies →</button>
                 <button class="btn btn-ghost btn-sm" onclick="showPage('emails')">Emails →</button>
@@ -552,8 +552,8 @@
         <div style="font-weight:600;margin-bottom:6px">Como funciona o fluxo</div>
         <div style="color:var(--muted);font-size:13px;line-height:1.75">
           1. Escolha a conexão: <b>proxy 4G/5G do pool</b> (defina o País-alvo em Contas → Limites) ou conexão local.<br>
-          2. O app gera perfil + e-mail (catch-all) + dados, <b>aquece o navegador</b> e abre o <b>Camoufox</b>.<br>
-          3. <b>Você cria a conta na janela</b> — preenche e resolve captcha/telefone se aparecer.<br>
+          2. O app gera o perfil (proxy + fingerprint), <b>aquece o navegador</b> e abre o <b>Camoufox</b>.<br>
+          3. <b>Você cria a conta na janela</b> com um <b>e-mail comprado</b> — preenche e resolve captcha/telefone se aparecer.<br>
           4. Depois, <b>logue no app do Instagram no Android</b> para amadurecer a conta antes de usar.
         </div>
       </div>
@@ -3428,7 +3428,7 @@ async function pollManualCode(force) {
   try {
     const r = await api('GET', '/instagram/manual/email-code?email=' + encodeURIComponent(_manualEmail));
     if (r && r.configured === false) {
-      document.getElementById('manual-code-hint').textContent = 'IMAP não configurado — pegue o código na aba Emails (caixa de entrada) e digite na janela.';
+      document.getElementById('manual-code-hint').textContent = 'Pegue o código de verificação no provedor do e-mail comprado e digite na janela do Camoufox.';
       return;
     }
     if (r && r.code) {
