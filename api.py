@@ -1154,11 +1154,13 @@ class SpiderExtractRequest(BaseModel):
 
 def _launch_spider_job(*, method, account, profile, label, kind, target, limit, use_local,
                        delay_ms=2500, profile_id=None, account_id=None, seed_rows=None,
-                       start_cursor=None):
+                       start_cursor=None, job_id=None, started_at=None):
     """Cria e dispara um job do Spider (usado por /spider/extract e /spider/resume).
-    seed_rows/start_cursor permitem CONTINUAR de onde parou; delay_ms = velocidade."""
-    job_id = uuid.uuid4().hex[:12]
-    started_at = time.strftime("%Y-%m-%d %H:%M:%S")
+    seed_rows/start_cursor permitem CONTINUAR de onde parou; delay_ms = velocidade.
+    job_id/started_at: ao CONTINUAR, reusa o MESMO id da execução → soma no mesmo
+    registro/CSV (não cria uma nova entrada no histórico)."""
+    job_id = job_id or uuid.uuid4().hex[:12]
+    started_at = started_at or time.strftime("%Y-%m-%d %H:%M:%S")
     seed_rows = seed_rows or []
     job = {"id": job_id, "status": "running", "kind": kind, "target": target,
            "count": len(seed_rows), "rows": list(seed_rows), "error": None, "stop": False,
@@ -1302,7 +1304,8 @@ async def spider_resume(run_id: str):
         target=run.get("target"), limit=int(run.get("limit_n") or 0),
         use_local=bool(run.get("use_local")), delay_ms=int(run.get("delay_ms") or 2500),
         profile_id=run.get("profile_id"), account_id=run.get("account_id"),
-        seed_rows=seed_rows, start_cursor=run.get("cursor"))
+        seed_rows=seed_rows, start_cursor=run.get("cursor"),
+        job_id=run_id, started_at=run.get("started_at"))   # MESMO id → soma no mesmo CSV
     return {"job_id": job_id}
 
 
@@ -1403,6 +1406,17 @@ def spider_job_csv(job_id: str):
             rows = []
         target = run.get("target", "")
         kind = run.get("kind", "followers")
+    # Dedup defensivo final (garante CSV sem duplicados, qualquer que seja a origem)
+    dkey = "Shortcode" if kind == "posts" else "User Id"
+    seen, deduped = set(), []
+    for r in rows:
+        k = str(r.get(dkey) or "")
+        if k and k in seen:
+            continue
+        if k:
+            seen.add(k)
+        deduped.append(r)
+    rows = deduped
     buf = _io.StringIO()
     w = _csv.DictWriter(buf, fieldnames=spider.headers_for(kind), extrasaction="ignore")
     w.writeheader()
