@@ -870,13 +870,17 @@ async def ig_create_batch(body: IgCreateBatchRequest):
                     px = (prof_row or {}).get("proxy")
                     # Registra o proxy desta conta no item (alimenta o indicador global do topo)
                     if px and px.get("host"):
-                        row["proxy_key"] = f"{px['host']}:{px['port']}"
+                        pkey = pool.proxy_key(px)
+                        row["proxy_key"] = pkey
                         row["proxy_host"] = px["host"]
-                    if px and px.get("host"):
                         try:
+                            t0 = time.time()
                             with socket.create_connection((px["host"], int(px["port"])), timeout=8):
                                 pass
+                            # Observação real → atualiza o cache de reachability (Parte 3)
+                            _mark_proxy_reachable(pkey, True, ms=round((time.time() - t0) * 1000))
                         except Exception as e:
+                            _mark_proxy_reachable(pkey, False, error=str(e))
                             raise RuntimeError(f"proxy não responde ({px['host']}:{px['port']}): {e}")
 
                     # Aquece o navegador antes de criar (acumula cookies/histórico).
@@ -1385,6 +1389,22 @@ def proxies_pool_delete(key: str):
 _proxy_test_cache = {"tested_at": None, "running": False, "results": {}}
 
 
+def _mark_proxy_reachable(key: str, ok: bool, error: str = None, ms: int = None):
+    """Atualiza o cache de reachability a partir de uma observação REAL (ex.: a
+    checagem TCP do worker de criação). Assim a saúde/indicador refletem proxy
+    caído sem depender de rodar /proxies/test manualmente."""
+    if not key:
+        return
+    try:
+        _proxy_test_cache["results"][key] = {
+            "key": key, "ok": bool(ok),
+            "ms": ms, "error": (str(error)[:80] if error else None),
+        }
+        _proxy_test_cache["tested_at"] = time.time()
+    except Exception:
+        pass
+
+
 async def _test_one_proxy(p: dict, timeout: float = 7.0) -> dict:
     """Conecta no host:porta do proxy (TCP) e mede a latência."""
     host, port = p.get("host"), int(p.get("port") or 0)
@@ -1446,13 +1466,45 @@ async def proxies_test(force: bool = False):
     }
 
 
+def _proxy_status_block(pk: str, host: str) -> dict:
+    """Monta {level, country, status} de um proxy a partir de pool.summary() +
+    reachability (cache, só leitura) + país (offline). Usado pelo indicador do topo."""
+    st = {}
+    try:
+        st = next((i for i in pool.summary().get("items", []) if i.get("key") == pk), {}) or {}
+    except Exception:
+        st = {}
+    reach = (_proxy_test_cache.get("results") or {}).get(pk)
+    reachable = reach.get("ok") if reach else None
+    try:
+        country = pool.proxy_country(host) if host else ""
+    except Exception:
+        country = ""
+    ban = st.get("ban_rate_pct")
+    blocked = bool(st.get("blocked"))
+    # Vermelho (atenção) se: proxy não responde, no limite, ou ban rate alto.
+    warn = blocked or (reachable is False) or (isinstance(ban, (int, float)) and ban >= 20)
+    return {
+        "level": "warn" if warn else "ok",
+        "country": country or None,
+        "status": {
+            "used": st.get("used"),
+            "ban_rate_pct": ban,
+            "blocked": blocked,
+            "reachable": reachable,
+            "recommended_remaining": st.get("recommended_remaining"),
+        },
+    }
+
+
 @app.get("/proxies/active")
 def proxies_active():
-    """Proxy em uso AGORA pela criação em andamento — alimenta o indicador global do topo.
+    """Proxy do topo: em CRIAÇÃO mostra o proxy em uso agora; OCIOSO mostra o
+    PRÓXIMO proxy que assign() escolheria (preview), para o IP ficar sempre visível.
 
-    Reaproveita: jobs de criação em memória (_ig_batch_jobs) + pool.summary()
-    (uso/ban) + cache de reachability (_proxy_test_cache, só LEITURA, sem disparar
-    teste) + proxy_country (offline). Verde = livre pra ir; vermelho = atenção.
+    Reaproveita: jobs de criação (_ig_batch_jobs) + pool.assign()/summary()
+    (uso/ban) + cache de reachability (só LEITURA) + proxy_country (offline).
+    Verde = livre pra ir; vermelho = atenção.
     """
     # Acha o item sendo criado AGORA no job em execução mais recente.
     cur = None
@@ -1466,53 +1518,39 @@ def proxies_active():
         if cur:
             break
 
-    if not cur:
-        return {"active": False, "level": "idle"}
-
-    pk = cur.get("proxy_key")
-    host = cur.get("proxy_host")
-
-    # Conexão local (sem proxy) = tethering do celular = bom (verde).
-    if not pk:
-        return {"active": True, "level": "ok", "local": True,
+    if cur:
+        pk = cur.get("proxy_key")
+        host = cur.get("proxy_host")
+        # Conexão local (sem proxy) = tethering do celular = bom (verde).
+        if not pk:
+            return {"active": True, "preview": False, "level": "ok", "local": True,
+                    "email": cur.get("email"), "username": cur.get("username"),
+                    "proxy_key": None, "host": None, "country": None, "status": {}}
+        blk = _proxy_status_block(pk, host)
+        return {"active": True, "preview": False, "local": False,
                 "email": cur.get("email"), "username": cur.get("username"),
-                "proxy_key": None, "host": None, "country": None, "status": {}}
+                "proxy_key": pk, "host": host, **blk}
 
-    # Status a partir do summary do pool + reachability (cache) + país (offline).
-    st = {}
+    # OCIOSO → preview do próximo proxy que assign() escolheria (sem efeito colateral).
+    nxt = None
     try:
-        st = next((i for i in pool.summary().get("items", []) if i.get("key") == pk), {}) or {}
+        limit = int(acc.get_limits().get("proxy_limit", 0) or 0)
     except Exception:
-        st = {}
-    reach = (_proxy_test_cache.get("results") or {}).get(pk)
-    reachable = reach.get("ok") if reach else None
+        limit = 0
     try:
-        country = pool.proxy_country(host) if host else ""
+        picked = pool.assign(1, limit)
+        nxt = picked[0] if picked else None
     except Exception:
-        country = ""
+        nxt = None
 
-    ban = st.get("ban_rate_pct")
-    blocked = bool(st.get("blocked"))
-    # Vermelho (atenção) se: proxy não responde, no limite, ou ban rate alto.
-    warn = blocked or (reachable is False) or (isinstance(ban, (int, float)) and ban >= 20)
+    if not nxt or not nxt.get("host"):
+        return {"active": False, "preview": False, "level": "idle"}
 
-    return {
-        "active": True,
-        "level": "warn" if warn else "ok",
-        "local": False,
-        "email": cur.get("email"),
-        "username": cur.get("username"),
-        "proxy_key": pk,
-        "host": host,
-        "country": country or None,
-        "status": {
-            "used": st.get("used"),
-            "ban_rate_pct": ban,
-            "blocked": blocked,
-            "reachable": reachable,
-            "recommended_remaining": st.get("recommended_remaining"),
-        },
-    }
+    pk = pool.proxy_key(nxt)
+    host = nxt.get("host")
+    blk = _proxy_status_block(pk, host)
+    return {"active": False, "preview": True, "local": False,
+            "proxy_key": pk, "host": host, **blk}
 
 
 def _derive_proxy_health(accounts_d: dict, attempts_total: int, reachable) -> str:

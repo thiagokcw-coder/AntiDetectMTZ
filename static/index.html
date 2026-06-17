@@ -314,6 +314,15 @@
       </div>
 
       <div style="max-width:780px">
+        <div class="form-card" style="margin-bottom:18px">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+            <div style="font-weight:600">🌐 Proxies — em uso agora e saúde</div>
+            <button class="btn btn-ghost btn-sm" style="padding:1px 8px" onclick="showPage('proxies')">ver todos →</button>
+          </div>
+          <div id="start-proxy-now" style="font-size:13px;color:var(--muted);margin-bottom:10px">Carregando...</div>
+          <div id="start-proxy-health" style="font-size:13px"></div>
+        </div>
+
         <div class="form-card" style="margin-bottom:18px;border:1px solid var(--border);border-radius:10px">
           <div style="font-weight:600;margin-bottom:6px">✅ Como funciona o fluxo</div>
           <div style="color:var(--muted);font-size:13px;line-height:1.65">
@@ -1421,6 +1430,7 @@ function showPage(name) {
   if (name === 'proxies') loadProxiesPage();
   if (name === 'analytics') loadAnalytics();
   if (name === 'spider') loadSpider();
+  if (name === 'start') loadStartProxyHealth();
 }
 
 function refreshAll() {
@@ -1552,9 +1562,10 @@ async function loadActiveProxy() {
   try {
     const s = await api('GET', '/proxies/active');
     pill.classList.remove('proxy-ok', 'proxy-warn');
-    if (!s || !s.active) {
-      txt.textContent = 'Proxy: sem criação ativa';
-      pill.title = 'Nenhuma criação de conta em andamento';
+    // Sem proxy nenhum (nem em uso, nem próximo): pool vazio.
+    if (!s || (!s.proxy_key && !s.local)) {
+      txt.textContent = 'Proxy: pool vazio';
+      pill.title = 'Nenhum proxy no pool — adicione na aba Proxies';
       return;
     }
     if (s.local) {
@@ -1565,17 +1576,65 @@ async function loadActiveProxy() {
     }
     const st = s.status || {};
     const flag = s.country ? (s.country + ' · ') : '';
+    // preview = ocioso (mostra o PRÓXIMO proxy); active = em uso agora.
+    const prefix = s.preview ? 'Próximo: ' : '🌐 ';
     pill.classList.add(s.level === 'warn' ? 'proxy-warn' : 'proxy-ok');
-    txt.textContent = '🌐 ' + flag + (s.host || s.proxy_key);
+    txt.textContent = prefix + flag + (s.host || s.proxy_key);
     const bits = [];
     if (st.reachable === false) bits.push('proxy não responde');
     if (st.blocked) bits.push('no limite');
     if (st.ban_rate_pct != null) bits.push('ban ' + st.ban_rate_pct + '%');
     if (st.used != null) bits.push(st.used + ' uso(s)');
-    pill.title = (s.level === 'warn' ? '⚠ Atenção — ' : '✓ Livre pra ir — ')
-      + (s.proxy_key || '')
+    const head = s.preview
+      ? (s.level === 'warn' ? '⚠ Próximo proxy (atenção) — ' : '✓ Próximo proxy (livre) — ')
+      : (s.level === 'warn' ? '⚠ Em uso (atenção) — ' : '✓ Em uso (livre) — ');
+    pill.title = head + (s.proxy_key || '')
       + (s.email ? (' • criando ' + s.email) : '')
       + (bits.length ? (' • ' + bits.join(' • ')) : '');
+  } catch (e) { /* silencioso */ }
+}
+
+// Card de saúde dos proxies na aba "Comece aqui": proxy em uso/próximo +
+// lista compacta com saúde por proxy (reusa /proxies/active e /proxies/health).
+async function loadStartProxyHealth() {
+  const now = document.getElementById('start-proxy-now');
+  const list = document.getElementById('start-proxy-health');
+  if (!now || !list) return;
+  try {
+    const [a, h] = await Promise.all([
+      api('GET', '/proxies/active').catch(() => null),
+      api('GET', '/proxies/health').catch(() => ({ items: [] })),
+    ]);
+    // Linha "em uso agora" / "próximo"
+    if (!a || (!a.proxy_key && !a.local)) {
+      now.innerHTML = '<b style="color:var(--yellow)">Nenhum proxy no pool.</b> Adicione na aba Proxies.';
+    } else if (a.local) {
+      now.innerHTML = '<b style="color:var(--green)">Em uso:</b> conexão local (celular)';
+    } else {
+      const color = a.level === 'warn' ? 'var(--red)' : 'var(--green)';
+      const label = a.preview ? 'Próximo a ser usado' : 'Em uso agora';
+      const flag = a.country ? (a.country + ' · ') : '';
+      const st = a.status || {};
+      const extra = [];
+      if (st.reachable === false) extra.push('não responde');
+      if (st.ban_rate_pct != null) extra.push('ban ' + st.ban_rate_pct + '%');
+      now.innerHTML = `<b style="color:${color}">${label}:</b> <code>${escapeHtml(flag + (a.host || a.proxy_key))}</code>`
+        + (extra.length ? ` <span style="color:var(--muted)">(${extra.join(' • ')})</span>` : '');
+    }
+    // Lista de saúde (compacta — até 6)
+    const items = (h.items || []).slice(0, 6);
+    if (!items.length) {
+      list.innerHTML = '<span style="color:var(--muted)">Sem dados de saúde ainda (nenhuma conta criada por proxy).</span>';
+      return;
+    }
+    list.innerHTML = items.map(it => {
+      const ac = it.accounts || {}, at = it.attempts || {};
+      const info = [];
+      if (ac.total) info.push(`${ac.total} conta(s) · ${ac.bad_rate || 0}% ruim`);
+      if (at.total) info.push(`criação ${at.success_rate_pct || 0}%`);
+      const infoTxt = info.length ? ` <span style="color:var(--muted)">— ${info.join(' · ')}</span>` : ' <span style="color:var(--muted)">— sem uso</span>';
+      return `<div style="padding:3px 0">${renderProxyHealth(it)} <code>${escapeHtml(it.proxy_key)}</code>${infoTxt}</div>`;
+    }).join('');
   } catch (e) { /* silencioso */ }
 }
 
@@ -3490,9 +3549,11 @@ async function deleteEmail(id) {
 
 loadProfiles();
 loadActiveProxy();
+loadStartProxyHealth();   // aba "start" é a ativa por padrão
 pollInterval = setInterval(() => {
   loadActiveProxy();   // global: indicador do proxy em uso, independente da aba
   const page = document.querySelector('.page.active')?.id;
+  if (page === 'page-start')        loadStartProxyHealth();
   if (page === 'page-profiles')     loadProfiles();
   if (page === 'page-sessions')     loadSessions();
   if (page === 'page-diagnostics')  loadDiagnostics();
