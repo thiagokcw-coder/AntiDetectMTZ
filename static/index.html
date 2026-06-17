@@ -29,6 +29,14 @@
   header h1 { font-size: 16px; font-weight: 600; color: var(--text); display: flex; align-items: center; gap: 8px; }
   header h1 span { color: var(--accent); }
   .header-actions { display: flex; gap: 8px; align-items: center; }
+  /* Indicador global do proxy em uso (sempre visível no topo) */
+  .proxy-pill { display:flex; align-items:center; gap:7px; font-size:12px; padding:4px 11px; border-radius:999px; border:1px solid var(--border); background:var(--surface2); color:var(--muted); max-width:330px; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; cursor:default; }
+  .proxy-pill .proxy-dot { width:9px; height:9px; border-radius:50%; background:var(--muted); flex-shrink:0; }
+  .proxy-pill #proxy-pill-text { overflow:hidden; text-overflow:ellipsis; }
+  .proxy-pill.proxy-ok { color:#10b981; border-color:rgba(16,185,129,.45); background:rgba(16,185,129,.08); }
+  .proxy-pill.proxy-ok .proxy-dot { background:#10b981; box-shadow:0 0 6px rgba(16,185,129,.6); }
+  .proxy-pill.proxy-warn { color:#ef4444; border-color:rgba(239,68,68,.45); background:rgba(239,68,68,.09); }
+  .proxy-pill.proxy-warn .proxy-dot { background:#ef4444; box-shadow:0 0 6px rgba(239,68,68,.6); }
 
   /* Layout */
   .layout { display: flex; flex: 1; overflow: hidden; }
@@ -224,6 +232,10 @@
     Profile <span>Manager</span>
   </h1>
   <div class="header-actions">
+    <div id="proxy-indicator" class="proxy-pill" title="Proxy em uso na criação de contas">
+      <span class="proxy-dot"></span>
+      <span id="proxy-pill-text">Proxy: sem criação ativa</span>
+    </div>
     <span id="sessions-count" style="font-size:12px;color:var(--muted)"></span>
     <button class="btn btn-ghost btn-sm" onclick="refreshAll()">↻ Atualizar</button>
   </div>
@@ -1528,6 +1540,43 @@ setInterval(() => {
   const pp = document.getElementById('page-profiles');
   if (pp && pp.classList.contains('active')) loadProfiles();
 }, 15000);
+
+// Indicador global do proxy em uso (topo, visível em qualquer aba).
+// Verde = livre pra ir; vermelho = atenção. Lê /proxies/active (reaproveita
+// jobs de criação + pool.summary + reachability, sem disparar teste de proxy).
+async function loadActiveProxy() {
+  const pill = document.getElementById('proxy-indicator');
+  const txt = document.getElementById('proxy-pill-text');
+  if (!pill || !txt) return;
+  try {
+    const s = await api('GET', '/proxies/active');
+    pill.classList.remove('proxy-ok', 'proxy-warn');
+    if (!s || !s.active) {
+      txt.textContent = 'Proxy: sem criação ativa';
+      pill.title = 'Nenhuma criação de conta em andamento';
+      return;
+    }
+    if (s.local) {
+      pill.classList.add('proxy-ok');
+      txt.textContent = '🌐 Conexão local (celular)';
+      pill.title = 'Criando via conexão local (sem proxy) — ' + (s.email || '');
+      return;
+    }
+    const st = s.status || {};
+    const flag = s.country ? (s.country + ' · ') : '';
+    pill.classList.add(s.level === 'warn' ? 'proxy-warn' : 'proxy-ok');
+    txt.textContent = '🌐 ' + flag + (s.host || s.proxy_key);
+    const bits = [];
+    if (st.reachable === false) bits.push('proxy não responde');
+    if (st.blocked) bits.push('no limite');
+    if (st.ban_rate_pct != null) bits.push('ban ' + st.ban_rate_pct + '%');
+    if (st.used != null) bits.push(st.used + ' uso(s)');
+    pill.title = (s.level === 'warn' ? '⚠ Atenção — ' : '✓ Livre pra ir — ')
+      + (s.proxy_key || '')
+      + (s.email ? (' • criando ' + s.email) : '')
+      + (bits.length ? (' • ' + bits.join(' • ')) : '');
+  } catch (e) { /* silencioso */ }
+}
 
 async function loadWarmPool() {
   try {
@@ -3406,7 +3455,9 @@ async function deleteEmail(id) {
 }
 
 loadProfiles();
+loadActiveProxy();
 pollInterval = setInterval(() => {
+  loadActiveProxy();   // global: indicador do proxy em uso, independente da aba
   const page = document.querySelector('.page.active')?.id;
   if (page === 'page-profiles')     loadProfiles();
   if (page === 'page-sessions')     loadSessions();

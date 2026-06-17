@@ -846,7 +846,7 @@ async def ig_create_batch(body: IgCreateBatchRequest):
         "delay_seconds": delay,
         "items": [
             {"index": i, "email": it["email"]["address"], "username": None,
-             "status": "pending", "detail": ""}
+             "status": "pending", "detail": "", "proxy_key": None, "proxy_host": None}
             for i, it in enumerate(items)
         ],
     }
@@ -868,6 +868,10 @@ async def ig_create_batch(body: IgCreateBatchRequest):
                     # Checagem rápida do proxy — proxy morto é pulado já (poupa minutos)
                     prof_row = get_profile(it["profile_id"])
                     px = (prof_row or {}).get("proxy")
+                    # Registra o proxy desta conta no item (alimenta o indicador global do topo)
+                    if px and px.get("host"):
+                        row["proxy_key"] = f"{px['host']}:{px['port']}"
+                        row["proxy_host"] = px["host"]
                     if px and px.get("host"):
                         try:
                             with socket.create_connection((px["host"], int(px["port"])), timeout=8):
@@ -1439,6 +1443,75 @@ async def proxies_test(force: bool = False):
         "down": len(results) - ok,
         "total": len(results),
         "results": results,
+    }
+
+
+@app.get("/proxies/active")
+def proxies_active():
+    """Proxy em uso AGORA pela criação em andamento — alimenta o indicador global do topo.
+
+    Reaproveita: jobs de criação em memória (_ig_batch_jobs) + pool.summary()
+    (uso/ban) + cache de reachability (_proxy_test_cache, só LEITURA, sem disparar
+    teste) + proxy_country (offline). Verde = livre pra ir; vermelho = atenção.
+    """
+    # Acha o item sendo criado AGORA no job em execução mais recente.
+    cur = None
+    for j in sorted(_ig_batch_jobs.values(), key=lambda x: x.get("started_at", 0), reverse=True):
+        if j.get("status") != "running":
+            continue
+        for it in j.get("items", []):
+            if it.get("status") == "creating":
+                cur = it
+                break
+        if cur:
+            break
+
+    if not cur:
+        return {"active": False, "level": "idle"}
+
+    pk = cur.get("proxy_key")
+    host = cur.get("proxy_host")
+
+    # Conexão local (sem proxy) = tethering do celular = bom (verde).
+    if not pk:
+        return {"active": True, "level": "ok", "local": True,
+                "email": cur.get("email"), "username": cur.get("username"),
+                "proxy_key": None, "host": None, "country": None, "status": {}}
+
+    # Status a partir do summary do pool + reachability (cache) + país (offline).
+    st = {}
+    try:
+        st = next((i for i in pool.summary().get("items", []) if i.get("key") == pk), {}) or {}
+    except Exception:
+        st = {}
+    reach = (_proxy_test_cache.get("results") or {}).get(pk)
+    reachable = reach.get("ok") if reach else None
+    try:
+        country = pool.proxy_country(host) if host else ""
+    except Exception:
+        country = ""
+
+    ban = st.get("ban_rate_pct")
+    blocked = bool(st.get("blocked"))
+    # Vermelho (atenção) se: proxy não responde, no limite, ou ban rate alto.
+    warn = blocked or (reachable is False) or (isinstance(ban, (int, float)) and ban >= 20)
+
+    return {
+        "active": True,
+        "level": "warn" if warn else "ok",
+        "local": False,
+        "email": cur.get("email"),
+        "username": cur.get("username"),
+        "proxy_key": pk,
+        "host": host,
+        "country": country or None,
+        "status": {
+            "used": st.get("used"),
+            "ban_rate_pct": ban,
+            "blocked": blocked,
+            "reachable": reachable,
+            "recommended_remaining": st.get("recommended_remaining"),
+        },
     }
 
 

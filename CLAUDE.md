@@ -113,3 +113,78 @@ warmup navegador **15min**, intervalo entre contas **90s**, account_warmup **5mi
 
 ## Instabilidade conhecida
 `TargetClosedError` (Camoufox fecha no meio) e `Execution context was destroyed` (navegação durante o fill) aparecem nos logs (`%LOCALAPPDATA%\ProfileManager\logs\app.log`/`errors.log`). `Path` está importado no topo de instagram.py (já causou NameError antes).
+
+Melhorias em Rastreamento de Proxies, Status e Visibilidade (Junho 2026)
+Objetivo principal atual do projeto:
+
+Maximizar o tempo de vida das contas usando o spider.
+Ter um processo confiável de criação quando as contas caem.
+Atualmente o usuário está sem contas.
+
+Problema atual:
+
+Não é possível ver facilmente qual proxy/IP está sendo usado durante a criação.
+Não existe controle de status dos proxies (limpo, sujo, em quarentena, etc.).
+Os dados de uso de proxy já são parcialmente registrados em creation_attempts, mas não são bem aproveitados para visualização, avaliação de bans/suspensões e aprendizado do sistema.
+O usuário precisa dessa informação visível na aba “Comece aqui”, junto com a explicação do fluxo.
+
+Estratégia recomendada (híbrida):
+
+Criação: PC com Camoufox + proxy mobile 4G/5G (preferencialmente sticky).
+Aquecimento inicial: App nativo do Instagram no celular (forte recomendação para aumentar longevidade).
+Uso do spider: Após a conta já ter passado pelo aquecimento mobile.
+Usar fingerprint mobile-like no Camoufox sempre que possível.
+
+Requisitos de implementação:
+
+Rastreamento e Status de Proxies
+Garantir que o proxy_key (e IP quando disponível) seja sempre registrado de forma consistente.
+Criar/atualizar estrutura para controlar o status de cada proxy.
+Atualizar o status automaticamente durante o fluxo de criação (assign(), _create_account_for_email, etc.).
+Status sugeridos:
+clean — Proxy em bom estado para uso
+in_use — Sendo utilizado no momento
+warming — Em aquecimento
+quarantined — Pausado temporariamente (alto índice de falhas recentes)
+dirty / marked — Alto índice de bans ou suspensões
+banned — Não usar
+
+Visibilidade no Frontend
+Na aba “Comece aqui”, exibir de forma clara e visível:
+Qual proxy está sendo usado no momento (proxy_key + IP se disponível)
+Status atual do proxy
+Informações úteis (ex: contas criadas recentemente com ele, taxa de sucesso/falha recente)
+
+
+Integração com Métricas e Aprendizado
+Fortalecer o uso dos dados de proxy nas métricas existentes (proxy_outcomes, creation_attempts, get_ban_analytics).
+Permitir avaliação da “saúde” dos proxies com base em outcomes recentes.
+(Desejável) Implementar lógica simples de quarentena automática baseada em histórico de falhas.
+
+Requisitos Gerais
+Manter compatibilidade com o sistema atual de atribuição de proxies.
+Preferir soluções incrementais e simples.
+Atualizar o CLAUDE.md com as mudanças realizadas.
+Documentar como o status do proxy é atualizado.
+
+
+Prioridades sugeridas:
+
+Alta: Visibilidade do proxy atual + status na aba “Comece aqui”.
+Média: Atualização automática de status durante a criação + integração com métricas.
+Baixa: Lógica de quarentena automática.
+
+Observações importantes:
+
+Tethering (rotear internet do celular pro PC) não resolveu o problema de forma satisfatória (inconsistência entre IP mobile e fingerprint desktop).
+Proxies mobile 4G/5G dedicados são fortemente recomendados para melhorar tanto a criação quanto a longevidade das contas.
+Manter o estilo de mudanças pequenas e bem testadas.
+
+### Status de implementação
+**Parte 1 — Visibilidade do proxy em uso (FEITA, 2026-06-16).** Indicador GLOBAL no header (`static/index.html`, `#proxy-indicator`) — fica FORA do `<main>`, então é visível em QUALQUER aba (inclusive "Comece aqui"). Mostra o proxy da conta sendo criada AGORA: `país · host:porta` (ou "Conexão local (celular)" sem proxy, ou "Proxy: sem criação ativa" ocioso). **Cor: verde = livre pra ir; vermelho = atenção** (`.proxy-ok`/`.proxy-warn`). Tooltip detalha uso/ban/reachability/email.
+- **Endpoint `GET /proxies/active`** (api.py): acha o item em `status=="creating"` no job de criação em execução mais recente (`_ig_batch_jobs`) e devolve `{active, level: ok|warn|idle, local, email, username, proxy_key, host, country, status:{used, ban_rate_pct, blocked, reachable, recommended_remaining}}`. **Reaproveita tudo:** `pool.summary()` (uso/ban/blocked), `_proxy_test_cache` (reachability — só LEITURA, não dispara teste), `pool.proxy_country()` (país offline GeoLite2). Regra `warn`: `blocked` OU `reachable is False` OU `ban_rate_pct >= 20`.
+- Item do job ganhou `proxy_key`/`proxy_host` (preenchidos quando entra em `creating`, lidos do perfil; inicializados em `None`).
+- Frontend: `loadActiveProxy()` no intervalo global de 3s (`pollInterval`) + no init. Fetch falho = silencioso (estado ocioso). **Sem tabelas novas, sem mudança de schema.** Validado em preview estático (verde/vermelho/ocioso; layout intacto).
+- **OBS:** hoje cobre só o proxy da criação EM ANDAMENTO. As "infos úteis por proxy" (contas recentes, taxa sucesso/falha) e um painel DENTRO da aba "Comece aqui" ainda NÃO foram feitos — virão na Parte 3 (métricas). Como a criação automática pelo PC está desativada (pivot Android), o indicador só acende quando houver lote rodando no PC.
+
+**PENDENTE — Parte 2 (rastreamento consistente + status do proxy):** garantir `proxy_key` nunca-`None`-quando-há-proxy no ledger; adicionar coluna/estrutura de `status` (`clean`/`in_use`/`warming`/`quarantined`/`dirty`/`banned`) — proposta simples: coluna em `proxy_pool` (ou tabela leve `proxy_status`) atualizada em `assign()`/criação. **Parte 3 (status automático + métricas):** marcar reachability ao falhar a checagem TCP do worker; derivar saúde por outcomes recentes de `proxy_outcomes`/`creation_attempts`; expor infos por proxy no frontend. **Parte 4 (quarentena, baixa):** pausar proxy no `assign()` por janela após N falhas recentes. Decisão firme: **regras + estatística, sem IA.**
