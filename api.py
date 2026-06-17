@@ -1225,7 +1225,7 @@ def _launch_spider_job(*, method, account, profile, label, kind, target, limit, 
                     profile, kind, target, limit,
                     progress=_progress, should_stop=_should_stop, log=_log,
                     start_max_id=start_cursor, seed_rows=seed_rows, delay_ms=delay_ms,
-                    on_total=_on_total)
+                    on_total=_on_total, use_local=use_local)
             if res.get("error"):
                 job["status"] = "error"; job["error"] = res["error"]
                 _log("✖ " + str(res["error"])[:160])

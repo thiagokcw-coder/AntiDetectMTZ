@@ -1089,6 +1089,10 @@
           <label>Perfil (conta que vai raspar)</label>
           <select id="sp-profile"></select>
           <div class="form-hint">Use um perfil com uma conta de scraping <b>descartável</b> já logada no Instagram — não use suas contas boas (raspar queima conta).</div>
+          <label style="display:flex;align-items:flex-start;gap:8px;margin-top:8px;font-weight:400">
+            <input type="checkbox" id="sp-web-local" checked style="margin-top:3px">
+            <span style="font-size:12px;color:var(--muted)">Raspar <b>sem proxy</b> (conexão local / IP limpo) — como o setup que extrai mais. O proxy do perfil é ignorado só na raspagem.</span>
+          </label>
         </div>
         <div class="form-group" id="sp-account-group" style="display:none">
           <label>Conta (com usuário e senha cadastrados)</label>
@@ -1117,14 +1121,15 @@
           </div>
         </div>
         <div class="form-group">
-          <label>Velocidade de extração</label>
+          <label>Velocidade — pela CONFIANÇA da conta que raspa</label>
           <select id="sp-speed">
-            <option value="8000">🛡️ Fantasma — 8s/página (menor risco)</option>
-            <option value="5000">🐢 Seguro — 5s/página</option>
-            <option value="2500" selected>⚖ Balanceado — 2,5s/página</option>
-            <option value="1200">🚀 Turbo — 1,2s/página (maior risco)</option>
+            <option value="120000">🛡️ Ultra seguro — ~30 req/h (conta muito nova/descartável)</option>
+            <option value="45000" selected>🐢 Conta nova — ~80 req/h</option>
+            <option value="14400">⚖ Conta média — ~250 req/h</option>
+            <option value="7200">🔼 Conta boa/aquecida — ~500 req/h</option>
+            <option value="4500">🚀 Conta forte/antiga — ~800 req/h</option>
           </select>
-          <div class="form-hint">Delay entre páginas + jitter ±40% + pausas de proteção (5–20s a cada ~20 páginas). Mais lento = menos chance de bloqueio.</div>
+          <div class="form-hint">Cada requisição = ~50 itens. <b>O limite por hora é o que evita a suspensão</b> — escolha pela confiança da conta: descartável/nova aguenta pouco; conta antiga/aquecida aguenta muito (é o segredo do volume alto numa conta só). Inclui jitter ±40% + pausas de proteção.</div>
         </div>
         <div style="display:flex;gap:8px;align-items:center">
           <button id="sp-start" class="btn btn-primary" onclick="spiderStart()">▶ Iniciar</button>
@@ -3283,6 +3288,7 @@ async function spiderStart() {
     if (!payload.account_id) { toast('Selecione uma conta', 'error'); return; }
   } else {
     payload.profile_id = document.getElementById('sp-profile').value;
+    payload.use_local = document.getElementById('sp-web-local').checked;
     if (!payload.profile_id) { toast('Selecione um perfil', 'error'); return; }
   }
   try {

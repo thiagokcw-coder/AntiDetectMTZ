@@ -331,10 +331,15 @@ def _total_for(info: dict, kind: str):
 
 async def extract(profile: dict, kind: str, target: str, limit: int = 0,
                   progress=None, should_stop=None, log=None,
-                  start_max_id=None, seed_rows=None, delay_ms=2500, on_total=None) -> dict:
+                  start_max_id=None, seed_rows=None, delay_ms=2500, on_total=None,
+                  use_local=False) -> dict:
     """Abre o perfil (logado) e extrai (followers/following/posts).
     Retorna {rows, cursor, total, target, kind, user} ou {error}. start_max_id/seed_rows
-    permitem CONTINUAR de onde parou; delay_ms = velocidade; on_total(t) avisa o total."""
+    permitem CONTINUAR de onde parou; delay_ms = velocidade; on_total(t) avisa o total.
+    use_local=True abre SEM o proxy do perfil (IP local/limpo) — o app só lê dados,
+    não loga (a sessão já está logada via cookies)."""
+    if use_local:
+        profile = {**profile, "proxy": None}
     async def _run(page):
         if log:
             log("abrindo instagram.com no perfil…")
