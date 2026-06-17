@@ -12,8 +12,23 @@ programático é um evento de "novo dispositivo" — use em contas DESCARTÁVEIS
 scraping, com device/IP coerentes e ritmo lento.
 """
 import asyncio
+import random
+import time
 
 from paths import APP_DIR
+
+
+def _page_sleep(delay_ms, page_n, next_pause_ref, log):
+    """Pausa entre páginas (jitter ±40%) + pausa de proteção periódica. Sync.
+    next_pause_ref é uma lista [n] mutável p/ guardar o próximo marco de pausa."""
+    base = max(0.3, (delay_ms or 2500) / 1000.0)
+    time.sleep(round(base * random.uniform(0.6, 1.4), 2))
+    if page_n >= next_pause_ref[0]:
+        pause = round(random.uniform(5, 20), 1)
+        if log:
+            log(f"🛡️ pausa de proteção: {pause}s")
+        time.sleep(pause)
+        next_pause_ref[0] = page_n + random.randint(15, 25)
 
 SESS_DIR = APP_DIR / "ig_sessions"
 
@@ -103,12 +118,14 @@ def _post_row_app(m) -> dict:
     }
 
 
-def _friendship_loop(cl, edge, uid, uname, limit, progress, should_stop, log, start_max_id, seed_rows):
+def _friendship_loop(cl, edge, uid, uname, limit, progress, should_stop, log, start_max_id,
+                     seed_rows, delay_ms=2500):
     rows = list(seed_rows or [])
     seen = {str(r.get("User Id")) for r in rows if r.get("User Id")}
     max_id = start_max_id or ""
     cursor = max_id or None
     page_n = 0
+    next_pause = [random.randint(15, 25)]
     while True:
         if should_stop and should_stop():
             if log:
@@ -141,15 +158,18 @@ def _friendship_loop(cl, edge, uid, uname, limit, progress, should_stop, log, st
                 log(f"✓ fim da lista — total {len(rows)}")
             return rows, None
         cursor = max_id
+        _page_sleep(delay_ms, page_n, next_pause, log)
     return rows, cursor
 
 
-def _posts_loop(cl, uid, uname, limit, progress, should_stop, log, start_max_id, seed_rows):
+def _posts_loop(cl, uid, uname, limit, progress, should_stop, log, start_max_id, seed_rows,
+                delay_ms=2500):
     rows = list(seed_rows or [])
     seen = {str(r.get("Shortcode")) for r in rows if r.get("Shortcode")}
     end_cursor = start_max_id or ""
     cursor = end_cursor or None
     page_n = 0
+    next_pause = [random.randint(15, 25)]
     while True:
         if should_stop and should_stop():
             if log:
@@ -179,11 +199,12 @@ def _posts_loop(cl, uid, uname, limit, progress, should_stop, log, start_max_id,
                 log(f"✓ fim dos posts — total {len(rows)}")
             return rows, None
         cursor = end_cursor
+        _page_sleep(delay_ms, page_n, next_pause, log)
     return rows, cursor
 
 
 def _extract_sync(account, kind, target, limit, progress, should_stop, code_provider, status,
-                  use_local, log, start_max_id, seed_rows):
+                  use_local, log, start_max_id, seed_rows, delay_ms):
     """Loga uma vez e despacha por tipo. Retorna (rows, cursor)."""
     if log:
         log("logando na conta (instagrapi)…")
@@ -198,23 +219,26 @@ def _extract_sync(account, kind, target, limit, progress, should_stop, code_prov
         log((f"retomando: {len(seed_rows or [])} já coletado(s) — " if seed_rows else "")
             + f"alvo @{uname} (id {uid}) — iniciando extração…")
     if kind in ("followers", "following"):
-        return _friendship_loop(cl, kind, uid, uname, limit, progress, should_stop, log, start_max_id, seed_rows)
+        return _friendship_loop(cl, kind, uid, uname, limit, progress, should_stop, log,
+                                start_max_id, seed_rows, delay_ms)
     if kind == "posts":
-        return _posts_loop(cl, uid, uname, limit, progress, should_stop, log, start_max_id, seed_rows)
+        return _posts_loop(cl, uid, uname, limit, progress, should_stop, log, start_max_id,
+                           seed_rows, delay_ms)
     return list(seed_rows or []), None
 
 
 async def extract(account: dict, kind: str, target: str, limit: int = 0,
                   progress=None, should_stop=None, code_provider=None, status=None,
-                  use_local=False, log=None, start_max_id=None, seed_rows=None) -> dict:
-    """Extrai via instagrapi: followers/following/posts. Suporta resume."""
+                  use_local=False, log=None, start_max_id=None, seed_rows=None,
+                  delay_ms=2500) -> dict:
+    """Extrai via instagrapi: followers/following/posts. Suporta resume + velocidade."""
     if kind not in ("followers", "following", "posts"):
         return {"error": f"tipo '{kind}' não suportado no modo app (use followers/following/posts)"}
     loop = asyncio.get_event_loop()
     try:
         rows, cursor = await loop.run_in_executor(
             None, _extract_sync, account, kind, target, limit, progress, should_stop,
-            code_provider, status, use_local, log, start_max_id, seed_rows)
+            code_provider, status, use_local, log, start_max_id, seed_rows, delay_ms)
         return {"rows": rows, "cursor": cursor, "target": (target or "").lstrip("@"), "kind": kind}
     except Exception as e:
         name = type(e).__name__

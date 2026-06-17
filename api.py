@@ -1142,12 +1142,14 @@ class SpiderExtractRequest(BaseModel):
     kind: str = "followers"
     target: str
     limit: int = 0
+    delay_ms: int = 2500              # velocidade: delay base entre páginas (ms)
 
 
 def _launch_spider_job(*, method, account, profile, label, kind, target, limit, use_local,
-                       profile_id=None, account_id=None, seed_rows=None, start_cursor=None):
+                       delay_ms=2500, profile_id=None, account_id=None, seed_rows=None,
+                       start_cursor=None):
     """Cria e dispara um job do Spider (usado por /spider/extract e /spider/resume).
-    seed_rows/start_cursor permitem CONTINUAR de onde parou."""
+    seed_rows/start_cursor permitem CONTINUAR de onde parou; delay_ms = velocidade."""
     job_id = uuid.uuid4().hex[:12]
     started_at = time.strftime("%Y-%m-%d %H:%M:%S")
     seed_rows = seed_rows or []
@@ -1161,7 +1163,8 @@ def _launch_spider_job(*, method, account, profile, label, kind, target, limit, 
         try:
             d = {"id": job_id, "method": method, "profile": label,
                  "profile_id": profile_id, "account_id": account_id, "use_local": use_local,
-                 "limit_n": limit, "cursor": job.get("cursor"), "target": target, "kind": kind,
+                 "limit_n": limit, "delay_ms": delay_ms, "cursor": job.get("cursor"),
+                 "target": target, "kind": kind,
                  "count": job.get("count", 0), "status": job.get("status"),
                  "error": job.get("error"), "rows_json": json.dumps(job.get("rows") or []),
                  "started_at": started_at, "finished_at": job.get("finished_at")}
@@ -1204,12 +1207,12 @@ def _launch_spider_job(*, method, account, profile, label, kind, target, limit, 
                     account, kind, target, limit,
                     progress=_progress, should_stop=_should_stop,
                     code_provider=_code_provider, status=_status, use_local=use_local,
-                    log=_log, start_max_id=start_cursor, seed_rows=seed_rows)
+                    log=_log, start_max_id=start_cursor, seed_rows=seed_rows, delay_ms=delay_ms)
             else:
                 res = await spider.extract(
                     profile, kind, target, limit,
                     progress=_progress, should_stop=_should_stop, log=_log,
-                    start_max_id=start_cursor, seed_rows=seed_rows)
+                    start_max_id=start_cursor, seed_rows=seed_rows, delay_ms=delay_ms)
             if res.get("error"):
                 job["status"] = "error"; job["error"] = res["error"]
                 _log("✖ " + str(res["error"])[:160])
@@ -1253,7 +1256,7 @@ async def spider_extract(body: SpiderExtractRequest):
     job_id = _launch_spider_job(
         method=method, account=a, profile=p, label=label, kind=body.kind,
         target=body.target, limit=body.limit, use_local=body.use_local,
-        profile_id=body.profile_id, account_id=body.account_id)
+        delay_ms=body.delay_ms, profile_id=body.profile_id, account_id=body.account_id)
     return {"job_id": job_id}
 
 
@@ -1284,8 +1287,9 @@ async def spider_resume(run_id: str):
     job_id = _launch_spider_job(
         method=method, account=a, profile=p, label=label, kind=run.get("kind") or "followers",
         target=run.get("target"), limit=int(run.get("limit_n") or 0),
-        use_local=bool(run.get("use_local")), profile_id=run.get("profile_id"),
-        account_id=run.get("account_id"), seed_rows=seed_rows, start_cursor=run.get("cursor"))
+        use_local=bool(run.get("use_local")), delay_ms=int(run.get("delay_ms") or 2500),
+        profile_id=run.get("profile_id"), account_id=run.get("account_id"),
+        seed_rows=seed_rows, start_cursor=run.get("cursor"))
     return {"job_id": job_id}
 
 

@@ -556,7 +556,7 @@
         <div class="ig-panel-head">
           <div>
             <div class="ig-panel-title">Criação automática em lote</div>
-            <div class="ig-panel-subtitle">"Criar contas" gera perfil + e-mail (catch-all) + conta do zero pela quantidade. "Criação em massa segura" usa e-mails livres já gerados na aba Emails. Em ambos os proxies vêm do pool.</div>
+            <div class="ig-panel-subtitle">"Criar contas" gera perfil + e-mail (catch-all) + conta do zero pela quantidade, com proxy do pool. Para o teste no PC, use quantidade baixa e ritmo lento.</div>
           </div>
         </div>
 
@@ -641,7 +641,6 @@
           </div>
         </div>
         <div class="ig-bulk-actions">
-          <button class="btn btn-success" onclick="createMass()">Criação em massa segura</button>
           <button class="btn btn-ghost" onclick="createManual()" title="O app gera os dados e abre a janela; VOCÊ preenche">✍️ Criar conta manual (eu preencho)</button>
           <button class="btn btn-ghost btn-sm" onclick="showPage('emails')">Emails</button>
           <button class="btn btn-ghost btn-sm" onclick="showPage('analytics')">Métricas</button>
@@ -1189,6 +1188,16 @@
             <label>Limite (0 = todos)</label>
             <input id="sp-limit" type="number" min="0" value="0">
           </div>
+        </div>
+        <div class="form-group">
+          <label>Velocidade de extração</label>
+          <select id="sp-speed">
+            <option value="8000">🛡️ Fantasma — 8s/página (menor risco)</option>
+            <option value="5000">🐢 Seguro — 5s/página</option>
+            <option value="2500" selected>⚖ Balanceado — 2,5s/página</option>
+            <option value="1200">🚀 Turbo — 1,2s/página (maior risco)</option>
+          </select>
+          <div class="form-hint">Delay entre páginas + jitter ±40% + pausas de proteção (5–20s a cada ~20 páginas). Mais lento = menos chance de bloqueio.</div>
         </div>
         <div style="display:flex;gap:8px;align-items:center">
           <button id="sp-start" class="btn btn-primary" onclick="spiderStart()">▶ Iniciar</button>
@@ -3217,8 +3226,9 @@ async function spiderStart() {
   const target = document.getElementById('sp-target').value.trim();
   const limit = parseInt(document.getElementById('sp-limit').value, 10) || 0;
   const kind = document.getElementById('sp-kind').value;
+  const delay_ms = parseInt(document.getElementById('sp-speed').value, 10) || 2500;
   if (!target) { toast('Informe o alvo', 'error'); return; }
-  const payload = { method, target, limit, kind };
+  const payload = { method, target, limit, kind, delay_ms };
   if (method === 'app') {
     payload.account_id = document.getElementById('sp-account').value;
     payload.use_local = document.getElementById('sp-local').checked;

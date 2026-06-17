@@ -59,6 +59,12 @@ def headers_for(kind: str) -> list:
     return POSTS_HEADERS if kind == "posts" else FOLLOWERS_HEADERS
 
 
+def _page_delay_s(delay_ms) -> float:
+    """Delay entre páginas a partir da velocidade escolhida, com jitter ±40%."""
+    base = max(0.3, (delay_ms or 2500) / 1000.0)
+    return round(base * random.uniform(0.6, 1.4), 2)
+
+
 def clean_username(raw: str) -> str:
     raw = (raw or "").strip()
     m = re.search(r"instagram\.com/([^/?#]+)", raw)
@@ -84,7 +90,7 @@ async def _resolve_user(page, username: str):
 
 
 async def _friendship_list(page, user_id, username, edge, limit, progress, should_stop,
-                           log=None, start_max_id=None, seed_rows=None):
+                           log=None, start_max_id=None, seed_rows=None, delay_ms=2500):
     """Lista de relacionamento (edge='followers' ou 'following'). Mesma resposta
     (`users[]`+`next_max_id`). Retorna (rows, cursor); cursor=None => completo."""
     rows = list(seed_rows or [])
@@ -93,6 +99,7 @@ async def _friendship_list(page, user_id, username, edge, limit, progress, shoul
     cursor = max_id
     rate_hits = 0
     page_n = 0
+    next_pause = random.randint(15, 25)   # pausa de proteção a cada ~15-25 páginas
     if seed_rows and log:
         log(f"retomando: {len(rows)} já coletado(s), seguindo do cursor salvo…")
     while True:
@@ -158,7 +165,13 @@ async def _friendship_list(page, user_id, username, edge, limit, progress, shoul
             cursor = None
             break
         cursor = max_id
-        await asyncio.sleep(round(random.uniform(0.8, 1.7), 2))   # jitter humano
+        await asyncio.sleep(_page_delay_s(delay_ms))
+        if page_n >= next_pause:                       # pausa de proteção
+            pause = round(random.uniform(5, 20), 1)
+            if log:
+                log(f"🛡️ pausa de proteção: {pause}s")
+            await asyncio.sleep(pause)
+            next_pause = page_n + random.randint(15, 25)
     return rows, cursor
 
 
@@ -187,7 +200,7 @@ def _post_row(it) -> dict:
 
 
 async def _posts(page, user_id, username, limit, progress, should_stop, log=None,
-                 start_max_id=None, seed_rows=None):
+                 start_max_id=None, seed_rows=None, delay_ms=2500):
     """Posts do perfil (`/api/v1/feed/user/{id}/`). Retorna (rows, cursor)."""
     rows = list(seed_rows or [])
     seen = {str(r.get("Shortcode")) for r in rows if r.get("Shortcode")}
@@ -195,6 +208,7 @@ async def _posts(page, user_id, username, limit, progress, should_stop, log=None
     cursor = max_id
     rate_hits = 0
     page_n = 0
+    next_pause = random.randint(15, 25)
     if seed_rows and log:
         log(f"retomando: {len(rows)} post(s) já coletado(s)…")
     while True:
@@ -251,16 +265,22 @@ async def _posts(page, user_id, username, limit, progress, should_stop, log=None
             cursor = None
             break
         cursor = max_id
-        await asyncio.sleep(round(random.uniform(0.8, 1.7), 2))
+        await asyncio.sleep(_page_delay_s(delay_ms))
+        if page_n >= next_pause:
+            pause = round(random.uniform(5, 20), 1)
+            if log:
+                log(f"🛡️ pausa de proteção: {pause}s")
+            await asyncio.sleep(pause)
+            next_pause = page_n + random.randint(15, 25)
     return rows, cursor
 
 
 async def extract(profile: dict, kind: str, target: str, limit: int = 0,
                   progress=None, should_stop=None, log=None,
-                  start_max_id=None, seed_rows=None) -> dict:
-    """Abre o perfil (logado) e extrai. Fase 1: kind='followers'.
+                  start_max_id=None, seed_rows=None, delay_ms=2500) -> dict:
+    """Abre o perfil (logado) e extrai (followers/following/posts).
     Retorna {rows, cursor, target, kind, user} ou {error}. start_max_id/seed_rows
-    permitem CONTINUAR de onde parou (cursor salvo + linhas já coletadas)."""
+    permitem CONTINUAR de onde parou; delay_ms = velocidade (delay entre páginas)."""
     async def _run(page):
         if log:
             log("abrindo instagram.com no perfil…")
@@ -285,12 +305,13 @@ async def extract(profile: dict, kind: str, target: str, limit: int = 0,
                 log(f"iniciando extração de {'seguindo' if kind == 'following' else 'seguidores'}…")
             rows, cursor = await _friendship_list(page, uid, uname, kind, limit, progress,
                                                   should_stop, log, start_max_id=start_max_id,
-                                                  seed_rows=seed_rows)
+                                                  seed_rows=seed_rows, delay_ms=delay_ms)
         elif kind == "posts":
             if log:
                 log("iniciando extração de posts…")
             rows, cursor = await _posts(page, uid, uname, limit, progress, should_stop, log,
-                                        start_max_id=start_max_id, seed_rows=seed_rows)
+                                        start_max_id=start_max_id, seed_rows=seed_rows,
+                                        delay_ms=delay_ms)
         else:
             return {"error": f"tipo '{kind}' não suportado (use followers/following/posts)"}
         return {"rows": rows, "cursor": cursor, "target": uname, "kind": kind, "user": info}
