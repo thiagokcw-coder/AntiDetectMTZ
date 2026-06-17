@@ -194,6 +194,17 @@ def init_db():
                 heartbeat_at TEXT
             )
         """)
+        # Marcação MANUAL de proxy/IP (ex.: "queimado" pelo usuário). 'key' = host:porta
+        # de um proxy do pool OU um IP cru (ex.: o IP real da conexão). status='banned'
+        # faz o assign() parar de usar e a UI mostrar como queimado.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS proxy_flags (
+                key       TEXT PRIMARY KEY,
+                status    TEXT NOT NULL,
+                reason    TEXT,
+                marked_at TEXT
+            )
+        """)
         # Defaults de limite (não sobrescreve se já existir)
         _ex(conn, "INSERT INTO settings (key, value) VALUES ('proxy_limit', '3') "
                   "ON CONFLICT (key) DO NOTHING")
@@ -576,6 +587,36 @@ def count_pool() -> int:
     with get_conn() as conn:
         row = _ex(conn, "SELECT COUNT(*) AS n FROM proxy_pool").fetchone()
     return (row["n"] if row else 0) or 0
+
+
+# ── Marcação manual de proxy/IP (queimado etc.) ────────────────────────────────
+
+def set_proxy_flag(key: str, status: str, reason: str = ""):
+    """Marca um proxy (host:porta) ou IP como, ex.: 'banned' (queimado). Upsert."""
+    if not key:
+        return
+    with get_conn() as conn:
+        _ex(conn,
+            "INSERT INTO proxy_flags (key, status, reason, marked_at) VALUES (?, ?, ?, ?) "
+            "ON CONFLICT (key) DO UPDATE SET status=excluded.status, "
+            "reason=excluded.reason, marked_at=excluded.marked_at",
+            (key, status, reason or "", _now_str()))
+
+
+def delete_proxy_flag(key: str):
+    """Remove a marcação manual (libera o proxy/IP de volta)."""
+    if not key:
+        return
+    with get_conn() as conn:
+        _ex(conn, "DELETE FROM proxy_flags WHERE key = ?", (key,))
+
+
+def list_proxy_flags() -> dict:
+    """{key: {status, reason, marked_at}} — marcações manuais ativas."""
+    with get_conn() as conn:
+        rows = _ex(conn, "SELECT * FROM proxy_flags").fetchall()
+    return {r["key"]: {"status": r["status"], "reason": r["reason"],
+                       "marked_at": r["marked_at"]} for r in rows}
 
 
 # ── Lock de perfil em uso (compartilhado) ──────────────────────────────────────

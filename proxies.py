@@ -210,6 +210,18 @@ def assign(n: int, limit: int) -> list:
     if not pool:
         return [None] * n
 
+    # Marcação MANUAL: remove proxies marcados como 'banned' (queimado pelo usuário) —
+    # não cria mais contas neles. Se isso esvaziar o pool, mantém o original (não trava
+    # a criação; o usuário decide se libera a marcação).
+    try:
+        banned = {k for k, v in db.list_proxy_flags().items() if v.get("status") == "banned"}
+        if banned:
+            kept = [p for p in pool if proxy_key(p) not in banned]
+            if kept:
+                pool = kept
+    except Exception:
+        pass
+
     # Coerência geográfica (estratégia país-alvo): se houver target_country, usa só
     # proxies desse país — a persona BR casa com o IP. Se NENHUM proxy do pool for
     # do país-alvo, faz fallback ao pool inteiro com aviso (não trava a criação;

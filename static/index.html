@@ -1627,6 +1627,20 @@ function _closeProxyPanelOnce(e) {
   }
 }
 
+// Marca/libera um proxy (host:porta) ou IP como queimado e atualiza as telas.
+async function markProxy(key, burn) {
+  if (!key) return;
+  if (burn && !confirm('Marcar ' + key + ' como QUEIMADO?\nO app para de criar contas nele.')) return;
+  try {
+    await api('POST', '/proxies/mark', { key: key, status: burn ? 'banned' : 'clean' });
+    toast(burn ? '🔥 Marcado como queimado: ' + key : '♻ Marcação removida: ' + key);
+    loadActiveProxy();
+    loadStartProxyHealth();
+    const pp = document.getElementById('page-proxies');
+    if (pp && pp.classList.contains('active')) loadProxiesPage();
+  } catch (e) { toast(e.message || 'Erro ao marcar', 'error'); }
+}
+
 function renderProxyPanel(s) {
   const panel = document.getElementById('proxy-panel');
   if (!panel) return;
@@ -1664,14 +1678,29 @@ function renderProxyPanel(s) {
       : `<div style="color:var(--yellow);margin-top:6px">⚠ Proxy (${escapeHtml(pc)}) ≠ sua conexão (${escapeHtml(mc)}) — normal, o proxy é que vale para a conta.</div>`;
   }
 
+  // Botão: marcar/liberar MEU IP real como queimado (ex.: criação via conexão local)
+  let ipBtn = '';
+  if (s.my_ip) {
+    ipBtn = s.my_ip_flagged
+      ? `<div style="margin-top:6px"><span style="color:var(--red)">🔥 marcado como queimado por você</span> <button class="btn btn-ghost btn-sm" onclick="markProxy('${s.my_ip}', false)">♻ liberar</button></div>`
+      : `<div style="margin-top:6px"><button class="btn btn-ghost btn-sm" onclick="markProxy('${s.my_ip}', true)">🔥 Marcar meu IP como queimado</button></div>`;
+  }
+  // Botão: marcar/liberar o proxy ATUAL (quando há um único proxy em foco)
+  let proxyBtn = '';
+  if (s.proxy_key && !s.local && s.mode !== 'pool_many') {
+    proxyBtn = s.manual
+      ? `<div style="margin-top:6px"><span style="color:var(--red)">🔥 marcado por você</span> <button class="btn btn-ghost btn-sm" onclick="markProxy('${s.proxy_key}', false)">♻ liberar</button></div>`
+      : `<div style="margin-top:6px"><button class="btn btn-ghost btn-sm" onclick="markProxy('${s.proxy_key}', true)">🔥 Marcar este proxy como queimado</button></div>`;
+  }
+
   const p = s.pool || {};
   const poolLine = p.total
     ? `${p.total} no total · <span style="color:var(--green)">${p.clean||0} limpo(s)</span> · <span style="color:var(--yellow)">${p.dirty||0} sujo(s)</span> · <span style="color:var(--red)">${p.banned||0} queimado(s)</span> · ${p.unknown||0} sem dados`
     : '—';
 
   panel.innerHTML =
-    `<h4>Meu IP (real, sem proxy)</h4>${row('IP', myip)}`
-    + `<div class="pp-sep"></div><h4>Proxy</h4>${proxyBlock}${cmp}`
+    `<h4>Meu IP (real, sem proxy)</h4>${row('IP', myip)}${ipBtn}`
+    + `<div class="pp-sep"></div><h4>Proxy</h4>${proxyBlock}${cmp}${proxyBtn}`
     + `<div class="pp-sep"></div><h4>Pool</h4><div style="font-size:12px">${poolLine}</div>`
     + `<div style="margin-top:10px"><button class="btn btn-ghost btn-sm" onclick="showPage('proxies')">Ver todos os proxies →</button></div>`;
 }
@@ -2818,12 +2847,17 @@ async function loadProxiesPage() {
       }
 
       // Saúde (do /proxies/health): rótulo derivado + tooltip com desfechos reais
-      const health = renderProxyHealth(healthMap[p.key]);
+      const hItem = healthMap[p.key];
+      const health = renderProxyHealth(hItem);
+      // Botão marcar/liberar queimado (manual)
+      const mark = (hItem && hItem.manual)
+        ? `<button class="btn btn-ghost btn-sm" style="padding:0 6px;font-size:11px" onclick="markProxy('${p.key}', false)" title="Liberar (remover marca de queimado)">♻</button>`
+        : `<button class="btn btn-ghost btn-sm" style="padding:0 6px;font-size:11px" onclick="markProxy('${p.key}', true)" title="Marcar como queimado (parar de usar)">🔥</button>`;
 
       return `
         <tr>
           <td><code>${key}</code></td>
-          <td>${health}</td>
+          <td>${health} ${mark}</td>
           <td>${conn}</td>
           <td>${proto.toUpperCase()}</td>
           <td>${auth}</td>

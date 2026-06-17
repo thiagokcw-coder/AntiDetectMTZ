@@ -1466,12 +1466,12 @@ async def proxies_test(force: bool = False):
     }
 
 
-def _proxy_status_block(pk: str, host: str, summary_items=None, outcomes=None) -> dict:
-    """Monta {level, health, country, status} de um proxy a partir de pool.summary()
-    + desfechos reais (proxy_outcomes) + reachability (cache, só leitura) + país.
-    `health`: limpo/sujo/queimado/sem-dados (mesma regra de /proxies/health) — é o
-    LEMBRETE de proxy sujo. `summary_items`/`outcomes` podem ser pré-computados para
-    evitar re-scan quando avaliando vários proxies."""
+def _proxy_status_block(pk: str, host: str, summary_items=None, outcomes=None, flags=None) -> dict:
+    """Monta {level, health, manual, country, status} de um proxy a partir de
+    pool.summary() + desfechos reais (proxy_outcomes) + reachability (cache) + país +
+    MARCAÇÃO MANUAL (proxy_flags). `health`: limpo/sujo/queimado/sem-dados. Se você
+    marcou como queimado, `manual=True` e `health='banned'` (vence a regra automática).
+    `summary_items`/`outcomes`/`flags` podem ser pré-computados p/ evitar re-scan."""
     if summary_items is None:
         try:
             summary_items = pool.summary().get("items", [])
@@ -1483,6 +1483,11 @@ def _proxy_status_block(pk: str, host: str, summary_items=None, outcomes=None) -
             outcomes = acc.proxy_outcomes()
         except Exception:
             outcomes = {}
+    if flags is None:
+        try:
+            flags = db.list_proxy_flags()
+        except Exception:
+            flags = {}
     out_d = outcomes.get(pk, {}) or {}
     reach = (_proxy_test_cache.get("results") or {}).get(pk)
     reachable = reach.get("ok") if reach else None
@@ -1492,14 +1497,18 @@ def _proxy_status_block(pk: str, host: str, summary_items=None, outcomes=None) -
         country = ""
     ban = st.get("ban_rate_pct")
     blocked = bool(st.get("blocked"))
-    health = _derive_proxy_health(out_d, 0, reachable)
-    # Vermelho (atenção) se: proxy não responde, no limite, ban alto, ou sujo/queimado.
-    warn = (blocked or (reachable is False)
+    fl = flags.get(pk) or {}
+    manual = fl.get("status") == "banned"
+    health = "banned" if manual else _derive_proxy_health(out_d, 0, reachable)
+    # Vermelho (atenção) se: marcado, não responde, no limite, ban alto, ou sujo/queimado.
+    warn = (manual or blocked or (reachable is False)
             or (isinstance(ban, (int, float)) and ban >= 20)
             or health in ("dirty", "banned"))
     return {
         "level": "warn" if warn else "ok",
         "health": health,
+        "manual": manual,
+        "manual_reason": fl.get("reason") if manual else None,
         "country": country or None,
         "status": {
             "used": st.get("used"),
@@ -1618,19 +1627,24 @@ def _my_public_ip() -> dict:
 
 
 def _pool_health_counts() -> dict:
-    """Resumo de saúde do pool (total/limpos/sujos/queimados/sem-dados) p/ a caixa."""
+    """Resumo de saúde do pool (total/limpos/sujos/queimados/sem-dados) p/ a caixa.
+    Respeita a marcação manual (queimado pelo usuário vence a regra automática)."""
     out = {"total": 0, "clean": 0, "dirty": 0, "banned": 0, "unknown": 0}
     try:
         items = pool.summary().get("items", [])
         outcomes = acc.proxy_outcomes()
+        flags = db.list_proxy_flags()
     except Exception:
         return out
     out["total"] = len(items)
     for it in items:
         k = it.get("key")
-        out_d = outcomes.get(k, {}) or {}
-        reach = (_proxy_test_cache.get("results") or {}).get(k)
-        h = _derive_proxy_health(out_d, 0, reach.get("ok") if reach else None)
+        if (flags.get(k) or {}).get("status") == "banned":
+            h = "banned"
+        else:
+            out_d = outcomes.get(k, {}) or {}
+            reach = (_proxy_test_cache.get("results") or {}).get(k)
+            h = _derive_proxy_health(out_d, 0, reach.get("ok") if reach else None)
         out[h] = out.get(h, 0) + 1
     return out
 
@@ -1645,7 +1659,33 @@ def proxies_active():
     core["my_ip"] = mip.get("ip")
     core["my_ip_country"] = mip.get("country")
     core["pool"] = _pool_health_counts()
+    # Meu IP real marcado manualmente como queimado? (ex.: criação via conexão local)
+    try:
+        core["my_ip_flagged"] = bool(core.get("my_ip")
+                                     and (db.list_proxy_flags().get(core["my_ip"]) or {}).get("status") == "banned")
+    except Exception:
+        core["my_ip_flagged"] = False
     return core
+
+
+class ProxyMarkRequest(BaseModel):
+    key: str                     # host:porta de um proxy OU um IP cru (ex.: meu IP real)
+    status: str = "banned"       # 'banned' (queimado) | 'clean' (libera/remove a marca)
+    reason: Optional[str] = None
+
+
+@app.post("/proxies/mark")
+def proxies_mark(body: ProxyMarkRequest):
+    """Marca/libera MANUALMENTE um proxy (host:porta) ou IP. 'banned' = queimado
+    (assign() para de usar e a UI mostra queimado); 'clean' remove a marcação."""
+    key = (body.key or "").strip()
+    if not key:
+        raise HTTPException(400, "Informe o proxy (host:porta) ou IP a marcar")
+    if body.status == "banned":
+        db.set_proxy_flag(key, "banned", body.reason or "marcado pelo usuário")
+        return {"key": key, "status": "banned"}
+    db.delete_proxy_flag(key)
+    return {"key": key, "status": "clean"}
 
 
 def _derive_proxy_health(accounts_d: dict, attempts_total: int, reachable) -> str:
@@ -1680,6 +1720,10 @@ def proxies_health():
     summ = pool.summary()
     by_outcome = acc.proxy_outcomes()              # {key: {total,banned,suspended,checkpoint,discarded,bad,bad_rate}}
     reach = _proxy_test_cache.get("results") or {}
+    try:
+        flags = db.list_proxy_flags()              # marcação manual (queimado etc.)
+    except Exception:
+        flags = {}
 
     # Funil de criacao por proxy (gates: success/phone/captcha/email_pending/...).
     funnel: dict = {}
@@ -1717,9 +1761,10 @@ def proxies_health():
         except Exception:
             country = ""
 
-        health = _derive_proxy_health(out_d, fn.get("total", 0), reachable)
+        manual = (flags.get(k) or {}).get("status") == "banned"
+        health = "banned" if manual else _derive_proxy_health(out_d, fn.get("total", 0), reachable)
         ban_rate = pit.get("ban_rate_pct")
-        warn = (health in ("dirty", "banned") or reachable is False or bool(pit.get("blocked"))
+        warn = (manual or health in ("dirty", "banned") or reachable is False or bool(pit.get("blocked"))
                 or (isinstance(ban_rate, (int, float)) and ban_rate >= 20))
 
         items.append({
@@ -1729,6 +1774,7 @@ def proxies_health():
             "in_pool": k in pool_keys,
             "reachable": reachable,
             "health": health,
+            "manual": manual,
             "level": "warn" if warn else "ok",
             "used": pit.get("used", 0),
             "ban_rate_pct": ban_rate,
