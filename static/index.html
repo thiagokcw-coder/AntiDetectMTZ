@@ -699,21 +699,6 @@
               <div class="ig-empty-status">Nenhum fluxo em andamento</div>
             </div>
           </section>
-
-          <section class="ig-panel">
-            <div class="ig-card-title">Aquecer conta no Instagram</div>
-            <div class="ig-warmup-row">
-              <div class="form-group" style="margin:0">
-                <label>Perfil</label>
-                <select id="ig-warmup-profile"></select>
-              </div>
-              <div class="form-group" style="margin:0">
-                <label>Minutos</label>
-                <input id="ig-warmup-min" type="number" value="8" min="3" max="60">
-              </div>
-            </div>
-            <button class="btn btn-ghost" style="width:100%; justify-content:center" onclick="igWarmup()">Iniciar aquecimento</button>
-          </section>
         </aside>
       </div>
 
@@ -1282,7 +1267,6 @@
       <button class="btn btn-danger btn-sm" id="ma-delete">Excluir</button>
       <button class="btn btn-ghost btn-sm" id="ma-edit">Editar</button>
       <button class="btn btn-primary btn-sm" id="ma-open" style="display:none">Abrir no navegador</button>
-      <button class="btn btn-ghost btn-sm" id="ma-warm" style="display:none">🔥 Aquecer conta</button>
       <button class="btn btn-success btn-sm" id="ma-check">Verificar status</button>
       <button class="btn btn-ghost btn-sm" onclick="closeModal('modal-account')">Fechar</button>
     </div>
@@ -2673,10 +2657,6 @@ function igRenderStatus(s) {
       ? `<div style="padding:12px 16px;background:#1a1d27;border-top:1px solid var(--border);font-size:12px;color:var(--yellow)">
            ⚠️ O Instagram está pedindo verificação. Verifique o browser aberto e insira o código recebido no WhatsApp.
          </div>` : ''}
-    ${s.status === 'created' || s.status === 'ready'
-      ? `<div style="padding:12px 16px;border-top:1px solid var(--border)">
-           <button class="btn btn-success btn-sm" onclick="igWarmupActive()">🔥 Aquecer conta agora</button>
-         </div>` : ''}
   `;
 }
 
@@ -3044,16 +3024,10 @@ function renderAccounts(list) {
     const checked = a.last_checked_at
       ? escapeHtml(a.last_checked_at.replace('T', ' '))
       : '<span style="color:var(--muted)">nunca</span>';
-    // Aquecimento do NAVEGADOR (perfil) e da CONTA (atividade IG) — distintos
+    // Aquecimento do NAVEGADOR (perfil). O aquecimento da CONTA é feito no celular.
     const profWarm = a.profile_warmed
       ? `<span class="badge badge-active" style="font-size:9px">🌐 navegador ✓${a.profile_warmup_count > 1 ? ' ×' + a.profile_warmup_count : ''}</span>`
       : `<span class="badge badge-creating" style="font-size:9px">🌐 navegador frio</span>`;
-    const warming = a.warming && a.warming.active;
-    const acctWarm = warming
-      ? `<span class="badge badge-checkpoint" style="font-size:9px">🔥 aquecendo ${fmtCountdown(a.warming.remaining_seconds)}</span>`
-      : (a.account_warmed
-          ? `<span class="badge badge-active" style="font-size:9px">📷 conta ✓${a.account_warmup_count > 1 ? ' ×' + a.account_warmup_count : ''}</span>`
-          : `<span class="badge badge-creating" style="font-size:9px">📷 conta fria</span>`);
     const prof = a.profile_exists
       ? `<div>${escapeHtml(a.profile_name || '—')}</div>
          <div style="font-size:11px;color:var(--muted)">${escapeHtml(a.profile_device || '')}</div>
@@ -3066,7 +3040,6 @@ function renderAccounts(list) {
       <td>
         <div style="font-weight:600">${escapeHtml(a.username || '(sem username)')}</div>
         <div style="font-size:11px;color:var(--muted)">${escapeHtml(a.email || '')}</div>
-        <div style="margin-top:3px">${acctWarm}</div>
       </td>
       <td>${prof}</td>
       <td>${statusBadge(a.status)}</td>
@@ -3077,7 +3050,6 @@ function renderAccounts(list) {
       <td style="white-space:nowrap">
         ${a.profile_exists
           ? `<button class="btn btn-primary btn-sm" onclick="openAccountProfile('${a.profile_id}', this)">Abrir</button>
-             <button class="btn btn-ghost btn-sm" onclick="warmAccount('${a.id}', this)" ${warming ? 'disabled' : ''}>${warming ? '🔥 …' : '🔥 Aquecer'}</button>
              <button class="btn btn-success btn-sm" onclick="checkAccount('${a.id}', this)">Verificar</button>`
           : ''}
         <button class="btn btn-ghost btn-sm" onclick="accountDetail('${a.id}')">Detalhes</button>
@@ -3129,27 +3101,17 @@ async function accountDetail(id) {
           ? `Sim (${a.profile_warmup_count}×` + (a.profile_last_warmup ? `, último ${a.profile_last_warmup.replace('T',' ')}` : '') + ')'
           : 'Não — aqueça o perfil antes de usar')
       : '—') +
-    detailRow('Conta aquecida (IG)', a.account_warmed
-      ? `Sim (${a.account_warmup_count}×` + (a.last_warmup_at ? `, último ${a.last_warmup_at.replace('T',' ')}` : '') + ')'
-      : 'Não — rode o aquecimento de conta') +
     detailRow('ID do perfil', a.profile_id, true);
 
   document.getElementById('ma-check').onclick = () => checkAccount(id);
   document.getElementById('ma-delete').onclick = () => deleteAccount(id);
   document.getElementById('ma-edit').onclick = () => editAccount(id);
   const openBtn = document.getElementById('ma-open');
-  const warmBtn = document.getElementById('ma-warm');
   if (a.profile_exists) {
     openBtn.style.display = '';
     openBtn.onclick = () => openAccountProfile(a.profile_id);
-    warmBtn.style.display = '';
-    const warming = a.warming && a.warming.active;
-    warmBtn.disabled = !!warming;
-    warmBtn.textContent = warming ? `🔥 aquecendo ${fmtCountdown(a.warming.remaining_seconds)}` : '🔥 Aquecer conta';
-    warmBtn.onclick = () => warmAccount(a.id);
   } else {
     openBtn.style.display = 'none';
-    warmBtn.style.display = 'none';
   }
   document.getElementById('modal-account').classList.add('open');
 }
