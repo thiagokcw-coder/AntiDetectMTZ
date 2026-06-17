@@ -101,9 +101,49 @@ def headers_for(kind: str) -> list:
 
 
 def _page_delay_s(delay_ms) -> float:
-    """Delay entre páginas a partir da velocidade escolhida, com jitter ±40%."""
+    """Delay entre páginas com variância HUMANA trimodal (mais difícil de detectar
+    que jitter uniforme): scan 55% (0,55–1,15×), leitura 32% (1–2×), distraído 13%
+    (2–6×). Mesma distribuição do reference SPIDER NEW."""
     base = max(0.3, (delay_ms or 2500) / 1000.0)
-    return round(base * random.uniform(0.6, 1.4), 2)
+    r = random.random()
+    if r < 0.55:
+        f = 0.55 + random.random() * 0.60
+    elif r < 0.87:
+        f = 1.00 + random.random() * 1.00
+    else:
+        f = 2.00 + random.random() * 4.00
+    return round(base * f, 2)
+
+
+def _max_pages_for(delay_ms) -> int:
+    """Páginas (~50 itens cada) por sessão antes de um COOLDOWN longo — por tier de
+    confiança (espelha o maxPerSession do reference). Sessões menores = menos risco."""
+    d = delay_ms or 2500
+    if d >= 100000:
+        return 8        # ultra (~400 itens)
+    if d >= 30000:
+        return 20       # conta nova (~1000)
+    if d >= 10000:
+        return 100      # média (~5000)
+    if d >= 6000:
+        return 400      # boa (~20000)
+    return 1600         # forte (~80000)
+
+
+async def _session_cooldown(should_stop, log):
+    """Pausa longa (10–25 min) entre sessões — interrompível. Deixa a conta 'descansar'
+    para não estourar o limite e ser suspensa."""
+    secs = random.randint(600, 1500)
+    if log:
+        log(f"🧊 cooldown de sessão: ~{secs // 60} min (deixa a conta descansar)…")
+    waited = 0
+    while waited < secs:
+        if should_stop and should_stop():
+            return
+        await asyncio.sleep(min(20, secs - waited))
+        waited += 20
+    if log:
+        log("▶ retomando após o cooldown")
 
 
 def clean_username(raw: str) -> str:
@@ -145,6 +185,8 @@ async def _friendship_list(page, user_id, username, edge, limit, progress, shoul
     rate_hits = 0
     page_n = 0
     next_pause = random.randint(15, 25)   # pausa de proteção a cada ~15-25 páginas
+    max_pages = _max_pages_for(delay_ms)  # páginas por sessão antes do cooldown longo
+    session_pages = 0
     if seed_rows and log:
         log(f"retomando: {len(rows)} já coletado(s), seguindo do cursor salvo…")
     while True:
@@ -209,12 +251,16 @@ async def _friendship_list(page, user_id, username, edge, limit, progress, shoul
                 log(f"✓ fim da lista — {_tot(len(rows))}")
             break
         await asyncio.sleep(_page_delay_s(delay_ms))
-        if page_n >= next_pause:                       # pausa de proteção
+        if page_n >= next_pause:                       # pausa de proteção curta
             pause = round(random.uniform(5, 20), 1)
             if log:
                 log(f"🛡️ pausa de proteção: {pause}s")
             await asyncio.sleep(pause)
             next_pause = page_n + random.randint(15, 25)
+        session_pages += 1
+        if session_pages >= max_pages:                 # cooldown longo de sessão
+            await _session_cooldown(should_stop, log)
+            session_pages = 0
     return rows, cursor
 
 
@@ -252,6 +298,8 @@ async def _posts(page, user_id, username, limit, progress, should_stop, log=None
     rate_hits = 0
     page_n = 0
     next_pause = random.randint(15, 25)
+    max_pages = _max_pages_for(delay_ms)
+    session_pages = 0
     _tot = (lambda n: f"{n}/{total}" if total else str(n))
     if seed_rows and log:
         log(f"retomando: {len(rows)} post(s) já coletado(s)…")
@@ -316,6 +364,10 @@ async def _posts(page, user_id, username, limit, progress, should_stop, log=None
                 log(f"🛡️ pausa de proteção: {pause}s")
             await asyncio.sleep(pause)
             next_pause = page_n + random.randint(15, 25)
+        session_pages += 1
+        if session_pages >= max_pages:
+            await _session_cooldown(should_stop, log)
+            session_pages = 0
     return rows, cursor
 
 

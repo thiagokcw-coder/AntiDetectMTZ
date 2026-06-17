@@ -18,17 +18,61 @@ import time
 from paths import APP_DIR
 
 
-def _page_sleep(delay_ms, page_n, next_pause_ref, log):
-    """Pausa entre páginas (jitter ±40%) + pausa de proteção periódica. Sync.
-    next_pause_ref é uma lista [n] mutável p/ guardar o próximo marco de pausa."""
+def _human_delay_s(delay_ms) -> float:
+    """Variância humana trimodal (scan/leitura/distraído) — igual ao reference."""
     base = max(0.3, (delay_ms or 2500) / 1000.0)
-    time.sleep(round(base * random.uniform(0.6, 1.4), 2))
+    r = random.random()
+    if r < 0.55:
+        f = 0.55 + random.random() * 0.60
+    elif r < 0.87:
+        f = 1.00 + random.random() * 1.00
+    else:
+        f = 2.00 + random.random() * 4.00
+    return round(base * f, 2)
+
+
+def _max_pages_for(delay_ms) -> int:
+    d = delay_ms or 2500
+    if d >= 100000:
+        return 8
+    if d >= 30000:
+        return 20
+    if d >= 10000:
+        return 100
+    if d >= 6000:
+        return 400
+    return 1600
+
+
+def _page_sleep(delay_ms, page_n, next_pause_ref, log):
+    """Pausa entre páginas (variância humana) + pausa de proteção periódica. Sync."""
+    time.sleep(_human_delay_s(delay_ms))
     if page_n >= next_pause_ref[0]:
         pause = round(random.uniform(5, 20), 1)
         if log:
             log(f"🛡️ pausa de proteção: {pause}s")
         time.sleep(pause)
         next_pause_ref[0] = page_n + random.randint(15, 25)
+
+
+def _session_cooldown(session_ref, max_pages, should_stop, log):
+    """Cooldown longo (10–25 min) a cada max_pages páginas. Sync, interrompível."""
+    session_ref[0] += 1
+    if session_ref[0] < max_pages:
+        return
+    session_ref[0] = 0
+    secs = random.randint(600, 1500)
+    if log:
+        log(f"🧊 cooldown de sessão: ~{secs // 60} min (deixa a conta descansar)…")
+    waited = 0
+    while waited < secs:
+        if should_stop and should_stop():
+            return
+        time.sleep(min(20, secs - waited))
+        waited += 20
+    if log:
+        log("▶ retomando após o cooldown")
+
 
 SESS_DIR = APP_DIR / "ig_sessions"
 
@@ -126,6 +170,8 @@ def _friendship_loop(cl, edge, uid, uname, limit, progress, should_stop, log, st
     cursor = max_id or None
     page_n = 0
     next_pause = [random.randint(15, 25)]
+    max_pages = _max_pages_for(delay_ms)
+    session_ref = [0]
     _tot = (lambda n: f"{n}/{total}" if total else str(n))
     while True:
         if should_stop and should_stop():
@@ -160,6 +206,7 @@ def _friendship_loop(cl, edge, uid, uname, limit, progress, should_stop, log, st
             return rows, None
         cursor = max_id
         _page_sleep(delay_ms, page_n, next_pause, log)
+        _session_cooldown(session_ref, max_pages, should_stop, log)
     return rows, cursor
 
 
@@ -171,6 +218,8 @@ def _posts_loop(cl, uid, uname, limit, progress, should_stop, log, start_max_id,
     cursor = end_cursor or None
     page_n = 0
     next_pause = [random.randint(15, 25)]
+    max_pages = _max_pages_for(delay_ms)
+    session_ref = [0]
     _tot = (lambda n: f"{n}/{total}" if total else str(n))
     while True:
         if should_stop and should_stop():
@@ -202,6 +251,7 @@ def _posts_loop(cl, uid, uname, limit, progress, should_stop, log, start_max_id,
             return rows, None
         cursor = end_cursor
         _page_sleep(delay_ms, page_n, next_pause, log)
+        _session_cooldown(session_ref, max_pages, should_stop, log)
     return rows, cursor
 
 
