@@ -1499,14 +1499,17 @@ def _proxy_status_block(pk: str, host: str) -> dict:
 
 @app.get("/proxies/active")
 def proxies_active():
-    """Proxy do topo: em CRIAÇÃO mostra o proxy em uso agora; OCIOSO mostra o
-    PRÓXIMO proxy que assign() escolheria (preview), para o IP ficar sempre visível.
+    """Proxy ATUAL para o indicador do topo, em ordem de prioridade:
+      1) criação em andamento  -> proxy da conta sendo criada agora (mode=creating);
+      2) sessão aberta no PC    -> proxy do perfil aberto agora (mode=in_use);
+      3) último proxy usado     -> do ledger de criação (mode=last);
+      4) nada                   -> mode=idle.
+    NUNCA mostra "próximo" calculado por assign() — sempre o proxy REAL em uso/usado.
 
-    Reaproveita: jobs de criação (_ig_batch_jobs) + pool.assign()/summary()
-    (uso/ban) + cache de reachability (só LEITURA) + proxy_country (offline).
-    Verde = livre pra ir; vermelho = atenção.
+    Reaproveita: _ig_batch_jobs + sm.list_active() + creation_attempts +
+    pool.summary()/proxy_country() + cache de reachability (só LEITURA).
     """
-    # Acha o item sendo criado AGORA no job em execução mais recente.
+    # 1) Criação em andamento — item sendo criado no job em execução mais recente.
     cur = None
     for j in sorted(_ig_batch_jobs.values(), key=lambda x: x.get("started_at", 0), reverse=True):
         if j.get("status") != "running":
@@ -1517,40 +1520,46 @@ def proxies_active():
                 break
         if cur:
             break
-
     if cur:
         pk = cur.get("proxy_key")
         host = cur.get("proxy_host")
-        # Conexão local (sem proxy) = tethering do celular = bom (verde).
-        if not pk:
-            return {"active": True, "preview": False, "level": "ok", "local": True,
+        if not pk:  # conexão local (sem proxy) = tethering do celular
+            return {"mode": "creating", "level": "ok", "local": True,
                     "email": cur.get("email"), "username": cur.get("username"),
                     "proxy_key": None, "host": None, "country": None, "status": {}}
-        blk = _proxy_status_block(pk, host)
-        return {"active": True, "preview": False, "local": False,
+        return {"mode": "creating", "local": False,
                 "email": cur.get("email"), "username": cur.get("username"),
-                "proxy_key": pk, "host": host, **blk}
+                "proxy_key": pk, "host": host, **_proxy_status_block(pk, host)}
 
-    # OCIOSO → preview do próximo proxy que assign() escolheria (sem efeito colateral).
-    nxt = None
+    # 2) Sessão aberta no PC — proxy do perfil que você está operando agora.
     try:
-        limit = int(acc.get_limits().get("proxy_limit", 0) or 0)
+        sessions = sm.list_active()
     except Exception:
-        limit = 0
+        sessions = []
+    for s in sessions:
+        prof = get_profile(s.get("profile_id"))
+        px = (prof or {}).get("proxy") or {}
+        if px.get("host"):
+            pk = pool.proxy_key(px)
+            return {"mode": "in_use", "local": False, "proxy_key": pk, "host": px["host"],
+                    "profile_id": s.get("profile_id"), **_proxy_status_block(pk, px["host"])}
+
+    # 3) Último proxy realmente usado (ledger de criação, mais recente primeiro).
+    last_pk = None
     try:
-        picked = pool.assign(1, limit)
-        nxt = picked[0] if picked else None
+        for r in db.list_creation_attempts(50):
+            if r.get("proxy_key"):
+                last_pk = r["proxy_key"]
+                break
     except Exception:
-        nxt = None
+        last_pk = None
+    if last_pk:
+        host = last_pk.split(":")[0]
+        return {"mode": "last", "local": False, "proxy_key": last_pk, "host": host,
+                **_proxy_status_block(last_pk, host)}
 
-    if not nxt or not nxt.get("host"):
-        return {"active": False, "preview": False, "level": "idle"}
-
-    pk = pool.proxy_key(nxt)
-    host = nxt.get("host")
-    blk = _proxy_status_block(pk, host)
-    return {"active": False, "preview": True, "local": False,
-            "proxy_key": pk, "host": host, **blk}
+    # 4) Nada em uso nem usado.
+    return {"mode": "idle", "level": "idle"}
 
 
 def _derive_proxy_health(accounts_d: dict, attempts_total: int, reachable) -> str:

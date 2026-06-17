@@ -1562,32 +1562,32 @@ async function loadActiveProxy() {
   try {
     const s = await api('GET', '/proxies/active');
     pill.classList.remove('proxy-ok', 'proxy-warn');
-    // Sem proxy nenhum (nem em uso, nem próximo): pool vazio.
-    if (!s || (!s.proxy_key && !s.local)) {
-      txt.textContent = 'Proxy: pool vazio';
-      pill.title = 'Nenhum proxy no pool — adicione na aba Proxies';
+    // Nada em uso nem usado.
+    if (!s || s.mode === 'idle' || (!s.proxy_key && !s.local)) {
+      txt.textContent = 'Proxy: nenhum em uso';
+      pill.title = 'Nenhum proxy em uso (abra um perfil ou inicie a criação)';
       return;
     }
+    // Conexão local (sem proxy) durante criação.
     if (s.local) {
       pill.classList.add('proxy-ok');
       txt.textContent = '🌐 Conexão local (celular)';
-      pill.title = 'Criando via conexão local (sem proxy) — ' + (s.email || '');
+      pill.title = 'Em uso: conexão local (sem proxy) — ' + (s.email || '');
       return;
     }
     const st = s.status || {};
     const flag = s.country ? (s.country + ' · ') : '';
-    // preview = ocioso (mostra o PRÓXIMO proxy); active = em uso agora.
-    const prefix = s.preview ? 'Próximo: ' : '🌐 ';
+    // Rótulo por modo: criação/sessão = "em uso"; último = "Último:".
+    const isLast = s.mode === 'last';
     pill.classList.add(s.level === 'warn' ? 'proxy-warn' : 'proxy-ok');
-    txt.textContent = prefix + flag + (s.host || s.proxy_key);
+    txt.textContent = (isLast ? 'Último: ' : '🌐 ') + flag + (s.host || s.proxy_key);
     const bits = [];
     if (st.reachable === false) bits.push('proxy não responde');
     if (st.blocked) bits.push('no limite');
     if (st.ban_rate_pct != null) bits.push('ban ' + st.ban_rate_pct + '%');
     if (st.used != null) bits.push(st.used + ' uso(s)');
-    const head = s.preview
-      ? (s.level === 'warn' ? '⚠ Próximo proxy (atenção) — ' : '✓ Próximo proxy (livre) — ')
-      : (s.level === 'warn' ? '⚠ Em uso (atenção) — ' : '✓ Em uso (livre) — ');
+    const modeTxt = { creating: 'Em uso (criando)', in_use: 'Em uso (perfil aberto)', last: 'Último usado' }[s.mode] || 'Em uso';
+    const head = (s.level === 'warn' ? '⚠ ' : '✓ ') + modeTxt + ' — ';
     pill.title = head + (s.proxy_key || '')
       + (s.email ? (' • criando ' + s.email) : '')
       + (bits.length ? (' • ' + bits.join(' • ')) : '');
@@ -1605,14 +1605,14 @@ async function loadStartProxyHealth() {
       api('GET', '/proxies/active').catch(() => null),
       api('GET', '/proxies/health').catch(() => ({ items: [] })),
     ]);
-    // Linha "em uso agora" / "próximo"
-    if (!a || (!a.proxy_key && !a.local)) {
-      now.innerHTML = '<b style="color:var(--yellow)">Nenhum proxy no pool.</b> Adicione na aba Proxies.';
+    // Linha do proxy ATUAL (em uso / último usado)
+    if (!a || a.mode === 'idle' || (!a.proxy_key && !a.local)) {
+      now.innerHTML = '<span style="color:var(--muted)">Nenhum proxy em uso (abra um perfil ou inicie a criação).</span>';
     } else if (a.local) {
       now.innerHTML = '<b style="color:var(--green)">Em uso:</b> conexão local (celular)';
     } else {
       const color = a.level === 'warn' ? 'var(--red)' : 'var(--green)';
-      const label = a.preview ? 'Próximo a ser usado' : 'Em uso agora';
+      const label = { creating: 'Em uso (criando)', in_use: 'Em uso (perfil aberto)', last: 'Último usado' }[a.mode] || 'Em uso';
       const flag = a.country ? (a.country + ' · ') : '';
       const st = a.status || {};
       const extra = [];
