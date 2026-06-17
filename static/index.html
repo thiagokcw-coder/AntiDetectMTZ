@@ -544,8 +544,8 @@
     <div class="page ig-page" id="page-instagram">
       <div class="page-header">
         <div>
-          <div class="page-title">Criar Contas</div>
-          <div class="page-subtitle">Instagram • automação em lote, controle de proxies e criação manual</div>
+          <div class="page-title">Criar Contas (PC)</div>
+          <div class="page-subtitle">Instagram • criação manual no Camoufox (o app gera os dados e abre a janela; você preenche)</div>
         </div>
         <div class="ig-page-actions">
           <button class="btn btn-ghost btn-sm" onclick="igLoadProfiles && igLoadProfiles()">Atualizar</button>
@@ -555,8 +555,8 @@
       <section class="ig-panel ig-panel-primary">
         <div class="ig-panel-head">
           <div>
-            <div class="ig-panel-title">Criação automática em lote</div>
-            <div class="ig-panel-subtitle">"Criar contas" gera perfil + e-mail (catch-all) + conta do zero pela quantidade, com proxy do pool. Para o teste no PC, use quantidade baixa e ritmo lento.</div>
+            <div class="ig-panel-title">Criar conta (manual no Camoufox)</div>
+            <div class="ig-panel-subtitle">O app gera perfil + e-mail (catch-all) + os dados, aquece o navegador e abre a janela do Camoufox — <b>você preenche e cria a conta</b>. Escolha abaixo como sair (internet do celular ou proxy do pool).</div>
           </div>
         </div>
 
@@ -623,25 +623,13 @@
 
         <div class="ig-bulk-row">
           <div class="ig-bulk-field">
-            <label>Quantas contas criar</label>
-            <div class="ig-qty">
-              <button class="btn btn-primary" onclick="createSpecificNumber()">Criar contas</button>
-              <input id="ig-bulk-qty" type="number" min="1" placeholder="ex: 10" oninput="this._userManuallyEdited = true;">
-            </div>
-          </div>
-          <div class="ig-bulk-field">
-            <label>Aquecer navegador (min)</label>
+            <label>Aquecer navegador antes de abrir (min)</label>
             <input id="ig-bulk-warm" type="number" min="0" step="1" value="15">
-            <div class="form-hint">Antes de criar: navega sites comuns (cookies/histórico → parece humano). Recomendado 15+. 0 = não aquece.</div>
-          </div>
-          <div class="ig-bulk-field">
-            <label>Aquecer conta (min)</label>
-            <input id="ig-bulk-acctwarm" type="number" min="0" step="1" value="5">
-            <div class="form-hint">Depois de criar (se logada): navega o feed do IG. 0 = não aquece.</div>
+            <div class="form-hint">Antes de abrir a janela: navega sites comuns (cookies/histórico → parece humano). Recomendado 15+. 0 = não aquece.</div>
           </div>
         </div>
         <div class="ig-bulk-actions">
-          <button class="btn btn-ghost" onclick="createManual()" title="O app gera os dados e abre a janela; VOCÊ preenche">✍️ Criar conta manual (eu preencho)</button>
+          <button class="btn btn-primary" onclick="createManual()" title="O app gera os dados e abre a janela do Camoufox; VOCÊ preenche">✍️ Criar conta (abrir Camoufox)</button>
           <button class="btn btn-ghost btn-sm" onclick="showPage('emails')">Emails</button>
           <button class="btn btn-ghost btn-sm" onclick="showPage('analytics')">Métricas</button>
         </div>
