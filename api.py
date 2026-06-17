@@ -67,10 +67,8 @@ def _pool_proxy_by_key(key: str) -> dict:
     return full
 
 
-def lock_info(profile_id: str) -> dict:
-    """Estado do lock compartilhado do perfil (para o aviso de 'em uso')."""
-    from db import get_profile_lock
-    lk = get_profile_lock(profile_id, sm.LOCK_TTL)
+def _lock_info_from(lk: dict | None) -> dict:
+    """Monta o estado do lock a partir de um registro já buscado (ou None)."""
     if not lk:
         return {"in_use": False}
     return {
@@ -80,9 +78,22 @@ def lock_info(profile_id: str) -> dict:
         "is_self": lk.get("token") == sm.TOKEN,
     }
 
+
+def lock_info(profile_id: str) -> dict:
+    """Estado do lock compartilhado do perfil (para o aviso de 'em uso')."""
+    from db import get_profile_lock
+    return _lock_info_from(get_profile_lock(profile_id, sm.LOCK_TTL))
+
 @app.get("/")
 def index():
     return FileResponse(STATIC_DIR / "index.html")
+
+
+@app.get("/health")
+def health():
+    """Prova de prontidão LEVE (sem banco) — usada pelo main.py p/ saber que a API
+    subiu. Não pingar /profiles (faz dezenas de queries no banco remoto)."""
+    return {"ok": True}
 
 
 @app.on_event("startup")
@@ -202,11 +213,24 @@ def get_profiles():
         outcomes = acc.proxy_outcomes()      # computa 1x e reusa por perfil
     except Exception:
         outcomes = {}
+    # Mapas em 1 consulta cada (evita N+1 — caro no banco remoto): contas (versão
+    # CRUA da tabela, não a 'merged' com histórico que é lenta) e locks ativos.
+    acct_by_profile = {}
+    try:
+        for a in db.list_accounts():
+            pid = a.get("profile_id")
+            if pid and pid not in acct_by_profile:
+                acct_by_profile[pid] = a
+    except Exception:
+        pass
+    try:
+        locks = db.get_active_profile_locks(sm.LOCK_TTL)
+    except Exception:
+        locks = {}
     for item in items:
         item["risk"] = assess_profile(item, outcomes)
-        item["lock"] = lock_info(item["id"])
-        # Info da conta vinculada (p/ filtros e cor do card na aba Perfis)
-        a = get_account_by_profile(item["id"])
+        item["lock"] = _lock_info_from(locks.get(item["id"]))
+        a = acct_by_profile.get(item["id"])
         item["account_status"] = (a.get("status") if a else None)
         item["account_username"] = (a.get("username") if a else None)
     return [public_profile(item) for item in items]

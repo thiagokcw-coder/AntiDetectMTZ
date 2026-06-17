@@ -82,13 +82,16 @@ def shutdown():
         _server.should_exit = True
 
 
-def wait_api_ready(timeout=20):
-    for _ in range(int(timeout / 0.3)):
+def wait_api_ready(timeout=30):
+    # Pinga /health (instantâneo, sem banco). NÃO usar /profiles: com banco remoto
+    # ele faz dezenas de queries (segundos) e o ping de timeout curto nunca sucedia
+    # → janela presa em "Carregando...".
+    for _ in range(int(timeout / 0.5)):
         try:
-            urllib.request.urlopen(f"http://127.0.0.1:{PORT}/profiles", timeout=1)
+            urllib.request.urlopen(f"http://127.0.0.1:{PORT}/health", timeout=3)
             return True
         except Exception:
-            time.sleep(0.3)
+            time.sleep(0.5)
     return False
 
 

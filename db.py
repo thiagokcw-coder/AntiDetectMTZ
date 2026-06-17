@@ -641,3 +641,17 @@ def get_profile_lock(profile_id: str, ttl_seconds: int = 90) -> dict | None:
         return None
     return {"holder": row["holder"], "token": row["token"], "since": row["acquired_at"]}
 
+
+def get_active_profile_locks(ttl_seconds: int = 90) -> dict:
+    """Todos os locks ATIVOS em 1 consulta → {profile_id: {holder, token, since}}.
+    Evita N+1 (1 query por perfil) ao listar muitos perfis no banco remoto."""
+    stale_s = _stale_str(ttl_seconds)
+    out = {}
+    with get_conn() as conn:
+        rows = _ex(conn,
+            "SELECT profile_id, holder, token, acquired_at, heartbeat_at FROM profile_locks").fetchall()
+    for row in rows:
+        if row["heartbeat_at"] and row["heartbeat_at"] >= stale_s:
+            out[row["profile_id"]] = {"holder": row["holder"], "token": row["token"], "since": row["acquired_at"]}
+    return out
+
