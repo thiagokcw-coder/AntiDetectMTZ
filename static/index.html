@@ -101,9 +101,9 @@
   .badge-active { background: #14532d; color: var(--green); }
   .badge-created { background: #1e2a4a; color: var(--accent2); }
   .badge-creating, .badge-waiting_verification { background: #451a03; color: var(--yellow); }
-  .badge-checkpoint { background: #4a2a05; color: #fbbf24; }
+  .badge-checkpoint, .badge-suspended { background: #4a2a05; color: #fbbf24; }
   .badge-login_required { background: #1e293b; color: var(--muted); }
-  .badge-banned, .badge-suspended { background: #450a0a; color: var(--red); }
+  .badge-banned { background: #450a0a; color: var(--red); }
   .badge-unknown { background: #1e293b; color: var(--muted); }
 
   /* Detail rows in modal */
@@ -339,7 +339,7 @@
             <b>O que o app faz por você:</b><br>
             • Gera o perfil Camoufox (proxy + fingerprint) e abre a janela pronta (aba <b>Criar Contas (PC)</b>)<br>
             • Mantém <b>fingerprint coerente e estável por perfil</b> e sai pelo <b>proxy 4G/5G</b> do pool<br>
-            • <b>Monitora o status</b> das contas (ativa, checkpoint, banida) e a vida útil (aba <b>Contas</b>)<br>
+            • <b>Monitora o status</b> das contas (ativa, em suspensão, banida) e a vida útil (aba <b>Contas</b>)<br>
             • <b>Extrai dados</b> (seguidores/seguindo/posts) com o <b>Spider</b><br>
             • Mostra <b>no topo</b> qual proxy/IP está em uso e se está <b>limpo ou queimado</b><br><br>
 
@@ -401,7 +401,7 @@
             <div class="flow-left"><div class="flow-num">4</div></div>
             <div class="flow-card">
               <div class="flow-title">📊 Monitorar e extrair</div>
-              <div class="flow-desc">Acompanhe status (ativa/checkpoint/banida) e vida útil na aba <b>Contas</b>. Quando precisar, extraia seguidores/seguindo/posts com o <b>Spider</b>.</div>
+              <div class="flow-desc">Acompanhe status (ativa / em suspensão / banida) e vida útil na aba <b>Contas</b>. Quando precisar, extraia seguidores/seguindo/posts com o <b>Spider</b>.</div>
               <div class="flow-actions">
                 <button class="btn btn-primary btn-sm" onclick="showPage('accounts')">Contas →</button>
                 <button class="btn btn-ghost btn-sm" onclick="showPage('spider')">Spider →</button>
@@ -1225,10 +1225,9 @@
         <select id="aa-status">
           <option value="active">Ativa</option>
           <option value="created">Criada</option>
-          <option value="checkpoint">Checkpoint</option>
+          <option value="checkpoint">Em suspensão (recuperável)</option>
           <option value="login_required">Sessão expirada</option>
-          <option value="banned">Banida</option>
-          <option value="suspended">Suspensa</option>
+          <option value="banned">Banida (final — sem volta)</option>
           <option value="unknown">Desconhecido</option>
         </select>
       </div>
@@ -2806,9 +2805,9 @@ async function checkSmsBalance() {
 // ── Contas (monitoração) ─────────────────────────────────
 const ACCOUNT_LABELS = {
   active: 'Ativa', created: 'Criada', creating: 'Criando',
-  waiting_verification: 'Verificação', checkpoint: 'Checkpoint',
-  login_required: 'Sessão expirada', banned: 'Banida',
-  suspended: 'Suspensa', unknown: 'Desconhecido', error: 'Erro',
+  waiting_verification: 'Verificação', checkpoint: 'Em suspensão',
+  login_required: 'Sessão expirada', banned: 'Banida (final)',
+  suspended: 'Em suspensão', unknown: 'Desconhecido', error: 'Erro',
 };
 function statusBadge(status) {
   const label = ACCOUNT_LABELS[status] || status || '—';
