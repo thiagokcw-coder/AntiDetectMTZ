@@ -3042,9 +3042,12 @@ function renderAccounts(list) {
       ? escapeHtml(a.last_checked_at.replace('T', ' '))
       : '<span style="color:var(--muted)">nunca</span>';
     // Aquecimento do NAVEGADOR (perfil). O aquecimento da CONTA é feito no celular.
-    const profWarm = a.profile_warmed
-      ? `<span class="badge badge-active" style="font-size:9px">🌐 navegador ✓${a.profile_warmup_count > 1 ? ' ×' + a.profile_warmup_count : ''}</span>`
-      : `<span class="badge badge-creating" style="font-size:9px">🌐 navegador frio</span>`;
+    const browserWarming = a.profile_warming && a.profile_warming.active;
+    const profWarm = browserWarming
+      ? `<span class="badge badge-checkpoint" style="font-size:9px">🔥 aquecendo ${fmtCountdown(a.profile_warming.remaining_seconds)}</span>`
+      : (a.profile_warmed
+          ? `<span class="badge badge-active" style="font-size:9px">🌐 navegador ✓${a.profile_warmup_count > 1 ? ' ×' + a.profile_warmup_count : ''}</span>`
+          : `<span class="badge badge-creating" style="font-size:9px">🌐 navegador frio</span>`);
     const prof = a.profile_exists
       ? `<div>${escapeHtml(a.profile_name || '—')}</div>
          <div style="font-size:11px;color:var(--muted)">${escapeHtml(a.profile_device || '')}</div>
@@ -3067,7 +3070,7 @@ function renderAccounts(list) {
       <td style="white-space:nowrap">
         ${a.profile_exists
           ? `<button class="btn btn-primary btn-sm" onclick="openAccountProfile('${a.profile_id}', this)">Abrir</button>
-             <button class="btn btn-ghost btn-sm" onclick="warmBrowser('${a.profile_id}', this)" title="Aquecer o navegador (cookies/histórico)">🔥 Aquecer navegador</button>
+             <button class="btn btn-ghost btn-sm" onclick="warmBrowser('${a.profile_id}', this)" title="Aquecer o navegador (cookies/histórico)" ${browserWarming ? 'disabled' : ''}>${browserWarming ? '🔥 aquecendo ' + fmtCountdown(a.profile_warming.remaining_seconds) : '🔥 Aquecer navegador'}</button>
              <button class="btn btn-success btn-sm" onclick="checkAccount('${a.id}', this)">Verificar</button>`
           : ''}
         <button class="btn btn-ghost btn-sm" onclick="accountDetail('${a.id}')">Detalhes</button>

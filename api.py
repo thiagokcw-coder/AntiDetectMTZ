@@ -432,6 +432,22 @@ class WarmupProfileRequest(BaseModel):
     headless: bool = True   # segundo plano por padrão
 
 
+# Aquecimento de NAVEGADOR em andamento (em memória) — p/ a UI mostrar a contagem.
+# {profile_id: epoch_de_termino}
+_profile_warming: dict[str, float] = {}
+
+
+def _profile_warming_status(profile_id: str) -> dict:
+    end = _profile_warming.get(profile_id)
+    if not end:
+        return {"active": False}
+    remaining = end - time.time()
+    if remaining <= 0:
+        _profile_warming.pop(profile_id, None)
+        return {"active": False}
+    return {"active": True, "remaining_seconds": int(remaining)}
+
+
 @app.post("/profiles/{profile_id}/warmup-profile")
 async def warmup_profile_endpoint(profile_id: str, body: WarmupProfileRequest = WarmupProfileRequest()):
     """Aquece o PERFIL: navega por sites comuns acumulando cookies/histórico."""
@@ -440,6 +456,7 @@ async def warmup_profile_endpoint(profile_id: str, body: WarmupProfileRequest = 
         raise HTTPException(404, "Perfil não encontrado")
     import profile_warmup as pw
     locale = p.get("fingerprint", {}).get("language", "")
+    _profile_warming[profile_id] = time.time() + max(0.0, float(body.minutes or 0)) * 60
 
     async def _task():
         try:
@@ -451,6 +468,8 @@ async def warmup_profile_endpoint(profile_id: str, body: WarmupProfileRequest = 
                 mark_profile_warmed(profile_id)
         except Exception:
             pass
+        finally:
+            _profile_warming.pop(profile_id, None)
 
     asyncio.create_task(_task())
     return {"profile_id": profile_id, "status": "warming_profile", "minutes": body.minutes}
@@ -1039,7 +1058,15 @@ def _host_profile_os() -> str:
 
 @app.get("/accounts")
 def accounts_list():
-    return acc.list_accounts()
+    rows = acc.list_accounts()
+    # Anexa o estado do aquecimento do NAVEGADOR (contagem regressiva) p/ a UI.
+    for a in rows:
+        pid = a.get("profile_id")
+        if pid:
+            st = _profile_warming_status(pid)
+            if st.get("active"):
+                a["profile_warming"] = st
+    return rows
 
 
 class AccountUpdateRequest(BaseModel):
