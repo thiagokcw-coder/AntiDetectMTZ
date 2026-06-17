@@ -80,7 +80,9 @@ def _row(u) -> dict:
     }
 
 
-def _followers_sync(account, target, limit, progress, should_stop, code_provider, status, use_local, log):
+def _followers_sync(account, target, limit, progress, should_stop, code_provider, status,
+                    use_local, log, start_max_id, seed_rows):
+    """Retorna (rows, cursor). cursor=None => completo; senão pode continuar."""
     if log:
         log("logando na conta (instagrapi)…")
     cl = _client(account, code_provider, status, use_local)
@@ -90,14 +92,19 @@ def _followers_sync(account, target, limit, progress, should_stop, code_provider
     if log:
         log(f"resolvendo @{uname}…")
     uid = cl.user_id_from_username(uname)
+    rows = list(seed_rows or [])
+    seen = {str(r.get("User Id")) for r in rows if r.get("User Id")}
+    max_id = start_max_id or ""
+    cursor = max_id or None
     if log:
-        log(f"alvo @{uname} (id {uid}) — iniciando extração…")
-    rows, seen, max_id = [], set(), ""
+        log((f"retomando: {len(rows)} já coletado(s) — " if seed_rows else "")
+            + f"alvo @{uname} (id {uid}) — iniciando extração…")
     page_n = 0
     while True:
         if should_stop and should_stop():
             if log:
                 log("⏹ parado pelo usuário")
+            cursor = max_id or None
             break
         chunk, max_id = cl.user_followers_v1_chunk(uid, max_amount=0, max_id=max_id)
         before = len(rows)
@@ -112,7 +119,7 @@ def _followers_sync(account, target, limit, progress, should_stop, code_provider
                     progress(len(rows))
                 if log:
                     log(f"✓ limite de {limit} atingido — total {len(rows)}")
-                return rows
+                return rows, (max_id or None)
         page_n += 1
         if log:
             log(f"página {page_n}: +{len(rows) - before} (total {len(rows)})")
@@ -121,22 +128,24 @@ def _followers_sync(account, target, limit, progress, should_stop, code_provider
         if not max_id:
             if log:
                 log(f"✓ fim da lista — total {len(rows)}")
+            cursor = None
             break
-    return rows
+        cursor = max_id
+    return rows, cursor
 
 
 async def extract(account: dict, kind: str, target: str, limit: int = 0,
                   progress=None, should_stop=None, code_provider=None, status=None,
-                  use_local=False, log=None) -> dict:
-    """Extrai via instagrapi. Fase 1: kind='followers'."""
+                  use_local=False, log=None, start_max_id=None, seed_rows=None) -> dict:
+    """Extrai via instagrapi. Fase 1: kind='followers'. Suporta resume (start_max_id/seed_rows)."""
     if kind != "followers":
         return {"error": f"tipo '{kind}' ainda não implementado no modo app (Fase 1 = followers)"}
     loop = asyncio.get_event_loop()
     try:
-        rows = await loop.run_in_executor(
+        rows, cursor = await loop.run_in_executor(
             None, _followers_sync, account, target, limit, progress, should_stop,
-            code_provider, status, use_local, log)
-        return {"rows": rows, "target": (target or "").lstrip("@"), "kind": kind}
+            code_provider, status, use_local, log, start_max_id, seed_rows)
+        return {"rows": rows, "cursor": cursor, "target": (target or "").lstrip("@"), "kind": kind}
     except Exception as e:
         name = type(e).__name__
         if "Challenge" in name or "challenge_required" in str(e):

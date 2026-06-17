@@ -212,6 +212,11 @@ def init_db():
                 id          TEXT PRIMARY KEY,
                 method      TEXT,
                 profile     TEXT,
+                profile_id  TEXT,
+                account_id  TEXT,
+                use_local   INTEGER DEFAULT 0,
+                limit_n     INTEGER DEFAULT 0,
+                cursor      TEXT,
                 target      TEXT,
                 kind        TEXT,
                 count       INTEGER DEFAULT 0,
@@ -222,6 +227,11 @@ def init_db():
                 finished_at TEXT
             )
         """)
+        # Migração aditiva (caso a tabela já exista de uma versão anterior)
+        for _c, _d in (("profile_id", "TEXT"), ("account_id", "TEXT"),
+                       ("use_local", "INTEGER DEFAULT 0"), ("limit_n", "INTEGER DEFAULT 0"),
+                       ("cursor", "TEXT")):
+            _ensure_column(conn, "spider_runs", _c, _d)
         # Defaults de limite (não sobrescreve se já existir)
         _ex(conn, "INSERT INTO settings (key, value) VALUES ('proxy_limit', '3') "
                   "ON CONFLICT (key) DO NOTHING")
@@ -639,27 +649,34 @@ def list_proxy_flags() -> dict:
 # ── Histórico de execuções do Spider ───────────────────────────────────────────
 
 def spider_run_upsert(d: dict):
-    """Insere/atualiza uma execução do Spider (PK=id). Salva metadados + rows_json."""
+    """Insere/atualiza uma execução do Spider (PK=id). Salva metadados + rows_json +
+    contexto de resume (profile_id/account_id/use_local/limit_n/cursor)."""
     with get_conn() as conn:
         _ex(conn,
-            "INSERT INTO spider_runs (id, method, profile, target, kind, count, "
-            "status, error, rows_json, started_at, finished_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+            "INSERT INTO spider_runs (id, method, profile, profile_id, account_id, "
+            "use_local, limit_n, cursor, target, kind, count, status, error, rows_json, "
+            "started_at, finished_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
             "ON CONFLICT (id) DO UPDATE SET method=excluded.method, profile=excluded.profile, "
+            "profile_id=excluded.profile_id, account_id=excluded.account_id, "
+            "use_local=excluded.use_local, limit_n=excluded.limit_n, cursor=excluded.cursor, "
             "target=excluded.target, kind=excluded.kind, count=excluded.count, "
             "status=excluded.status, error=excluded.error, rows_json=excluded.rows_json, "
             "finished_at=excluded.finished_at",
-            (d.get("id"), d.get("method"), d.get("profile"), d.get("target"), d.get("kind"),
-             int(d.get("count") or 0), d.get("status"), d.get("error"), d.get("rows_json"),
+            (d.get("id"), d.get("method"), d.get("profile"), d.get("profile_id"),
+             d.get("account_id"), 1 if d.get("use_local") else 0, int(d.get("limit_n") or 0),
+             d.get("cursor"), d.get("target"), d.get("kind"), int(d.get("count") or 0),
+             d.get("status"), d.get("error"), d.get("rows_json"),
              d.get("started_at"), d.get("finished_at")))
 
 
 def list_spider_runs(limit: int = 50) -> list:
-    """Histórico (metadados, SEM rows_json) — mais recentes primeiro."""
+    """Histórico (metadados + cursor, SEM rows_json) — mais recentes primeiro.
+    `cursor` não-nulo indica que a execução parou no meio (dá p/ continuar)."""
     with get_conn() as conn:
         rows = _ex(conn,
             "SELECT id, method, profile, target, kind, count, status, error, "
-            "started_at, finished_at FROM spider_runs "
+            "cursor, started_at, finished_at FROM spider_runs "
             "ORDER BY started_at DESC LIMIT ?", (limit,)).fetchall()
     return [dict(r) for r in rows]
 

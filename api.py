@@ -1144,6 +1144,93 @@ class SpiderExtractRequest(BaseModel):
     limit: int = 0
 
 
+def _launch_spider_job(*, method, account, profile, label, kind, target, limit, use_local,
+                       profile_id=None, account_id=None, seed_rows=None, start_cursor=None):
+    """Cria e dispara um job do Spider (usado por /spider/extract e /spider/resume).
+    seed_rows/start_cursor permitem CONTINUAR de onde parou."""
+    job_id = uuid.uuid4().hex[:12]
+    started_at = time.strftime("%Y-%m-%d %H:%M:%S")
+    seed_rows = seed_rows or []
+    job = {"id": job_id, "status": "running", "kind": kind, "target": target,
+           "count": len(seed_rows), "rows": list(seed_rows), "error": None, "stop": False,
+           "profile": label, "method": method, "detail": "", "code": None,
+           "code_method": None, "log": [], "started_at": started_at}
+    _spider_jobs[job_id] = job
+
+    def _save(status_extra=None):
+        try:
+            d = {"id": job_id, "method": method, "profile": label,
+                 "profile_id": profile_id, "account_id": account_id, "use_local": use_local,
+                 "limit_n": limit, "cursor": job.get("cursor"), "target": target, "kind": kind,
+                 "count": job.get("count", 0), "status": job.get("status"),
+                 "error": job.get("error"), "rows_json": json.dumps(job.get("rows") or []),
+                 "started_at": started_at, "finished_at": job.get("finished_at")}
+            if status_extra:
+                d.update(status_extra)
+            db.spider_run_upsert(d)
+        except Exception:
+            logger.exception("falha ao salvar spider run")
+
+    _save()   # registra início (running)
+
+    def _log(msg):
+        job["log"].append(f"[{time.strftime('%H:%M:%S')}] {msg}")
+        if len(job["log"]) > 500:
+            del job["log"][:len(job["log"]) - 500]
+
+    def _progress(n): job["count"] = n
+    def _should_stop(): return job.get("stop", False)
+
+    def _status(state):
+        job["detail"] = {"logando": "Logando na conta (o IG pode pedir um código)…",
+                         "extraindo": "Extraindo seguidores…"}.get(state, state or "")
+
+    def _code_provider(username, choice):
+        ev = threading.Event()
+        job["_code_event"] = ev
+        job["code"] = None
+        job["code_method"] = str(getattr(choice, "name", choice) or "")
+        job["status"] = "needs_code"
+        job["detail"] = "O Instagram pediu um código de confirmação — digite o código enviado."
+        ev.wait(timeout=300)
+        job["status"] = "running"
+        job["detail"] = "Código enviado, continuando…"
+        return job.get("code") or ""
+
+    async def _worker():
+        try:
+            if method == "app":
+                res = await spider_app.extract(
+                    account, kind, target, limit,
+                    progress=_progress, should_stop=_should_stop,
+                    code_provider=_code_provider, status=_status, use_local=use_local,
+                    log=_log, start_max_id=start_cursor, seed_rows=seed_rows)
+            else:
+                res = await spider.extract(
+                    profile, kind, target, limit,
+                    progress=_progress, should_stop=_should_stop, log=_log,
+                    start_max_id=start_cursor, seed_rows=seed_rows)
+            if res.get("error"):
+                job["status"] = "error"; job["error"] = res["error"]
+                _log("✖ " + str(res["error"])[:160])
+            else:
+                job["rows"] = res.get("rows", [])
+                job["count"] = len(job["rows"])
+                job["cursor"] = res.get("cursor")
+                # Parou no meio (cursor presente) e não foi erro → 'stopped' (continuável)
+                job["status"] = "stopped" if job.get("cursor") else "done"
+                job["detail"] = ""
+        except Exception as e:
+            job["status"] = "error"; job["error"] = str(e)
+            _log("✖ erro: " + str(e)[:160])
+        finally:
+            job["finished_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
+            _save()
+
+    asyncio.create_task(_worker())
+    return job_id
+
+
 @app.post("/spider/extract")
 async def spider_extract(body: SpiderExtractRequest):
     if not (body.target or "").strip():
@@ -1163,88 +1250,42 @@ async def spider_extract(body: SpiderExtractRequest):
             raise HTTPException(404, "Perfil não encontrado")
         label = p.get("name")
 
-    job_id = uuid.uuid4().hex[:12]
-    started_at = time.strftime("%Y-%m-%d %H:%M:%S")
-    job = {"id": job_id, "status": "running", "kind": body.kind, "target": body.target,
-           "count": 0, "rows": [], "error": None, "stop": False, "profile": label,
-           "method": method, "detail": "", "code": None, "code_method": None,
-           "log": [], "started_at": started_at}
-    _spider_jobs[job_id] = job
+    job_id = _launch_spider_job(
+        method=method, account=a, profile=p, label=label, kind=body.kind,
+        target=body.target, limit=body.limit, use_local=body.use_local,
+        profile_id=body.profile_id, account_id=body.account_id)
+    return {"job_id": job_id}
 
-    # Histórico persistente (sobrevive a reiniciar o app)
+
+@app.post("/spider/resume/{run_id}")
+async def spider_resume(run_id: str):
+    """Continua uma execução que parou no meio (cursor salvo + linhas já coletadas)."""
+    run = db.get_spider_run(run_id)
+    if not run:
+        raise HTTPException(404, "Execução não encontrada")
+    if not run.get("cursor"):
+        raise HTTPException(400, "Esta execução já está completa — nada para continuar.")
+    method = (run.get("method") or "web").lower()
+    a = p = None
+    if method == "app":
+        a = db.get_account(run.get("account_id")) if run.get("account_id") else None
+        if not a:
+            raise HTTPException(404, "Conta original não existe mais — não dá para continuar.")
+        label = a.get("username")
+    else:
+        p = get_profile(run.get("profile_id")) if run.get("profile_id") else None
+        if not p:
+            raise HTTPException(404, "Perfil original não existe mais — não dá para continuar.")
+        label = p.get("name")
     try:
-        db.spider_run_upsert({"id": job_id, "method": method, "profile": label,
-                              "target": body.target, "kind": body.kind, "count": 0,
-                              "status": "running", "error": None, "rows_json": None,
-                              "started_at": started_at, "finished_at": None})
+        seed_rows = json.loads(run.get("rows_json") or "[]")
     except Exception:
-        logger.exception("falha ao registrar início do spider run")
-
-    def _log(msg):
-        # Terminal do processo: linha com horário. Mantém as últimas 500.
-        job["log"].append(f"[{time.strftime('%H:%M:%S')}] {msg}")
-        if len(job["log"]) > 500:
-            del job["log"][:len(job["log"]) - 500]
-
-    def _progress(n): job["count"] = n
-    def _should_stop(): return job.get("stop", False)
-
-    def _status(state):
-        job["detail"] = {"logando": "Logando na conta (o IG pode pedir um código)…",
-                         "extraindo": "Extraindo seguidores…"}.get(state, state or "")
-
-    def _code_provider(username, choice):
-        # Chamado (em thread) quando o IG pede código de confirmação. Pausa o job,
-        # a UI mostra o campo, e bloqueia até o usuário enviar o código.
-        ev = threading.Event()
-        job["_code_event"] = ev
-        job["code"] = None
-        job["code_method"] = str(getattr(choice, "name", choice) or "")
-        job["status"] = "needs_code"
-        job["detail"] = "O Instagram pediu um código de confirmação — digite o código enviado."
-        ev.wait(timeout=300)
-        job["status"] = "running"
-        job["detail"] = "Código enviado, continuando…"
-        return job.get("code") or ""
-
-    async def _worker():
-        try:
-            if method == "app":
-                res = await spider_app.extract(
-                    a, body.kind, body.target, body.limit,
-                    progress=_progress, should_stop=_should_stop,
-                    code_provider=_code_provider, status=_status, use_local=body.use_local,
-                    log=_log)
-            else:
-                res = await spider.extract(
-                    p, body.kind, body.target, body.limit,
-                    progress=_progress, should_stop=_should_stop, log=_log)
-            if res.get("error"):
-                job["status"] = "error"; job["error"] = res["error"]
-                _log("✖ " + str(res["error"])[:160])
-            else:
-                job["rows"] = res.get("rows", [])
-                job["count"] = len(job["rows"])
-                job["status"] = "done"
-                job["detail"] = ""
-        except Exception as e:
-            job["status"] = "error"; job["error"] = str(e)
-            _log("✖ erro: " + str(e)[:160])
-        finally:
-            # Persiste o resultado no histórico (metadados + linhas p/ baixar depois).
-            try:
-                db.spider_run_upsert({
-                    "id": job_id, "method": method, "profile": label,
-                    "target": body.target, "kind": body.kind, "count": job.get("count", 0),
-                    "status": job.get("status"), "error": job.get("error"),
-                    "rows_json": json.dumps(job.get("rows") or []),
-                    "started_at": started_at,
-                    "finished_at": time.strftime("%Y-%m-%d %H:%M:%S"),
-                })
-            except Exception:
-                logger.exception("falha ao salvar spider run no histórico")
-
-    asyncio.create_task(_worker())
+        seed_rows = []
+    job_id = _launch_spider_job(
+        method=method, account=a, profile=p, label=label, kind=run.get("kind") or "followers",
+        target=run.get("target"), limit=int(run.get("limit_n") or 0),
+        use_local=bool(run.get("use_local")), profile_id=run.get("profile_id"),
+        account_id=run.get("account_id"), seed_rows=seed_rows, start_cursor=run.get("cursor"))
     return {"job_id": job_id}
 
 
@@ -1256,7 +1297,8 @@ def spider_job(job_id: str):
     return {"id": j["id"], "status": j["status"], "count": j["count"],
             "kind": j["kind"], "target": j["target"], "error": j["error"],
             "detail": j.get("detail", ""), "code_method": j.get("code_method"),
-            "log": j.get("log", [])[-300:]}   # terminal do processo (tail)
+            "cursor": j.get("cursor"),                 # != null => dá p/ continuar
+            "log": j.get("log", [])[-300:]}            # terminal do processo (tail)
 
 
 @app.get("/spider/history")

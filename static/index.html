@@ -1184,6 +1184,7 @@
         <div style="display:flex;gap:8px;align-items:center">
           <button id="sp-start" class="btn btn-primary" onclick="spiderStart()">▶ Iniciar</button>
           <button id="sp-stop" class="btn btn-danger btn-sm" onclick="spiderStop()" style="display:none">⏹ Parar</button>
+          <button id="sp-resume" class="btn btn-primary btn-sm" onclick="spiderResume(_spiderJob)" style="display:none">▶ Continuar de onde parou</button>
           <button id="sp-csv" class="btn btn-success btn-sm" onclick="spiderDownload()" style="display:none">⬇ Baixar CSV</button>
         </div>
       </div>
@@ -3222,6 +3223,7 @@ async function spiderStart() {
     _spiderJob = r.job_id;
     document.getElementById('sp-status').style.display = '';
     document.getElementById('sp-log').textContent = '(iniciando…)';
+    document.getElementById('sp-resume').style.display = 'none';
     document.getElementById('sp-start').disabled = true;
     document.getElementById('sp-stop').style.display = '';
     document.getElementById('sp-csv').style.display = 'none';
@@ -3236,7 +3238,7 @@ async function spiderPoll() {
   try {
     const j = await api('GET', `/spider/jobs/${_spiderJob}`);
     const map = { running: '⏳ Em andamento', needs_code: '🔐 Precisa de código',
-                  done: '✅ Concluído', error: '⚠️ Erro' };
+                  done: '✅ Concluído', stopped: '⏸ Parado (dá pra continuar)', error: '⚠️ Erro' };
     document.getElementById('sp-state').textContent = map[j.status] || j.status;
     document.getElementById('sp-count').textContent = j.count;
     if (j.detail) document.getElementById('sp-detail').textContent = j.detail;
@@ -3245,9 +3247,13 @@ async function spiderPoll() {
     if (j.status === 'running' || j.status === 'needs_code') { _spiderTimer = setTimeout(spiderPoll, 2000); return; }
     document.getElementById('sp-start').disabled = false;
     document.getElementById('sp-stop').style.display = 'none';
+    // Botão "continuar" aparece quando parou no meio (cursor salvo)
+    document.getElementById('sp-resume').style.display = (j.status === 'stopped' && j.cursor) ? '' : 'none';
+    document.getElementById('sp-csv').style.display = j.count ? '' : 'none';
     if (j.status === 'done') {
       document.getElementById('sp-detail').textContent = `${j.count} registro(s) de @${j.target}.`;
-      document.getElementById('sp-csv').style.display = j.count ? '' : 'none';
+    } else if (j.status === 'stopped') {
+      document.getElementById('sp-detail').textContent = `Parou com ${j.count} registro(s) — clique em "Continuar" para seguir de onde parou.`;
     } else {
       document.getElementById('sp-detail').textContent = j.error || 'Falha na extração.';
     }
@@ -3265,7 +3271,7 @@ function renderSpiderLog(lines) {
 }
 
 const SP_STATUS_LABEL = { running: '⏳ rodando', needs_code: '🔐 código',
-                          done: '✅ ok', error: '⚠️ erro' };
+                          done: '✅ ok', stopped: '⏸ parado', error: '⚠️ erro' };
 
 async function loadSpiderHistory() {
   const tb = document.getElementById('sp-history');
@@ -3281,6 +3287,8 @@ async function loadSpiderHistory() {
       const when = it.finished_at || it.started_at || '—';
       const stColor = it.status === 'done' ? 'var(--green)' : (it.status === 'error' ? 'var(--red)' : 'var(--yellow)');
       const dl = it.count ? `<button class="btn btn-ghost btn-sm" style="padding:1px 8px" onclick="spiderHistoryCsv('${it.id}')">⬇ CSV</button>` : '';
+      // Continuar: só quando parou no meio (cursor salvo)
+      const cont = it.cursor ? `<button class="btn btn-primary btn-sm" style="padding:1px 8px" onclick="spiderResume('${it.id}')" title="Continuar de onde parou">▶</button>` : '';
       return `<tr>
         <td style="font-size:12px;color:var(--muted)">${escapeHtml(when)}</td>
         <td><code>@${escapeHtml(it.target || '')}</code></td>
@@ -3288,7 +3296,7 @@ async function loadSpiderHistory() {
         <td>${escapeHtml(it.method || '')}</td>
         <td><b>${it.count || 0}</b></td>
         <td style="color:${stColor}">${SP_STATUS_LABEL[it.status] || escapeHtml(it.status || '')}</td>
-        <td>${dl} <button class="btn btn-ghost btn-sm" style="padding:1px 8px" onclick="spiderHistoryDelete('${it.id}')" title="Remover do histórico">🗑</button></td>
+        <td>${cont} ${dl} <button class="btn btn-ghost btn-sm" style="padding:1px 8px" onclick="spiderHistoryDelete('${it.id}')" title="Remover do histórico">🗑</button></td>
       </tr>`;
     }).join('');
   } catch (e) { /* silencioso */ }
@@ -3331,6 +3339,25 @@ async function spiderSubmitCode() {
 async function spiderStop() {
   if (!_spiderJob) return;
   try { await api('POST', `/spider/jobs/${_spiderJob}/stop`); toast('Parando…'); } catch (e) {}
+}
+
+// Continua uma execução que parou no meio (do job atual ou do histórico).
+async function spiderResume(id) {
+  if (!id) return;
+  try {
+    const r = await api('POST', `/spider/resume/${id}`);
+    _spiderJob = r.job_id;
+    document.getElementById('sp-status').style.display = '';
+    document.getElementById('sp-log').textContent = '(continuando…)';
+    document.getElementById('sp-start').disabled = true;
+    document.getElementById('sp-stop').style.display = '';
+    document.getElementById('sp-resume').style.display = 'none';
+    document.getElementById('sp-csv').style.display = 'none';
+    document.getElementById('sp-detail').textContent = 'Retomando de onde parou…';
+    showPage('spider');
+    spiderPoll();
+    toast('Continuando a extração');
+  } catch (e) { toast(e.message || 'Erro ao continuar', 'error'); }
 }
 
 async function spiderDownload() {

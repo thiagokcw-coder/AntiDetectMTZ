@@ -73,14 +73,23 @@ async def _resolve_user(page, username: str):
     return None, res
 
 
-async def _followers(page, user_id, username, limit, progress, should_stop, log=None):
-    rows, seen, max_id = [], set(), None
+async def _followers(page, user_id, username, limit, progress, should_stop, log=None,
+                     start_max_id=None, seed_rows=None):
+    """Retorna (rows, cursor). cursor=None => lista completa; cursor=<max_id> =>
+    parou no meio (pode continuar de onde parou passando start_max_id=cursor)."""
+    rows = list(seed_rows or [])
+    seen = {str(r.get("User Id")) for r in rows if r.get("User Id")}
+    max_id = start_max_id or None
+    cursor = max_id
     rate_hits = 0
     page_n = 0
+    if seed_rows and log:
+        log(f"retomando: {len(rows)} já coletado(s), seguindo do cursor salvo…")
     while True:
         if should_stop and should_stop():
             if log:
                 log("⏹ parado pelo usuário")
+            cursor = max_id
             break
         url = f"{IG}/api/v1/friendships/{user_id}/followers/?count=50"
         if max_id:
@@ -94,6 +103,7 @@ async def _followers(page, user_id, username, limit, progress, should_stop, log=
             if rate_hits > 5:
                 if log:
                     log("✖ muitas vezes em rate limit — encerrando")
+                cursor = max_id
                 break
             await asyncio.sleep(60)
             continue
@@ -101,6 +111,7 @@ async def _followers(page, user_id, username, limit, progress, should_stop, log=
         if not res.get("ok") or not res.get("json"):
             if log:
                 log(f"✖ resposta inesperada (status {st}) — encerrando")
+            cursor = max_id
             break
         j = res["json"]
         before = len(rows)
@@ -124,7 +135,7 @@ async def _followers(page, user_id, username, limit, progress, should_stop, log=
                     progress(len(rows))
                 if log:
                     log(f"✓ limite de {limit} atingido — total {len(rows)}")
-                return rows
+                return rows, j.get("next_max_id")
         page_n += 1
         if log:
             log(f"página {page_n}: +{len(rows) - before} (total {len(rows)})")
@@ -134,15 +145,19 @@ async def _followers(page, user_id, username, limit, progress, should_stop, log=
         if not max_id:
             if log:
                 log(f"✓ fim da lista — total {len(rows)}")
+            cursor = None
             break
+        cursor = max_id
         await asyncio.sleep(round(random.uniform(0.8, 1.7), 2))   # jitter humano
-    return rows
+    return rows, cursor
 
 
 async def extract(profile: dict, kind: str, target: str, limit: int = 0,
-                  progress=None, should_stop=None, log=None) -> dict:
+                  progress=None, should_stop=None, log=None,
+                  start_max_id=None, seed_rows=None) -> dict:
     """Abre o perfil (logado) e extrai. Fase 1: kind='followers'.
-    Retorna {rows, target, kind, user} ou {error}."""
+    Retorna {rows, cursor, target, kind, user} ou {error}. start_max_id/seed_rows
+    permitem CONTINUAR de onde parou (cursor salvo + linhas já coletadas)."""
     async def _run(page):
         if log:
             log("abrindo instagram.com no perfil…")
@@ -165,10 +180,11 @@ async def extract(profile: dict, kind: str, target: str, limit: int = 0,
         if kind == "followers":
             if log:
                 log("iniciando extração de seguidores…")
-            rows = await _followers(page, uid, uname, limit, progress, should_stop, log)
+            rows, cursor = await _followers(page, uid, uname, limit, progress, should_stop, log,
+                                            start_max_id=start_max_id, seed_rows=seed_rows)
         else:
             return {"error": f"tipo '{kind}' ainda não implementado (Fase 1 = followers)"}
-        return {"rows": rows, "target": uname, "kind": kind, "user": info}
+        return {"rows": rows, "cursor": cursor, "target": uname, "kind": kind, "user": info}
 
     try:
         return await sm.run_profile_task(profile, _run, headless=True)
