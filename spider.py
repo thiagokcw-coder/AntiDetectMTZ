@@ -12,6 +12,7 @@ Fase 1: seguidores. (curtidas/comentários/posts/perfil/hashtag/local vêm depoi
 import asyncio
 import random
 import re
+import time
 
 import session_manager as sm
 
@@ -153,7 +154,7 @@ async def _sleep_stop(secs, should_stop, step: float = 0.4) -> bool:
 async def _session_cooldown(should_stop, log):
     """Pausa longa (10–25 min) entre sessões — interrompível. Deixa a conta 'descansar'
     para não estourar o limite e ser suspensa."""
-    secs = random.randint(600, 1500)
+    secs = random.randint(180, 480)  # 3-8 min (reduzido; antes 10-25min matava o ritmo)
     if log:
         log(f"🧊 cooldown de sessão: ~{secs // 60} min (deixa a conta descansar)…")
     if await _sleep_stop(secs, should_stop):
@@ -202,7 +203,7 @@ async def _friendship_list(page, user_id, username, edge, limit, progress, shoul
     rate_hits = 0
     net_hits = 0
     page_n = 0
-    next_pause = random.randint(15, 25)   # pausa de proteção a cada ~15-25 páginas
+    next_pause = random.randint(25, 45)   # pausa de proteção a cada ~25-45 páginas (menos intrusivo)
     max_pages = _max_pages_for(delay_ms)  # páginas por sessão antes do cooldown longo
     session_pages = 0
     if seed_rows and log:
@@ -215,7 +216,9 @@ async def _friendship_list(page, user_id, username, edge, limit, progress, shoul
         variables = {"id": str(user_id), "first": 50}
         if cursor:
             variables["after"] = cursor
+        _t0 = time.monotonic()
         res = await _graphql(page, qhash, variables, referer)
+        req_s = time.monotonic() - _t0
         st = res.get("status")
         if st in (429, 560):                 # rate limit → espera e tenta de novo
             rate_hits += 1
@@ -276,7 +279,7 @@ async def _friendship_list(page, user_id, username, edge, limit, progress, shoul
                 return rows, (pi.get("end_cursor") if pi.get("has_next_page") else None)
         page_n += 1
         if log:
-            log(f"página {page_n}: +{len(rows) - before} ({_tot(len(rows))})")
+            log(f"página {page_n}: +{len(rows) - before} ({_tot(len(rows))}) · req {req_s:.1f}s")
         if progress:
             progress(len(rows))
         pi = data.get("page_info") or {}
@@ -297,11 +300,11 @@ async def _friendship_list(page, user_id, username, edge, limit, progress, shoul
             return rows, cursor
         await _sleep_stop(_page_delay_s(delay_ms), should_stop)
         if page_n >= next_pause:                       # pausa de proteção curta
-            pause = round(random.uniform(5, 20), 1)
+            pause = round(random.uniform(4, 12), 1)
             if log:
                 log(f"🛡️ pausa de proteção: {pause}s")
             await _sleep_stop(pause, should_stop)
-            next_pause = page_n + random.randint(15, 25)
+            next_pause = page_n + random.randint(25, 45)
         session_pages += 1
         if session_pages >= max_pages:                 # cooldown longo de sessão
             if checkpoint:                             # salva ANTES da pausa longa
@@ -346,7 +349,7 @@ async def _posts(page, user_id, username, limit, progress, should_stop, log=None
     rate_hits = 0
     net_hits = 0
     page_n = 0
-    next_pause = random.randint(15, 25)
+    next_pause = random.randint(25, 45)
     max_pages = _max_pages_for(delay_ms)
     session_pages = 0
     _tot = (lambda n: f"{n}/{total}" if total else str(n))
@@ -432,11 +435,11 @@ async def _posts(page, user_id, username, limit, progress, should_stop, log=None
             return rows, cursor
         await _sleep_stop(_page_delay_s(delay_ms), should_stop)
         if page_n >= next_pause:
-            pause = round(random.uniform(5, 20), 1)
+            pause = round(random.uniform(4, 12), 1)
             if log:
                 log(f"🛡️ pausa de proteção: {pause}s")
             await _sleep_stop(pause, should_stop)
-            next_pause = page_n + random.randint(15, 25)
+            next_pause = page_n + random.randint(25, 45)
         session_pages += 1
         if session_pages >= max_pages:
             if checkpoint:                             # salva ANTES da pausa longa
@@ -477,7 +480,7 @@ async def extract(profile: dict, kind: str, target: str, limit: int = 0,
             log(f"🧭 raspando com a conta/perfil: '{_actor}' · {_conn}")
             log("abrindo instagram.com no perfil…")
         await page.goto(IG + "/", wait_until="domcontentloaded")
-        await asyncio.sleep(round(random.uniform(2.0, 4.0), 2))
+        await asyncio.sleep(round(random.uniform(1.0, 2.5), 1))  # reduzido
         if log:
             log(f"resolvendo @{clean_username(target)}…")
         uid, info = await _resolve_user(page, target)
@@ -493,7 +496,7 @@ async def extract(profile: dict, kind: str, target: str, limit: int = 0,
         # Warm-up: visita o perfil alvo antes de raspar (parece navegação humana).
         try:
             await page.goto(f"{IG}/{uname}/", wait_until="domcontentloaded")
-            await asyncio.sleep(round(random.uniform(2.0, 4.0), 2))
+            await asyncio.sleep(round(random.uniform(1.0, 2.0), 1))
         except Exception:
             pass
         if kind in ("followers", "following"):
