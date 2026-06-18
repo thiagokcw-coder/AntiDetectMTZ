@@ -3662,7 +3662,9 @@ async function spiderRerun(id) {
 async function spiderResume(id) {
   if (!id) return;
   try {
-    const r = await api('POST', `/spider/resume/${id}`);
+    // Usa a velocidade selecionada AGORA (antes o Continuar reusava a salva na run).
+    const delay_ms = parseInt(document.getElementById('sp-speed').value, 10) || 2500;
+    const r = await api('POST', `/spider/resume/${id}`, { delay_ms });
     _spiderJob = r.job_id;
     document.getElementById('sp-status').style.display = '';
     document.getElementById('sp-log').textContent = '(continuando…)';

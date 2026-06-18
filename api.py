@@ -1308,12 +1308,24 @@ def _launch_spider_job(*, method, account, profile, label, kind, target, limit, 
     def _on_total(t): job["total"] = t      # total de itens do alvo (p/ mostrar X/Y)
 
     def _checkpoint(rows, cursor):
-        # Chamado pelo spider a cada N páginas: persiste linhas + cursor no banco
-        # para que um reinício/crash não perca o progresso (e dê pra continuar).
+        # Chamado pelo spider a cada N páginas.
+        # LIGHT update (só count + cursor) — evita serializar JSON gigante de todas as rows
+        # a cada 10 páginas (que estava causando lentidão extrema em runs longas: "1min por página").
+        # Full rows_json (para resume + CSV fallback) é salvo em momentos importantes:
+        # início de turnos, fim de turnos (relay), final da job, e ocasionalmente a cada ~2500 itens.
         job["rows"] = rows
         job["count"] = len(rows)
         job["cursor"] = cursor
-        _save()
+        try:
+            db.spider_run_update_progress(job_id, job["count"], cursor)
+        except Exception:
+            pass
+        # Snapshot completo de rows_json só de vez em quando (proteção contra crash sem matar o throughput)
+        try:
+            if (job.get("count", 0) % 2500 == 0):
+                _save()
+        except Exception:
+            pass
 
     def _status(state):
         job["detail"] = {"logando": "Logando na conta (o IG pode pedir um código)…",
@@ -1389,7 +1401,7 @@ def _launch_spider_job(*, method, account, profile, label, kind, target, limit, 
                 break
             if limit and len(rows) >= limit:
                 break
-            await asyncio.sleep(round(random.uniform(5, 12), 1))   # troca de conta/janela
+            await asyncio.sleep(round(random.uniform(3, 8), 1))   # troca de conta (reduzido)
         return {"rows": rows, "cursor": cursor, "total": job.get("total"),
                 "target": target, "kind": kind, "user": last_user}
 
@@ -1465,9 +1477,15 @@ async def spider_extract(body: SpiderExtractRequest):
     return {"job_id": job_id}
 
 
+class SpiderResumeRequest(BaseModel):
+    delay_ms: Optional[int] = None   # velocidade ATUAL do seletor; sobrepõe a salva na run
+
+
 @app.post("/spider/resume/{run_id}")
-async def spider_resume(run_id: str):
-    """Continua uma execução que parou no meio (cursor salvo + linhas já coletadas)."""
+async def spider_resume(run_id: str, body: SpiderResumeRequest = SpiderResumeRequest()):
+    """Continua uma execução que parou no meio (cursor salvo + linhas já coletadas).
+    A velocidade vem do seletor ATUAL (body.delay_ms) — antes reusava a salva na run,
+    então mudar o tier no 'Continuar' não fazia efeito."""
     run = db.get_spider_run(run_id)
     if not run:
         raise HTTPException(404, "Execução não encontrada")
@@ -1493,7 +1511,8 @@ async def spider_resume(run_id: str):
     job_id = _launch_spider_job(
         method=method, account=a, profile=p, label=label, kind=run.get("kind") or "followers",
         target=run.get("target"), limit=int(run.get("limit_n") or 0),
-        use_local=bool(run.get("use_local")), delay_ms=int(run.get("delay_ms") or 2500),
+        use_local=bool(run.get("use_local")),
+        delay_ms=(body.delay_ms if body.delay_ms else int(run.get("delay_ms") or 2500)),
         profile_id=run.get("profile_id"), account_id=run.get("account_id"),
         profiles=(pool if method != "app" and len(pool) > 1 else None),
         seed_rows=seed_rows, start_cursor=run.get("cursor"),
