@@ -134,18 +134,27 @@ def _max_pages_for(delay_ms) -> int:
     return 1600         # forte (~80000)
 
 
+async def _sleep_stop(secs, should_stop, step: float = 0.4) -> bool:
+    """Sleep INTERROMPÍVEL: dorme em passos curtos e sai assim que should_stop()
+    fica True. Retorna True se foi interrompido. Sem isto, o botão Parar só era
+    visto depois que o sleep longo entre páginas (até ~45s+) terminava."""
+    waited = 0.0
+    while waited < secs:
+        if should_stop and should_stop():
+            return True
+        await asyncio.sleep(min(step, secs - waited))
+        waited += step
+    return bool(should_stop and should_stop())
+
+
 async def _session_cooldown(should_stop, log):
     """Pausa longa (10–25 min) entre sessões — interrompível. Deixa a conta 'descansar'
     para não estourar o limite e ser suspensa."""
     secs = random.randint(600, 1500)
     if log:
         log(f"🧊 cooldown de sessão: ~{secs // 60} min (deixa a conta descansar)…")
-    waited = 0
-    while waited < secs:
-        if should_stop and should_stop():
-            return
-        await asyncio.sleep(min(20, secs - waited))
-        waited += 20
+    if await _sleep_stop(secs, should_stop):
+        return
     if log:
         log("▶ retomando após o cooldown")
 
@@ -213,7 +222,7 @@ async def _friendship_list(page, user_id, username, edge, limit, progress, shoul
                 if log:
                     log("✖ muitas vezes em rate limit — encerrando")
                 break
-            await asyncio.sleep(60)
+            await _sleep_stop(60, should_stop)
             continue
         # Falha TRANSITÓRIA (fetch lançou exceção / erro de servidor 5xx): NÃO é
         # bloqueio — espera e tenta de novo o MESMO cursor, sem matar a run. Uma
@@ -228,7 +237,7 @@ async def _friendship_list(page, user_id, username, edge, limit, progress, shoul
                 if log:
                     log("✖ rede instável demais — encerrando (dá pra continuar)")
                 break
-            await asyncio.sleep(wait)
+            await _sleep_stop(wait, should_stop)
             continue
         net_hits = 0
         rate_hits = 0
@@ -283,12 +292,12 @@ async def _friendship_list(page, user_id, username, edge, limit, progress, shoul
             if log:
                 log(f"⏸ turno de {shift_pages} páginas concluído — passando p/ a próxima conta")
             return rows, cursor
-        await asyncio.sleep(_page_delay_s(delay_ms))
+        await _sleep_stop(_page_delay_s(delay_ms), should_stop)
         if page_n >= next_pause:                       # pausa de proteção curta
             pause = round(random.uniform(5, 20), 1)
             if log:
                 log(f"🛡️ pausa de proteção: {pause}s")
-            await asyncio.sleep(pause)
+            await _sleep_stop(pause, should_stop)
             next_pause = page_n + random.randint(15, 25)
         session_pages += 1
         if session_pages >= max_pages:                 # cooldown longo de sessão
@@ -360,7 +369,7 @@ async def _posts(page, user_id, username, limit, progress, should_stop, log=None
                     log("✖ muitas vezes em rate limit — encerrando")
                 cursor = max_id
                 break
-            await asyncio.sleep(60)
+            await _sleep_stop(60, should_stop)
             continue
         # Falha transitória (rede/5xx) → retry do mesmo max_id, sem matar a run.
         if st == -1 or (isinstance(st, int) and st >= 500):
@@ -374,7 +383,7 @@ async def _posts(page, user_id, username, limit, progress, should_stop, log=None
                     log("✖ rede instável demais — encerrando (dá pra continuar)")
                 cursor = max_id
                 break
-            await asyncio.sleep(wait)
+            await _sleep_stop(wait, should_stop)
             continue
         net_hits = 0
         rate_hits = 0
@@ -418,12 +427,12 @@ async def _posts(page, user_id, username, limit, progress, should_stop, log=None
             if log:
                 log(f"⏸ turno de {shift_pages} páginas concluído — passando p/ a próxima conta")
             return rows, cursor
-        await asyncio.sleep(_page_delay_s(delay_ms))
+        await _sleep_stop(_page_delay_s(delay_ms), should_stop)
         if page_n >= next_pause:
             pause = round(random.uniform(5, 20), 1)
             if log:
                 log(f"🛡️ pausa de proteção: {pause}s")
-            await asyncio.sleep(pause)
+            await _sleep_stop(pause, should_stop)
             next_pause = page_n + random.randint(15, 25)
         session_pages += 1
         if session_pages >= max_pages:
