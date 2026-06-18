@@ -1659,22 +1659,26 @@ function _closeProxyPanelOnce(e) {
 }
 
 // ── Caixa global de SESSÕES (abaixo do proxy, visível em qualquer aba) ──────
-// Mostra os navegadores/sessões abertos e permite Parar cada um ou destravar
-// (matar processos Camoufox órfãos que prendem o perfil — "Firefox is already
-// running"). Reaproveita /sessions + /profiles/{id}/stop + /sessions/kill-orphans.
-let _lastSessions = [];
+// Mostra as janelas abertas E as tarefas de FUNDO (aquecimento de navegador e
+// Spider rodando) — que abrem um Camoufox headless e não contam como "sessão".
+// Permite Parar cada janela ou destravar (matar processos órfãos). Usa
+// /sessions/activity + /profiles/{id}/stop + /sessions/kill-orphans.
+let _lastActivity = { sessions: [], warming: [], spider: [] };
 
 async function loadActiveSessions() {
   const box = document.getElementById('sessions-indicator');
   const line = document.getElementById('sessions-line');
   if (!box || !line) return;
   try {
-    const sessions = await api('GET', '/sessions');
-    _lastSessions = sessions || [];
-    const n = _lastSessions.length;
+    const a = await api('GET', '/sessions/activity');
+    _lastActivity = { sessions: a.sessions || [], warming: a.warming || [], spider: a.spider || [] };
+    const nS = _lastActivity.sessions.length;
+    const nBg = _lastActivity.warming.length + _lastActivity.spider.length;
     box.classList.remove('proxy-ok', 'proxy-warn');
-    if (n > 0) box.classList.add('proxy-ok');
-    line.textContent = n ? `Sessões: ${n} aberta(s)` : 'Sessões: nenhuma';
+    if (nS > 0 || nBg > 0) box.classList.add('proxy-ok');
+    let txt = nS ? `Sessões: ${nS} aberta(s)` : 'Sessões: nenhuma';
+    if (nBg) txt += ` · ${nBg} em 2º plano`;
+    line.textContent = txt;
     const panel = document.getElementById('sessions-panel');
     if (panel && panel.style.display !== 'none') renderSessionsPanel();
   } catch (e) { /* silencioso */ }
@@ -1704,21 +1708,17 @@ function _closeSessionsPanelOnce(e) {
   }
 }
 
-async function renderSessionsPanel() {
+function renderSessionsPanel() {
   const panel = document.getElementById('sessions-panel');
   if (!panel) return;
-  let nameMap = {};
-  try {
-    const profiles = await api('GET', '/profiles');
-    profiles.forEach(p => nameMap[p.id] = p.name);
-  } catch (e) { /* segue sem nomes */ }
-  const sessions = _lastSessions || [];
-  let rows;
+  const { sessions, warming, spider } = _lastActivity;
+  // Janelas interativas (abertas com "Abrir") — dá pra Parar cada uma.
+  let sessHtml;
   if (!sessions.length) {
-    rows = '<div style="color:var(--muted);padding:6px 0">Nenhuma sessão rastreada pelo app.</div>';
+    sessHtml = '<div style="color:var(--muted);padding:4px 0">Nenhuma janela aberta.</div>';
   } else {
-    rows = sessions.map(s => {
-      const nm = escapeHtml(nameMap[s.profile_id] || s.profile_id);
+    sessHtml = sessions.map(s => {
+      const nm = escapeHtml(s.name || s.profile_id);
       const dot = s.status === 'running' ? '#10b981' : '#f59e0b';
       return `<div class="ss-row">
         <span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
@@ -1729,9 +1729,33 @@ async function renderSessionsPanel() {
       </div>`;
     }).join('');
   }
+  // Tarefas de fundo (Camoufox headless): aquecimento + Spider.
+  let bgHtml = '';
+  (warming || []).forEach(w => {
+    bgHtml += `<div class="ss-row">
+      <span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+        🔥 <strong>${escapeHtml(w.name)}</strong> <span style="color:var(--muted)">aquecendo navegador</span>
+      </span>
+      <span style="color:var(--muted);font-size:12px">${fmtCountdown(w.remaining_seconds)}</span>
+    </div>`;
+  });
+  (spider || []).forEach(j => {
+    const prog = j.total ? `${j.count}/${j.total}` : `${j.count}`;
+    const who = j.profile || j.kind || 'spider';
+    bgHtml += `<div class="ss-row">
+      <span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+        🕷️ <strong>${escapeHtml(who)}</strong> <span style="color:var(--muted)">${escapeHtml(j.kind || '')} @${escapeHtml(j.target || '')}</span>
+      </span>
+      <span style="color:var(--muted);font-size:12px">${prog}</span>
+    </div>`;
+  });
+  const bgSection = bgHtml
+    ? `<div class="pp-sep"></div><h4>Em segundo plano (headless)</h4>${bgHtml}`
+    : '';
   panel.innerHTML = `
-    <h4>Sessões / navegadores abertos</h4>
-    ${rows}
+    <h4>Janelas abertas</h4>
+    ${sessHtml}
+    ${bgSection}
     <div class="pp-sep"></div>
     <div style="color:var(--muted);font-size:11.5px;margin-bottom:8px">
       Travou ao abrir ("Firefox is already running")? Encerre os navegadores órfãos

@@ -501,6 +501,34 @@ def list_sessions():
     return sm.list_active()
 
 
+@app.get("/sessions/activity")
+def sessions_activity():
+    """Atividade do app: janelas interativas (sm.list_active) + tarefas de FUNDO
+    que abrem um Camoufox headless e NÃO contam como 'sessão' (aquecimento de
+    navegador e jobs do Spider rodando). Dá visibilidade do que está rodando
+    mesmo sem janela aberta na tela."""
+    sessions = []
+    for s in sm.list_active():
+        pr = get_profile(s.get("profile_id"))
+        sessions.append({**s, "name": (pr or {}).get("name") or s.get("profile_id")})
+    warming = []
+    for pid in list(_profile_warming.keys()):
+        st = _profile_warming_status(pid)
+        if not st.get("active"):
+            continue
+        pr = get_profile(pid)
+        warming.append({"profile_id": pid, "name": (pr or {}).get("name") or pid,
+                        "remaining_seconds": st.get("remaining_seconds", 0)})
+    spider_jobs = []
+    for j in _spider_jobs.values():
+        if j.get("status") in ("running", "needs_code"):
+            spider_jobs.append({"id": j.get("id"), "target": j.get("target"),
+                                "kind": j.get("kind"), "status": j.get("status"),
+                                "profile": j.get("profile"), "count": j.get("count", 0),
+                                "total": j.get("total")})
+    return {"sessions": sessions, "warming": warming, "spider": spider_jobs}
+
+
 @app.post("/sessions/kill-orphans")
 async def kill_orphans():
     """Destrava: fecha as sessões rastreadas (libera os locks do app) e mata
