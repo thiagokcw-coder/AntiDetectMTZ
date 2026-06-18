@@ -35,6 +35,72 @@ _api_ready = threading.Event()
 _loop = None
 _server = None
 
+# ── Windows: impedir REINÍCIO/SUSPENSÃO enquanto o app está aberto ─────────────
+# Motivação: o Windows Update reiniciou o PC sozinho de madrugada no meio de uma
+# extração (perdeu progresso). Aqui o app pede ao Windows pra não dormir e
+# registra um "bloqueio de desligamento" na janela (mostrado ao usuário). A prova
+# de falha de verdade contra o reinício automático é a política do sistema
+# NoAutoRebootWithLoggedOnUsers (aplicada à parte, exige admin).
+_ES_CONTINUOUS = 0x80000000
+_ES_SYSTEM_REQUIRED = 0x00000001
+_shutdown_block_hwnd = None
+
+
+def _win_keep_awake_loop():
+    """Daemon: re-afirma 'sistema necessário' a cada 60s (impede o PC de dormir
+    durante extrações longas). ES_CONTINUOUS mantém o estado até ser limpo."""
+    if sys.platform != "win32":
+        return
+    import ctypes
+    while True:
+        try:
+            ctypes.windll.kernel32.SetThreadExecutionState(_ES_CONTINUOUS | _ES_SYSTEM_REQUIRED)
+        except Exception:
+            pass
+        time.sleep(60)
+
+
+def _win_block_reboot():
+    """Registra na janela do app um motivo de bloqueio de desligamento: enquanto o
+    Monitor MTZ está aberto, o Windows adia o reinício e mostra a mensagem ao
+    usuário. Tenta achar a janela pelo título (independe do backend do pywebview)."""
+    global _shutdown_block_hwnd
+    if sys.platform != "win32":
+        return
+    try:
+        import ctypes
+        from ctypes import wintypes
+        user32 = ctypes.windll.user32
+        hwnd = 0
+        for _ in range(20):                       # a janela pode ainda não existir
+            hwnd = user32.FindWindowW(None, "Monitor MTZ")
+            if hwnd:
+                break
+            time.sleep(0.25)
+        if not hwnd:
+            return
+        reason = "Extração/monitoramento em andamento — feche o Monitor MTZ antes de reiniciar."
+        user32.ShutdownBlockReasonCreate(wintypes.HWND(hwnd), ctypes.c_wchar_p(reason))
+        _shutdown_block_hwnd = hwnd
+    except Exception:
+        pass
+
+
+def _win_unblock_reboot():
+    """Remove o bloqueio de desligamento e libera a suspensão (ao sair do app)."""
+    global _shutdown_block_hwnd
+    if sys.platform != "win32":
+        return
+    try:
+        import ctypes
+        from ctypes import wintypes
+        if _shutdown_block_hwnd:
+            ctypes.windll.user32.ShutdownBlockReasonDestroy(wintypes.HWND(_shutdown_block_hwnd))
+        ctypes.windll.kernel32.SetThreadExecutionState(_ES_CONTINUOUS)   # volta ao normal
+    except Exception:
+        pass
+    _shutdown_block_hwnd = None
+
 
 def find_free_port():
     with socket.socket() as s:
@@ -71,6 +137,7 @@ def run_event_loop():
 
 def shutdown():
     """Fecha navegadores abertos e encerra o servidor — chamado ao sair do app."""
+    _win_unblock_reboot()   # libera o bloqueio de reinício/suspensão
     if _loop and _loop.is_running():
         try:
             import session_manager as sm
@@ -129,6 +196,9 @@ def _mac_set_dock_icon():
 def on_loaded(window):
     print("DEBUG: on_loaded called, waiting for API ready (polling /profiles)...")
     _mac_set_dock_icon()  # reaplica após o app subir (mais confiável)
+    # Bloqueia reinício do Windows enquanto a janela existe (título ainda "Monitor
+    # MTZ" neste ponto; o bloqueio fica preso ao HWND mesmo que o título mude).
+    _win_block_reboot()
     if wait_api_ready():
         print(f"DEBUG: API ready, loading URL http://127.0.0.1:{PORT}")
         window.load_url(f"http://127.0.0.1:{PORT}")
@@ -144,6 +214,8 @@ def main():
     print("DEBUG: main() started, launching uvicorn thread...")
     # Nome do app no macOS (antes de qualquer uso de AppKit pelo pywebview).
     _mac_set_app_name()
+    # Windows: impede o PC de dormir enquanto o app está aberto (daemon).
+    threading.Thread(target=_win_keep_awake_loop, daemon=True).start()
     # API roda em thread dedicada com seu próprio event loop
     t = threading.Thread(target=run_event_loop, daemon=False)
     t.start()
