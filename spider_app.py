@@ -259,6 +259,9 @@ def _extract_sync(account, kind, target, limit, progress, should_stop, code_prov
                   use_local, log, start_max_id, seed_rows, delay_ms, on_total):
     """Loga uma vez e despacha por tipo. Retorna (rows, cursor, total)."""
     if log:
+        _who = (account.get("username") or account.get("id") or "conta")
+        _conn = "IP local (sem proxy)" if use_local else "proxy da conta"
+        log(f"🧭 raspando com a conta: @{_who} · {_conn}")
         log("logando na conta (instagrapi)…")
     cl = _client(account, code_provider, status, use_local)
     if status:

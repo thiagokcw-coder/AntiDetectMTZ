@@ -442,8 +442,12 @@ async def extract(profile: dict, kind: str, target: str, limit: int = 0,
     (usado pelo rodízio multi-conta — a próxima conta continua daquele cursor)."""
     if use_local:
         profile = {**profile, "proxy": None}
+    _actor = profile.get("name") or profile.get("id") or "perfil"
+    _px = profile.get("proxy") or {}
+    _conn = "IP local (sem proxy)" if use_local else (f"proxy {_px.get('host')}" if _px.get("host") else "sem proxy")
     async def _run(page):
         if log:
+            log(f"🧭 raspando com a conta/perfil: '{_actor}' · {_conn}")
             log("abrindo instagram.com no perfil…")
         await page.goto(IG + "/", wait_until="domcontentloaded")
         await asyncio.sleep(round(random.uniform(2.0, 4.0), 2))
