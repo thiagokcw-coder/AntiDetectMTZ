@@ -25,10 +25,15 @@
   body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; font-size: 14px; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
 
   /* Header */
-  header { background: var(--surface); border-bottom: 1px solid var(--border); padding: 0 24px; height: 56px; display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; }
+  header { background: var(--surface); border-bottom: 1px solid var(--border); padding: 8px 24px; min-height: 56px; display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; }
   header h1 { font-size: 16px; font-weight: 600; color: var(--text); display: flex; align-items: center; gap: 8px; }
   header h1 span { color: var(--accent); }
   .header-actions { display: flex; gap: 8px; align-items: center; position: relative; }
+  /* Pilha vertical das caixas globais de status (proxy em cima, sessões embaixo) */
+  .header-stack { display:flex; flex-direction:column; gap:5px; align-items:flex-end; }
+  .sess-box .proxy-box-lines > div { font-weight:600; color:var(--text); }
+  #sessions-panel .ss-row { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:5px 0; border-bottom:1px solid var(--border); }
+  #sessions-panel .ss-row:last-child { border-bottom:none; }
   /* Caixa de status do proxy (sempre visível: Meu IP vs Proxy em uso) */
   .proxy-box { display:flex; align-items:center; gap:9px; padding:5px 12px; border-radius:10px; border:1px solid var(--border); background:var(--surface2); cursor:pointer; max-width:430px; }
   .proxy-box .proxy-dot { width:10px; height:10px; border-radius:50%; background:var(--muted); flex-shrink:0; }
@@ -243,14 +248,23 @@
     Profile <span>Manager</span>
   </h1>
   <div class="header-actions">
-    <div id="proxy-indicator" class="proxy-box" onclick="toggleProxyPanel(event)" title="Clique para ver todas as informações">
-      <span class="proxy-dot"></span>
-      <div class="proxy-box-lines">
-        <div id="proxy-line-ip">Meu IP: —</div>
-        <div id="proxy-line-proxy">Proxy: —</div>
+    <div class="header-stack">
+      <div id="proxy-indicator" class="proxy-box" onclick="toggleProxyPanel(event)" title="Clique para ver todas as informações">
+        <span class="proxy-dot"></span>
+        <div class="proxy-box-lines">
+          <div id="proxy-line-ip">Meu IP: —</div>
+          <div id="proxy-line-proxy">Proxy: —</div>
+        </div>
+      </div>
+      <div id="sessions-indicator" class="proxy-box sess-box" onclick="toggleSessionsPanel(event)" title="Navegadores/sessões abertos — clique para gerenciar e destravar">
+        <span class="proxy-dot"></span>
+        <div class="proxy-box-lines">
+          <div id="sessions-line">Sessões: —</div>
+        </div>
       </div>
     </div>
     <div id="proxy-panel" class="proxy-panel" style="display:none"></div>
+    <div id="sessions-panel" class="proxy-panel" style="display:none"></div>
     <span id="sessions-count" style="font-size:12px;color:var(--muted)"></span>
     <button class="btn btn-ghost btn-sm" onclick="refreshAll()">↻ Atualizar</button>
   </div>
@@ -982,7 +996,7 @@
         </ul>
 
         <div style="font-weight:600;color:var(--text);margin:12px 0 4px">Testar pela sua própria conexão (sem proxy)</div>
-        Em <b>Criar Contas</b>, marque <b>"Usar conexão local (sem proxy)"</b> para criar pela internet do PC — ex.: <b>tethering do celular</b> (IP móvel real). O <code>geoip</code> ajusta idioma/fuso ao IP automaticamente. Lembre de desabilitar a outra conexão (Wi-Fi/Ethernet de casa) para o tráfego sair mesmo pelo celular.
+        Em <b>Criar Contas</b>, marque <b>"Usar conexão local (sem proxy)"</b> para criar pela <b>conexão local do PC</b> (seu IP atual). O <code>geoip</code> ajusta idioma/fuso ao IP automaticamente. Útil só para testar — para valer, use um <b>proxy 4G/5G</b> (o IP de casa não serve para criar).
       </div>
     </div>
 
@@ -1081,20 +1095,22 @@
           </select>
         </div>
         <div class="form-group" id="sp-profile-group">
-          <label>Perfil (conta que vai raspar)</label>
-          <select id="sp-profile"></select>
-          <div class="form-hint">Use um perfil com uma conta de scraping <b>descartável</b> já logada no Instagram — não use suas contas boas (raspar queima conta).</div>
-          <label style="display:flex;align-items:flex-start;gap:8px;margin-top:8px;font-weight:400">
-            <input type="checkbox" id="sp-web-local" checked style="margin-top:3px">
-            <span style="font-size:12px;color:var(--muted)">Raspar <b>sem proxy</b> (conexão local / IP limpo) — como o setup que extrai mais. O proxy do perfil é ignorado só na raspagem.</span>
-          </label>
+          <label>Contas que vão raspar — marque <b>1</b> (conta única) ou <b>várias</b> (rodízio)</label>
+          <div id="sp-profile-list" style="max-height:168px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;padding:6px 8px;background:var(--surface)"></div>
+          <div class="form-hint">Use contas de scraping <b>descartáveis</b> já logadas — não use suas contas boas (raspar queima conta). Marcar <b>2+</b> liga o <b>rodízio</b>: as contas revezam no mesmo alvo (cada uma faz um turno e descansa) — espalha o limite por conta.</div>
+          <label style="margin-top:10px">Conexão de saída</label>
+          <select id="sp-web-ipmode" onchange="spiderIpModeHint()">
+            <option value="local" selected>IP local — todas saem pelo MESMO IP do PC (sem proxy)</option>
+            <option value="proxy">Proxy por conta — cada conta sai pelo SEU proxy</option>
+          </select>
+          <div class="form-hint" id="sp-ipmode-hint"></div>
         </div>
         <div class="form-group" id="sp-account-group" style="display:none">
           <label>Conta (com usuário e senha cadastrados)</label>
           <select id="sp-account"></select>
           <label style="display:flex;align-items:flex-start;gap:8px;margin-top:8px;font-weight:400">
             <input type="checkbox" id="sp-local" checked style="margin-top:3px">
-            <span style="font-size:12px;color:var(--muted)">Usar <b>conexão local</b> (IP do celular/tethering) em vez do proxy da conta. <b>Recomendado</b>: IP coerente = bem menos chance de "challenge_required".</span>
+            <span style="font-size:12px;color:var(--muted)">Usar <b>conexão local do PC</b> (IP local, sem proxy) em vez do proxy da conta. <b>Recomendado</b>: IP coerente = bem menos chance de "challenge_required".</span>
           </label>
         </div>
         <div class="form-group">
@@ -1219,7 +1235,7 @@
     <div class="form-group" id="aa-proxy-group">
       <label>Proxy ao abrir no PC <span style="color:var(--muted);font-weight:400">(opcional — não recomendado)</span></label>
       <input id="aa-proxy" type="text" placeholder="Só preencha se for usar proxy virtual">
-      <div class="form-hint">Por padrão, abre pela <b>conexão local do PC</b> (a internet do celular, se estiver em tethering). <b>Só preencha se for usar um proxy virtual</b> — de preferência do <b>mesmo país</b>. Formato: <code>host:porta:usuário:senha</code> ou URL.</div>
+      <div class="form-hint">Por padrão, abre pela <b>conexão local do PC</b> (sem proxy, seu IP atual). <b>Só preencha se for usar um proxy virtual</b> — de preferência do <b>mesmo país</b>. Formato: <code>host:porta:usuário:senha</code> ou URL.</div>
     </div>
     <div class="form-row">
       <div class="form-group">
@@ -1640,6 +1656,107 @@ function _closeProxyPanelOnce(e) {
     panel.style.display = 'none';
     document.removeEventListener('click', _closeProxyPanelOnce);
   }
+}
+
+// ── Caixa global de SESSÕES (abaixo do proxy, visível em qualquer aba) ──────
+// Mostra os navegadores/sessões abertos e permite Parar cada um ou destravar
+// (matar processos Camoufox órfãos que prendem o perfil — "Firefox is already
+// running"). Reaproveita /sessions + /profiles/{id}/stop + /sessions/kill-orphans.
+let _lastSessions = [];
+
+async function loadActiveSessions() {
+  const box = document.getElementById('sessions-indicator');
+  const line = document.getElementById('sessions-line');
+  if (!box || !line) return;
+  try {
+    const sessions = await api('GET', '/sessions');
+    _lastSessions = sessions || [];
+    const n = _lastSessions.length;
+    box.classList.remove('proxy-ok', 'proxy-warn');
+    if (n > 0) box.classList.add('proxy-ok');
+    line.textContent = n ? `Sessões: ${n} aberta(s)` : 'Sessões: nenhuma';
+    const panel = document.getElementById('sessions-panel');
+    if (panel && panel.style.display !== 'none') renderSessionsPanel();
+  } catch (e) { /* silencioso */ }
+}
+
+function toggleSessionsPanel(ev) {
+  if (ev) ev.stopPropagation();
+  const panel = document.getElementById('sessions-panel');
+  if (!panel) return;
+  // fecha o painel do proxy se estiver aberto (mesma âncora)
+  const pp = document.getElementById('proxy-panel');
+  if (pp) pp.style.display = 'none';
+  if (panel.style.display === 'none') {
+    renderSessionsPanel();
+    panel.style.display = 'block';
+    setTimeout(() => document.addEventListener('click', _closeSessionsPanelOnce), 0);
+  } else {
+    panel.style.display = 'none';
+  }
+}
+function _closeSessionsPanelOnce(e) {
+  const panel = document.getElementById('sessions-panel');
+  const box = document.getElementById('sessions-indicator');
+  if (panel && !panel.contains(e.target) && box && !box.contains(e.target)) {
+    panel.style.display = 'none';
+    document.removeEventListener('click', _closeSessionsPanelOnce);
+  }
+}
+
+async function renderSessionsPanel() {
+  const panel = document.getElementById('sessions-panel');
+  if (!panel) return;
+  let nameMap = {};
+  try {
+    const profiles = await api('GET', '/profiles');
+    profiles.forEach(p => nameMap[p.id] = p.name);
+  } catch (e) { /* segue sem nomes */ }
+  const sessions = _lastSessions || [];
+  let rows;
+  if (!sessions.length) {
+    rows = '<div style="color:var(--muted);padding:6px 0">Nenhuma sessão rastreada pelo app.</div>';
+  } else {
+    rows = sessions.map(s => {
+      const nm = escapeHtml(nameMap[s.profile_id] || s.profile_id);
+      const dot = s.status === 'running' ? '#10b981' : '#f59e0b';
+      return `<div class="ss-row">
+        <span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+          <span class="proxy-dot" style="display:inline-block;background:${dot}"></span>
+          <strong>${nm}</strong> <span style="color:var(--muted)">${escapeHtml(s.status)}</span>
+        </span>
+        <button class="btn btn-danger btn-sm" onclick="stopSessionFromPanel('${s.profile_id}')">Parar</button>
+      </div>`;
+    }).join('');
+  }
+  panel.innerHTML = `
+    <h4>Sessões / navegadores abertos</h4>
+    ${rows}
+    <div class="pp-sep"></div>
+    <div style="color:var(--muted);font-size:11.5px;margin-bottom:8px">
+      Travou ao abrir ("Firefox is already running")? Encerre os navegadores órfãos
+      de execuções anteriores e libere as travas dos perfis.
+    </div>
+    <button class="btn btn-danger btn-sm" style="width:100%" onclick="killOrphanBrowsers()">
+      🧹 Encerrar navegadores órfãos (destravar)
+    </button>`;
+}
+
+async function stopSessionFromPanel(id) {
+  try {
+    await api('POST', `/profiles/${encodeURIComponent(id)}/stop`);
+    toast('Sessão encerrada');
+    await loadActiveSessions();
+  } catch (e) { toast(e.message || 'Erro ao parar', 'error'); }
+}
+
+async function killOrphanBrowsers() {
+  if (!confirm('Encerrar TODOS os navegadores Camoufox abertos e os processos órfãos?\n\nIsso libera as travas dos perfis. As sessões logadas não se perdem (ficam nos cookies do perfil).')) return;
+  try {
+    const r = await api('POST', '/sessions/kill-orphans');
+    toast(`Navegadores encerrados (${r.processes_killed || 0} processo(s)). Pode abrir de novo.`);
+    await loadActiveSessions();
+  } catch (e) { toast(e.message || 'Erro ao encerrar', 'error'); }
 }
 
 // Marca/libera um proxy (host:porta) ou IP como queimado e atualiza as telas.
@@ -3134,7 +3251,7 @@ async function accountDetail(id) {
       : '—') +
     detailRow('ID do perfil', a.profile_id, true);
 
-  document.getElementById('ma-check').onclick = () => checkAccount(id);
+  document.getElementById('ma-check').onclick = (e) => checkAccount(id, e.currentTarget);
   document.getElementById('ma-delete').onclick = () => deleteAccount(id);
   document.getElementById('ma-edit').onclick = () => editAccount(id);
   const openBtn = document.getElementById('ma-open');
@@ -3147,18 +3264,43 @@ async function accountDetail(id) {
   document.getElementById('modal-account').classList.add('open');
 }
 
+// Countdown num botão enquanto uma ação demorada roda. Conta de `estSeconds`
+// até 0; se estourar (a ação ainda não voltou), mostra "finalizando…". Retorna
+// uma função para parar e restaurar o rótulo. Guarda o texto original p/ não
+// trocar "Verificar status" do modal por "Verificar".
+function runBtnCountdown(btn, estSeconds) {
+  if (!btn) return () => {};
+  const orig = btn.dataset.origText || btn.textContent;
+  btn.dataset.origText = orig;
+  btn.disabled = true;
+  let remaining = estSeconds;
+  const tick = () => {
+    btn.textContent = remaining > 0 ? `⏳ ${remaining}s` : '⏳ finalizando…';
+    if (remaining > 0) remaining--;
+  };
+  tick();
+  const iv = setInterval(tick, 1000);
+  return () => {
+    clearInterval(iv);
+    btn.disabled = false;
+    btn.textContent = btn.dataset.origText || orig;
+  };
+}
+
 async function checkAccount(id, btn) {
-  if (btn) { btn.disabled = true; btn.textContent = '...'; }
+  // Verificação abre um navegador headless e detecta o status (~20-50s). Mostra
+  // um countdown no botão p/ o usuário saber quanto falta / quando terminou.
+  const stop = runBtnCountdown(btn, 45);
   toast('Verificando status (pode abrir o navegador)...');
   try {
     const r = await api('POST', `/accounts/${id}/check`);
-    toast(`Status: ${ACCOUNT_LABELS[r.status] || r.status} — ${r.detail || ''}`);
+    toast(`✓ Verificação concluída — ${ACCOUNT_LABELS[r.status] || r.status}${r.detail ? ' · ' + r.detail : ''}`);
     await loadAccountsPage();
     if (document.getElementById('modal-account').classList.contains('open')) accountDetail(id);
   } catch (e) {
     toast(e.message || 'Erro ao verificar', 'error');
   } finally {
-    if (btn) { btn.disabled = false; btn.textContent = 'Verificar'; }
+    stop();
   }
 }
 
@@ -3264,18 +3406,44 @@ function spiderMethodChange() {
   document.getElementById('sp-account-group').style.display = m === 'app' ? '' : 'none';
 }
 
+// Atualiza o aviso conforme o modo de IP e quantas contas estão marcadas (rodízio).
+function spiderIpModeHint() {
+  const hint = document.getElementById('sp-ipmode-hint');
+  if (!hint) return;
+  const n = document.querySelectorAll('.sp-prof-chk:checked').length;
+  const local = (document.getElementById('sp-web-ipmode') || {}).value === 'local';
+  let msg;
+  if (local) {
+    msg = 'Sai pela conexão local (IP do PC, sem proxy). ';
+    msg += n > 1
+      ? `⚠ <b>${n} contas no mesmo IP</b>: o rodízio faz cada conta descansar, mas o IP soma o tráfego de todas e a IG pode vincular as contas. Bom p/ testar; ideal é 1 proxy por conta.`
+      : 'Como o setup que extrai mais (IP limpo). A sessão já está logada por cookies.';
+  } else {
+    msg = 'Cada conta sai pelo <b>seu próprio proxy</b> (1 conta = 1 IP). ';
+    msg += n > 1
+      ? '✅ É o modo ideal de rodízio: espalha por contas E por IPs distintos.'
+      : 'Use quando o IP local ficar ruim — 1 proxy por vez, na própria conta.';
+  }
+  hint.innerHTML = msg;
+}
+
 async function loadSpider() {
   try {
     const [profiles, accounts] = await Promise.all([
       api('GET', '/profiles'),
       api('GET', '/accounts'),
     ]);
-    profiles.sort((a, b) => (b.account_status === 'active') - (a.account_status === 'active'));
-    document.getElementById('sp-profile').innerHTML = profiles.map(p => {
+    // Só perfis com conta IG JÁ LOGADA (account_status 'active') — o Spider Web
+    // raspa via sessão logada; perfil sem login não serve.
+    const logged = profiles.filter(p => p.account_status === 'active');
+    document.getElementById('sp-profile-list').innerHTML = logged.map(p => {
       const acct = p.account_username ? ` (@${p.account_username})` : '';
-      const tag = p.account_status === 'active' ? ' ✅ logada' : (p.account_status ? ` · ${p.account_status}` : '');
-      return `<option value="${p.id}">${escapeHtml(p.name)}${escapeHtml(acct + tag)}</option>`;
-    }).join('') || '<option value="">(nenhum perfil)</option>';
+      return `<label style="display:flex;align-items:center;gap:8px;padding:3px 2px;font-weight:400;cursor:pointer">
+        <input type="checkbox" class="sp-prof-chk" value="${p.id}" onchange="spiderIpModeHint()">
+        <span style="font-size:13px">${escapeHtml(p.name)}<span style="color:var(--muted)">${escapeHtml(acct)} ✅ logada</span></span>
+      </label>`;
+    }).join('') || '<div style="color:var(--muted);font-size:12px;padding:4px">Nenhum perfil com conta logada. Abra um perfil (aba Perfis/Contas), faça login no Instagram e ele aparece aqui.</div>';
+    spiderIpModeHint();
     // modo app: só contas com usuário (a senha é validada no backend)
     const withUser = (accounts || []).filter(a => a.username);
     document.getElementById('sp-account').innerHTML = withUser.map(a =>
@@ -3299,9 +3467,10 @@ async function spiderStart() {
     payload.use_local = document.getElementById('sp-local').checked;
     if (!payload.account_id) { toast('Selecione uma conta', 'error'); return; }
   } else {
-    payload.profile_id = document.getElementById('sp-profile').value;
-    payload.use_local = document.getElementById('sp-web-local').checked;
-    if (!payload.profile_id) { toast('Selecione um perfil', 'error'); return; }
+    const ids = [...document.querySelectorAll('.sp-prof-chk:checked')].map(c => c.value);
+    if (!ids.length) { toast('Marque ao menos uma conta', 'error'); return; }
+    payload.profile_ids = ids;
+    payload.use_local = document.getElementById('sp-web-ipmode').value === 'local';
   }
   try {
     const r = await api('POST', '/spider/extract', payload);
@@ -3392,17 +3561,31 @@ async function loadSpiderHistory() {
   } catch (e) { /* silencioso */ }
 }
 
-async function spiderHistoryCsv(id) {
+// Baixa o CSV de uma execução. O servidor SEMPRE salva em data/<alvo>/ (o app roda
+// em webview, onde o download do navegador costuma não disparar) e devolve o caminho
+// no header X-Saved-Path — avisamos onde ficou. Também tenta o download do navegador.
+async function spiderFetchCsv(id) {
+  const res = await fetch(API + `/spider/jobs/${id}/csv`);
+  if (!res.ok) throw new Error('Falha ao gerar o CSV');
+  const saved = res.headers.get('X-Saved-Path') || '';
+  // nome do arquivo vindo do servidor (Content-Disposition), com fallback
+  const cd = res.headers.get('Content-Disposition') || '';
+  const m = cd.match(/filename=([^;]+)/);
+  const fname = (m ? m[1].trim() : '') || 'spider.csv';
+  const blob = await res.blob();
   try {
-    const res = await fetch(API + `/spider/jobs/${id}/csv`);
-    if (!res.ok) throw new Error('Falha ao baixar');
-    const blob = await res.blob();
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    a.href = url; a.download = 'seguidores.csv';
+    a.href = url; a.download = fname;
     document.body.appendChild(a); a.click(); a.remove();
     URL.revokeObjectURL(url);
-  } catch (e) { toast(e.message || 'Erro ao baixar', 'error'); }
+  } catch (e) { /* webview pode bloquear o download — o arquivo já está salvo no disco */ }
+  toast(saved ? ('✓ CSV salvo em: ' + saved) : '✓ CSV gerado', 'success');
+}
+
+async function spiderHistoryCsv(id) {
+  try { await spiderFetchCsv(id); }
+  catch (e) { toast(e.message || 'Erro ao baixar', 'error'); }
 }
 
 async function spiderHistoryDelete(id) {
@@ -3471,16 +3654,8 @@ async function spiderResume(id) {
 
 async function spiderDownload() {
   if (!_spiderJob) return;
-  try {
-    const res = await fetch(API + `/spider/jobs/${_spiderJob}/csv`);
-    if (!res.ok) throw new Error('Falha ao baixar');
-    const blob = await res.blob();
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url; a.download = 'seguidores.csv';
-    document.body.appendChild(a); a.click(); a.remove();
-    URL.revokeObjectURL(url);
-  } catch (e) { toast(e.message || 'Erro ao baixar', 'error'); }
+  try { await spiderFetchCsv(_spiderJob); }
+  catch (e) { toast(e.message || 'Erro ao baixar', 'error'); }
 }
 
 async function deleteAccount(id) {
@@ -3610,7 +3785,7 @@ async function _loadAccountProfileSelect(selectedId) {
       accs.filter(a => a.id !== _editingAccountId).map(a => a.profile_id).filter(Boolean)
     );
     sel.innerHTML =
-      '<option value="__new__">➕ Criar perfil novo (conexão local — internet do celular)</option>' +
+      '<option value="__new__">➕ Criar perfil novo (conexão local do PC, sem proxy)</option>' +
       '<option value="">Sem perfil (só cadastro — não abre no PC)</option>' +
       profiles.map(p => {
         const dev = p.fingerprint?.platform || '';
@@ -3913,9 +4088,11 @@ async function deleteEmail(id) {
 
 loadProfiles();
 loadActiveProxy();
+loadActiveSessions();
 loadStartProxyHealth();   // aba "start" é a ativa por padrão
 pollInterval = setInterval(() => {
-  loadActiveProxy();   // global: indicador do proxy em uso, independente da aba
+  loadActiveProxy();      // global: indicador do proxy em uso, independente da aba
+  loadActiveSessions();   // global: caixa de sessões/navegadores abertos
   const page = document.querySelector('.page.active')?.id;
   if (page === 'page-start')        loadStartProxyHealth();
   if (page === 'page-profiles')     loadProfiles();

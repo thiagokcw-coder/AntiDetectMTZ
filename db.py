@@ -233,7 +233,7 @@ def init_db():
         for _c, _d in (("profile_id", "TEXT"), ("account_id", "TEXT"),
                        ("use_local", "INTEGER DEFAULT 0"), ("limit_n", "INTEGER DEFAULT 0"),
                        ("delay_ms", "INTEGER DEFAULT 2500"), ("cursor", "TEXT"),
-                       ("total", "INTEGER")):
+                       ("total", "INTEGER"), ("profile_ids", "TEXT")):
             _ensure_column(conn, "spider_runs", _c, _d)
         # Defaults de limite (não sobrescreve se já existir)
         _ex(conn, "INSERT INTO settings (key, value) VALUES ('proxy_limit', '3') "
@@ -658,19 +658,20 @@ def spider_run_upsert(d: dict):
         _ex(conn,
             "INSERT INTO spider_runs (id, method, profile, profile_id, account_id, "
             "use_local, limit_n, delay_ms, cursor, target, kind, count, total, status, error, "
-            "rows_json, started_at, finished_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+            "rows_json, started_at, finished_at, profile_ids) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
             "ON CONFLICT (id) DO UPDATE SET method=excluded.method, profile=excluded.profile, "
             "profile_id=excluded.profile_id, account_id=excluded.account_id, "
             "use_local=excluded.use_local, limit_n=excluded.limit_n, delay_ms=excluded.delay_ms, "
             "cursor=excluded.cursor, target=excluded.target, kind=excluded.kind, "
             "count=excluded.count, total=excluded.total, status=excluded.status, "
-            "error=excluded.error, rows_json=excluded.rows_json, finished_at=excluded.finished_at",
+            "error=excluded.error, rows_json=excluded.rows_json, finished_at=excluded.finished_at, "
+            "profile_ids=excluded.profile_ids",
             (d.get("id"), d.get("method"), d.get("profile"), d.get("profile_id"),
              d.get("account_id"), 1 if d.get("use_local") else 0, int(d.get("limit_n") or 0),
              int(d.get("delay_ms") or 2500), d.get("cursor"), d.get("target"), d.get("kind"),
              int(d.get("count") or 0), d.get("total"), d.get("status"), d.get("error"),
-             d.get("rows_json"), d.get("started_at"), d.get("finished_at")))
+             d.get("rows_json"), d.get("started_at"), d.get("finished_at"), d.get("profile_ids")))
 
 
 def list_spider_runs(limit: int = 50) -> list:

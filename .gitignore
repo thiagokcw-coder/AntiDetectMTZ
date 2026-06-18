@@ -145,3 +145,6 @@ screenshots/
 
 # Source archive (download de origem; nao versionar)
 *.zip
+
+# CSVs raspados pelo Spider (data/<alvo>/) — dados, nao versionar
+data/

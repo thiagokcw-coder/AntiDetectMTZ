@@ -171,7 +171,8 @@ async def _resolve_user(page, username: str):
 
 
 async def _friendship_list(page, user_id, username, edge, limit, progress, should_stop,
-                           log=None, start_max_id=None, seed_rows=None, delay_ms=2500, total=None):
+                           log=None, start_max_id=None, seed_rows=None, delay_ms=2500, total=None,
+                           shift_pages=None):
     """Lista de relacionamento (edge='followers' ou 'following') via GraphQL.
     Pagina de verdade pelo `end_cursor` (a API v1 /friendships/ capava em ~50).
     Retorna (rows, cursor); cursor=None => completo. cursor = end_cursor do GraphQL."""
@@ -183,6 +184,7 @@ async def _friendship_list(page, user_id, username, edge, limit, progress, shoul
     edge_key = "edge_follow" if edge == "following" else "edge_followed_by"
     referer = f"{IG}/{username}/{'following' if edge == 'following' else 'followers'}/"
     rate_hits = 0
+    net_hits = 0
     page_n = 0
     next_pause = random.randint(15, 25)   # pausa de proteção a cada ~15-25 páginas
     max_pages = _max_pages_for(delay_ms)  # páginas por sessão antes do cooldown longo
@@ -209,11 +211,28 @@ async def _friendship_list(page, user_id, username, edge, limit, progress, shoul
                 break
             await asyncio.sleep(60)
             continue
+        # Falha TRANSITÓRIA (fetch lançou exceção / erro de servidor 5xx): NÃO é
+        # bloqueio — espera e tenta de novo o MESMO cursor, sem matar a run. Uma
+        # run de milhares de páginas não pode morrer por um piscar de rede.
+        if st == -1 or (isinstance(st, int) and st >= 500):
+            net_hits += 1
+            wait = min(60, 15 * net_hits)
+            if log:
+                log(f"⚠ falha de rede (status {st}: {res.get('error') or '?'}) — "
+                    f"tentando de novo em {wait}s [{net_hits}/5]")
+            if net_hits > 5:
+                if log:
+                    log("✖ rede instável demais — encerrando (dá pra continuar)")
+                break
+            await asyncio.sleep(wait)
+            continue
+        net_hits = 0
         rate_hits = 0
         data = ((((res.get("json") or {}).get("data") or {}).get("user") or {}).get(edge_key))
         if not res.get("ok") or not data:
             if log:
-                log(f"✖ resposta inesperada (status {st}) — encerrando")
+                log(f"✖ resposta inesperada (status {st}) — possível bloqueio/desafio "
+                    f"na conta. Encerrando (dá pra continuar de onde parou).")
             break
         before = len(rows)
         for e in (data.get("edges") or []):
@@ -250,6 +269,12 @@ async def _friendship_list(page, user_id, username, edge, limit, progress, shoul
             if log:
                 log(f"✓ fim da lista — {_tot(len(rows))}")
             break
+        # Rodízio multi-conta: fim do turno → devolve o cursor p/ a próxima conta
+        # continuar (em vez do cooldown longo na mesma conta).
+        if shift_pages and page_n >= shift_pages:
+            if log:
+                log(f"⏸ turno de {shift_pages} páginas concluído — passando p/ a próxima conta")
+            return rows, cursor
         await asyncio.sleep(_page_delay_s(delay_ms))
         if page_n >= next_pause:                       # pausa de proteção curta
             pause = round(random.uniform(5, 20), 1)
@@ -289,13 +314,15 @@ def _post_row(it) -> dict:
 
 
 async def _posts(page, user_id, username, limit, progress, should_stop, log=None,
-                 start_max_id=None, seed_rows=None, delay_ms=2500, total=None):
+                 start_max_id=None, seed_rows=None, delay_ms=2500, total=None,
+                 shift_pages=None):
     """Posts do perfil (`/api/v1/feed/user/{id}/`). Retorna (rows, cursor)."""
     rows = list(seed_rows or [])
     seen = {str(r.get("Shortcode")) for r in rows if r.get("Shortcode")}
     max_id = start_max_id or None
     cursor = max_id
     rate_hits = 0
+    net_hits = 0
     page_n = 0
     next_pause = random.randint(15, 25)
     max_pages = _max_pages_for(delay_ms)
@@ -325,10 +352,26 @@ async def _posts(page, user_id, username, limit, progress, should_stop, log=None
                 break
             await asyncio.sleep(60)
             continue
+        # Falha transitória (rede/5xx) → retry do mesmo max_id, sem matar a run.
+        if st == -1 or (isinstance(st, int) and st >= 500):
+            net_hits += 1
+            wait = min(60, 15 * net_hits)
+            if log:
+                log(f"⚠ falha de rede (status {st}: {res.get('error') or '?'}) — "
+                    f"tentando de novo em {wait}s [{net_hits}/5]")
+            if net_hits > 5:
+                if log:
+                    log("✖ rede instável demais — encerrando (dá pra continuar)")
+                cursor = max_id
+                break
+            await asyncio.sleep(wait)
+            continue
+        net_hits = 0
         rate_hits = 0
         if not res.get("ok") or not res.get("json"):
             if log:
-                log(f"✖ resposta inesperada (status {st}) — encerrando")
+                log(f"✖ resposta inesperada (status {st}) — possível bloqueio/desafio "
+                    f"na conta. Encerrando (dá pra continuar de onde parou).")
             cursor = max_id
             break
         j = res["json"]
@@ -357,6 +400,11 @@ async def _posts(page, user_id, username, limit, progress, should_stop, log=None
             cursor = None
             break
         cursor = max_id
+        # Rodízio multi-conta: fim do turno → devolve o cursor p/ a próxima conta.
+        if shift_pages and page_n >= shift_pages:
+            if log:
+                log(f"⏸ turno de {shift_pages} páginas concluído — passando p/ a próxima conta")
+            return rows, cursor
         await asyncio.sleep(_page_delay_s(delay_ms))
         if page_n >= next_pause:
             pause = round(random.uniform(5, 20), 1)
@@ -384,12 +432,14 @@ def _total_for(info: dict, kind: str):
 async def extract(profile: dict, kind: str, target: str, limit: int = 0,
                   progress=None, should_stop=None, log=None,
                   start_max_id=None, seed_rows=None, delay_ms=2500, on_total=None,
-                  use_local=False) -> dict:
+                  use_local=False, shift_pages=None) -> dict:
     """Abre o perfil (logado) e extrai (followers/following/posts).
     Retorna {rows, cursor, total, target, kind, user} ou {error}. start_max_id/seed_rows
     permitem CONTINUAR de onde parou; delay_ms = velocidade; on_total(t) avisa o total.
     use_local=True abre SEM o proxy do perfil (IP local/limpo) — o app só lê dados,
-    não loga (a sessão já está logada via cookies)."""
+    não loga (a sessão já está logada via cookies).
+    shift_pages: se setado, encerra o TURNO após N páginas devolvendo o cursor
+    (usado pelo rodízio multi-conta — a próxima conta continua daquele cursor)."""
     if use_local:
         profile = {**profile, "proxy": None}
     async def _run(page):
@@ -420,13 +470,14 @@ async def extract(profile: dict, kind: str, target: str, limit: int = 0,
                 log(f"iniciando extração de {'seguindo' if kind == 'following' else 'seguidores'}…")
             rows, cursor = await _friendship_list(page, uid, uname, kind, limit, progress,
                                                   should_stop, log, start_max_id=start_max_id,
-                                                  seed_rows=seed_rows, delay_ms=delay_ms, total=total)
+                                                  seed_rows=seed_rows, delay_ms=delay_ms, total=total,
+                                                  shift_pages=shift_pages)
         elif kind == "posts":
             if log:
                 log("iniciando extração de posts…")
             rows, cursor = await _posts(page, uid, uname, limit, progress, should_stop, log,
                                         start_max_id=start_max_id, seed_rows=seed_rows,
-                                        delay_ms=delay_ms, total=total)
+                                        delay_ms=delay_ms, total=total, shift_pages=shift_pages)
         else:
             return {"error": f"tipo '{kind}' não suportado (use followers/following/posts)"}
         return {"rows": rows, "cursor": cursor, "total": total, "target": uname, "kind": kind, "user": info}

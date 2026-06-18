@@ -12,6 +12,7 @@ import asyncio
 import copy
 import json
 import os
+import random
 import re
 import socket
 import threading
@@ -498,6 +499,37 @@ def profile_status(profile_id: str):
 @app.get("/sessions")
 def list_sessions():
     return sm.list_active()
+
+
+@app.post("/sessions/kill-orphans")
+async def kill_orphans():
+    """Destrava: fecha as sessões rastreadas (libera os locks do app) e mata
+    processos Camoufox órfãos que seguram o user_data_dir ("Firefox is already
+    running, but is not responding"). Multiplataforma. Use quando "Abrir"
+    reclamar de processo travado de uma execução/crash anterior."""
+    import subprocess
+    import sys
+    tracked = len(sm.list_active())
+    # 1) Fecha de forma limpa as sessões rastreadas (libera DB locks + __aexit__).
+    try:
+        await sm.shutdown_all()
+    except Exception:
+        pass
+    # 2) Mata processos Camoufox que sobraram (órfãos). Só "camoufox" — não toca
+    #    no Firefox normal do usuário.
+    killed = 0
+    try:
+        if sys.platform.startswith("win"):
+            r = subprocess.run(["taskkill", "/F", "/IM", "camoufox.exe"],
+                               capture_output=True, text=True)
+            killed = r.stdout.count("SUCCESS")
+        else:
+            r = subprocess.run(["pkill", "-if", "camoufox"],
+                               capture_output=True, text=True)
+            killed = 1 if r.returncode == 0 else 0
+    except Exception as e:
+        raise HTTPException(500, f"Falha ao encerrar processos: {e}")
+    return {"tracked_closed": tracked, "processes_killed": killed}
 
 
 @app.get("/diagnostics")
@@ -1170,22 +1202,37 @@ _spider_jobs: dict[str, dict] = {}
 
 class SpiderExtractRequest(BaseModel):
     method: str = "web"               # "web" (perfil logado) | "app" (instagrapi)
-    profile_id: Optional[str] = None  # usado no modo web
+    profile_id: Optional[str] = None  # usado no modo web (1 conta)
+    profile_ids: Optional[list] = None  # modo web RODÍZIO: vários perfis revezando no mesmo alvo
     account_id: Optional[str] = None  # usado no modo app (precisa usuário+senha)
-    use_local: bool = False           # modo app: ignora o proxy da conta (sai pelo IP local/celular)
+    use_local: bool = False           # ignora o proxy do perfil (sai pelo IP local). No rodízio: True=todas no MESMO IP local; False=cada conta pelo SEU proxy
     kind: str = "followers"
     target: str
     limit: int = 0
     delay_ms: int = 2500              # velocidade: delay base entre páginas (ms)
 
 
+def _spider_pool_from_run(run: dict) -> list:
+    """Reconstrói o pool de perfis de uma execução salva. Usa profile_ids (rodízio)
+    se houver; senão cai no profile_id único. Pula perfis que não existem mais."""
+    try:
+        pids = json.loads(run.get("profile_ids") or "[]")
+    except Exception:
+        pids = []
+    if not pids and run.get("profile_id"):
+        pids = [run.get("profile_id")]
+    return [pr for pr in (get_profile(x) for x in pids) if pr]
+
+
 def _launch_spider_job(*, method, account, profile, label, kind, target, limit, use_local,
                        delay_ms=2500, profile_id=None, account_id=None, seed_rows=None,
-                       start_cursor=None, job_id=None, started_at=None):
+                       start_cursor=None, job_id=None, started_at=None, profiles=None):
     """Cria e dispara um job do Spider (usado por /spider/extract e /spider/resume).
     seed_rows/start_cursor permitem CONTINUAR de onde parou; delay_ms = velocidade.
     job_id/started_at: ao CONTINUAR, reusa o MESMO id da execução → soma no mesmo
-    registro/CSV (não cria uma nova entrada no histórico)."""
+    registro/CSV (não cria uma nova entrada no histórico).
+    profiles: lista de perfis (>1) para RODÍZIO — revezam no mesmo alvo, cada um faz
+    um turno (do cursor salvo) e passa para o próximo (use_local controla o IP)."""
     job_id = job_id or uuid.uuid4().hex[:12]
     started_at = started_at or time.strftime("%Y-%m-%d %H:%M:%S")
     seed_rows = seed_rows or []
@@ -1199,6 +1246,7 @@ def _launch_spider_job(*, method, account, profile, label, kind, target, limit, 
         try:
             d = {"id": job_id, "method": method, "profile": label,
                  "profile_id": profile_id, "account_id": account_id, "use_local": use_local,
+                 "profile_ids": json.dumps([p.get("id") for p in profiles]) if profiles else None,
                  "limit_n": limit, "delay_ms": delay_ms, "cursor": job.get("cursor"),
                  "target": target, "kind": kind,
                  "count": job.get("count", 0), "total": job.get("total"),
@@ -1238,6 +1286,67 @@ def _launch_spider_job(*, method, account, profile, label, kind, target, limit, 
         job["detail"] = "Código enviado, continuando…"
         return job.get("code") or ""
 
+    async def _relay():
+        """Rodízio: as contas do pool revezam no MESMO alvo. Cada conta faz um turno
+        (do cursor salvo) e passa o cursor para a próxima — a conta 'descansa'
+        enquanto as outras trabalham (espalha o orçamento de req/h por conta).
+        use_local=True → todas saem pelo MESMO IP local; False → cada uma pelo SEU proxy."""
+        pool = profiles
+        rows = list(seed_rows or [])
+        cursor = start_cursor
+        shift = max(2, spider._max_pages_for(delay_ms))   # páginas por turno = cap do tier
+        last_user = None
+        last_error = None
+        made_progress = False
+        _log(f"🔁 rodízio entre {len(pool)} conta(s): "
+             + ", ".join(str(p.get('name')) for p in pool)
+             + f" — turno ≈ {shift} páginas por conta · "
+             + ("IP local (mesmo IP p/ todas)" if use_local else "proxy por conta"))
+        idx = 0
+        fails = 0
+        while True:
+            if _should_stop():
+                _log("⏹ parado pelo usuário")
+                break
+            prof = pool[idx % len(pool)]
+            idx += 1
+            _log(f"▶ turno da conta '{prof.get('name')}'")
+            r = await spider.extract(
+                prof, kind, target, limit,
+                progress=_progress, should_stop=_should_stop, log=_log,
+                start_max_id=cursor, seed_rows=rows, delay_ms=delay_ms,
+                on_total=_on_total, use_local=use_local, shift_pages=shift)
+            if r.get("error"):
+                fails += 1
+                last_error = r.get("error")
+                _log(f"⚠ conta '{prof.get('name')}' falhou: {str(last_error)[:120]}")
+                if fails >= len(pool):
+                    if not made_progress:
+                        return {"rows": rows, "cursor": cursor, "total": job.get("total"),
+                                "target": target, "kind": kind, "user": last_user,
+                                "error": last_error}
+                    _log("✖ todas as contas falharam neste ponto — pausando (dá pra continuar de onde parou)")
+                    break
+                await asyncio.sleep(round(random.uniform(5, 12), 1))
+                continue
+            fails = 0
+            made_progress = True
+            rows = r.get("rows", rows)
+            cursor = r.get("cursor")
+            last_user = r.get("user") or last_user
+            job["rows"] = rows; job["count"] = len(rows); job["cursor"] = cursor
+            if r.get("total") is not None:
+                job["total"] = r.get("total")
+            _save()   # persiste após CADA turno (resume-safe; soma no mesmo CSV)
+            if not cursor:
+                _log(f"✓ rodízio concluído — {len(rows)} registro(s)")
+                break
+            if limit and len(rows) >= limit:
+                break
+            await asyncio.sleep(round(random.uniform(5, 12), 1))   # troca de conta/janela
+        return {"rows": rows, "cursor": cursor, "total": job.get("total"),
+                "target": target, "kind": kind, "user": last_user}
+
     async def _worker():
         try:
             if method == "app":
@@ -1247,6 +1356,8 @@ def _launch_spider_job(*, method, account, profile, label, kind, target, limit, 
                     code_provider=_code_provider, status=_status, use_local=use_local,
                     log=_log, start_max_id=start_cursor, seed_rows=seed_rows, delay_ms=delay_ms,
                     on_total=_on_total)
+            elif profiles and len(profiles) > 1:
+                res = await _relay()
             else:
                 res = await spider.extract(
                     profile, kind, target, limit,
@@ -1290,15 +1401,21 @@ async def spider_extract(body: SpiderExtractRequest):
             raise HTTPException(400, "A conta precisa de usuário e senha cadastrados para o modo app (instagrapi).")
         label = a.get("username")
     else:
-        p = get_profile(body.profile_id) if body.profile_id else None
-        if not p:
+        ids = [i for i in (body.profile_ids or ([body.profile_id] if body.profile_id else [])) if i]
+        if not ids:
+            raise HTTPException(400, "Selecione ao menos um perfil")
+        pool = [pr for pr in (get_profile(i) for i in ids) if pr]
+        if not pool:
             raise HTTPException(404, "Perfil não encontrado")
-        label = p.get("name")
+        p = pool[0]
+        label = f"{len(pool)} contas (rodízio)" if len(pool) > 1 else p.get("name")
 
     job_id = _launch_spider_job(
         method=method, account=a, profile=p, label=label, kind=body.kind,
         target=body.target, limit=body.limit, use_local=body.use_local,
-        delay_ms=body.delay_ms, profile_id=body.profile_id, account_id=body.account_id)
+        delay_ms=body.delay_ms,
+        profile_id=(p.get("id") if method != "app" else None), account_id=body.account_id,
+        profiles=(pool if method != "app" and len(pool) > 1 else None))
     return {"job_id": job_id}
 
 
@@ -1318,10 +1435,11 @@ async def spider_resume(run_id: str):
             raise HTTPException(404, "Conta original não existe mais — não dá para continuar.")
         label = a.get("username")
     else:
-        p = get_profile(run.get("profile_id")) if run.get("profile_id") else None
-        if not p:
+        pool = _spider_pool_from_run(run)
+        if not pool:
             raise HTTPException(404, "Perfil original não existe mais — não dá para continuar.")
-        label = p.get("name")
+        p = pool[0]
+        label = f"{len(pool)} contas (rodízio)" if len(pool) > 1 else p.get("name")
     try:
         seed_rows = json.loads(run.get("rows_json") or "[]")
     except Exception:
@@ -1331,6 +1449,7 @@ async def spider_resume(run_id: str):
         target=run.get("target"), limit=int(run.get("limit_n") or 0),
         use_local=bool(run.get("use_local")), delay_ms=int(run.get("delay_ms") or 2500),
         profile_id=run.get("profile_id"), account_id=run.get("account_id"),
+        profiles=(pool if method != "app" and len(pool) > 1 else None),
         seed_rows=seed_rows, start_cursor=run.get("cursor"),
         job_id=run_id, started_at=run.get("started_at"))   # MESMO id → soma no mesmo CSV
     return {"job_id": job_id}
@@ -1350,15 +1469,17 @@ async def spider_rerun(run_id: str):
             raise HTTPException(404, "Conta original não existe mais.")
         label = a.get("username")
     else:
-        p = get_profile(run.get("profile_id")) if run.get("profile_id") else None
-        if not p:
+        pool = _spider_pool_from_run(run)
+        if not pool:
             raise HTTPException(404, "Perfil original não existe mais.")
-        label = p.get("name")
+        p = pool[0]
+        label = f"{len(pool)} contas (rodízio)" if len(pool) > 1 else p.get("name")
     job_id = _launch_spider_job(
         method=method, account=a, profile=p, label=label, kind=run.get("kind") or "followers",
         target=run.get("target"), limit=int(run.get("limit_n") or 0),
         use_local=bool(run.get("use_local")), delay_ms=int(run.get("delay_ms") or 2500),
-        profile_id=run.get("profile_id"), account_id=run.get("account_id"))
+        profile_id=run.get("profile_id"), account_id=run.get("account_id"),
+        profiles=(pool if method != "app" and len(pool) > 1 else None))
     return {"job_id": job_id}
 
 
@@ -1414,6 +1535,20 @@ def spider_job_stop(job_id: str):
     return {"ok": True}
 
 
+SPIDER_DATA_DIR = Path(__file__).resolve().parent / "data"
+
+
+def _save_spider_csv(content: str, target: str, fname: str) -> str:
+    """Salva o CSV em data/<user_alvo>/<arquivo>.csv (ao lado do app) e devolve o
+    caminho. Pasta por alvo p/ organizar várias extrações do mesmo perfil."""
+    sub = spider.clean_username(target) or "sem_alvo"
+    folder = SPIDER_DATA_DIR / re.sub(r"[^A-Za-z0-9_.-]", "_", sub)
+    folder.mkdir(parents=True, exist_ok=True)
+    path = folder / fname
+    path.write_text(content, encoding="utf-8-sig")   # BOM → abre certo no Excel
+    return str(path)
+
+
 @app.get("/spider/jobs/{job_id}/csv")
 def spider_job_csv(job_id: str):
     from fastapi.responses import Response
@@ -1451,8 +1586,17 @@ def spider_job_csv(job_id: str):
         w.writerow(r)
     prefix = {"followers": "IGFollowers", "following": "IGFollowing", "posts": "IGPosts"}.get(kind, "IGData")
     fname = f"{prefix}_{spider.clean_username(target)}_{len(rows)}.csv"
-    return Response(content=buf.getvalue(), media_type="text/csv",
-                    headers={"Content-Disposition": f"attachment; filename={fname}"})
+    content = buf.getvalue()
+    # Salva SEMPRE no disco (data/<alvo>/) — o app roda em webview e o download do
+    # navegador costuma falhar; assim o CSV fica garantido em arquivo.
+    saved_path = ""
+    try:
+        saved_path = _save_spider_csv(content, target, fname)
+    except Exception:
+        logger.exception("falha ao salvar CSV em data/")
+    return Response(content=content, media_type="text/csv",
+                    headers={"Content-Disposition": f"attachment; filename={fname}",
+                             "X-Saved-Path": saved_path})
 
 
 @app.get("/accounts/{account_id}")
