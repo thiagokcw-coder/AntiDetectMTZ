@@ -110,6 +110,14 @@ def on_startup():
         logger.exception("Failed to initialize database on startup. If using shared Postgres (DATABASE_URL), ensure the server is running and reachable. Falling back behavior may be limited.")
         print("DEBUG: init_db() FAILED - see exception above")
         # Do not re-raise; allow the server to start so the error page / logs can be seen. First requests will fail with DB errors.
+    try:
+        # Spider: runs que ficaram 'running' após um reinício/crash → 'stopped'
+        # (o checkpoint já gravou linhas + cursor; assim a UI libera o "continuar").
+        n = db.recover_orphan_spider_runs()
+        if n:
+            print(f"DEBUG: {n} extração(ões) do Spider órfã(s) marcada(s) como 'stopped'")
+    except Exception:
+        logger.exception("Falha ao recuperar runs órfãs do Spider")
 
 
 @app.on_event("startup")
@@ -1267,7 +1275,8 @@ def _launch_spider_job(*, method, account, profile, label, kind, target, limit, 
     job = {"id": job_id, "status": "running", "kind": kind, "target": target,
            "count": len(seed_rows), "rows": list(seed_rows), "error": None, "stop": False,
            "profile": label, "method": method, "detail": "", "code": None,
-           "code_method": None, "log": [], "started_at": started_at}
+           "code_method": None, "log": [], "started_at": started_at,
+           "cursor": start_cursor}   # preserva o cursor ao CONTINUAR (senão o save inicial o zerava)
     _spider_jobs[job_id] = job
 
     def _save(status_extra=None):
@@ -1297,6 +1306,14 @@ def _launch_spider_job(*, method, account, profile, label, kind, target, limit, 
     def _progress(n): job["count"] = n
     def _should_stop(): return job.get("stop", False)
     def _on_total(t): job["total"] = t      # total de itens do alvo (p/ mostrar X/Y)
+
+    def _checkpoint(rows, cursor):
+        # Chamado pelo spider a cada N páginas: persiste linhas + cursor no banco
+        # para que um reinício/crash não perca o progresso (e dê pra continuar).
+        job["rows"] = rows
+        job["count"] = len(rows)
+        job["cursor"] = cursor
+        _save()
 
     def _status(state):
         job["detail"] = {"logando": "Logando na conta (o IG pode pedir um código)…",
@@ -1343,7 +1360,8 @@ def _launch_spider_job(*, method, account, profile, label, kind, target, limit, 
                 prof, kind, target, limit,
                 progress=_progress, should_stop=_should_stop, log=_log,
                 start_max_id=cursor, seed_rows=rows, delay_ms=delay_ms,
-                on_total=_on_total, use_local=use_local, shift_pages=shift)
+                on_total=_on_total, use_local=use_local, shift_pages=shift,
+                checkpoint=_checkpoint)
             if r.get("error"):
                 fails += 1
                 last_error = r.get("error")
@@ -1383,7 +1401,7 @@ def _launch_spider_job(*, method, account, profile, label, kind, target, limit, 
                     progress=_progress, should_stop=_should_stop,
                     code_provider=_code_provider, status=_status, use_local=use_local,
                     log=_log, start_max_id=start_cursor, seed_rows=seed_rows, delay_ms=delay_ms,
-                    on_total=_on_total)
+                    on_total=_on_total, checkpoint=_checkpoint)
             elif profiles and len(profiles) > 1:
                 res = await _relay()
             else:
@@ -1391,7 +1409,7 @@ def _launch_spider_job(*, method, account, profile, label, kind, target, limit, 
                     profile, kind, target, limit,
                     progress=_progress, should_stop=_should_stop, log=_log,
                     start_max_id=start_cursor, seed_rows=seed_rows, delay_ms=delay_ms,
-                    on_total=_on_total, use_local=use_local)
+                    on_total=_on_total, use_local=use_local, checkpoint=_checkpoint)
             if res.get("error"):
                 job["status"] = "error"; job["error"] = res["error"]
                 _log("✖ " + str(res["error"])[:160])

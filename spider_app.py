@@ -44,6 +44,11 @@ def _max_pages_for(delay_ms) -> int:
     return 1600
 
 
+# A cada quantas páginas gravar um checkpoint (linhas + cursor) no banco — assim um
+# reinício/crash não perde o progresso e a run pode CONTINUAR do cursor salvo.
+_CHECKPOINT_EVERY = 10
+
+
 def _page_sleep(delay_ms, page_n, next_pause_ref, log):
     """Pausa entre páginas (variância humana) + pausa de proteção periódica. Sync."""
     time.sleep(_human_delay_s(delay_ms))
@@ -163,7 +168,7 @@ def _post_row_app(m) -> dict:
 
 
 def _friendship_loop(cl, edge, uid, uname, limit, progress, should_stop, log, start_max_id,
-                     seed_rows, delay_ms=2500, total=None):
+                     seed_rows, delay_ms=2500, total=None, checkpoint=None):
     rows = list(seed_rows or [])
     seen = {str(r.get("User Id")) for r in rows if r.get("User Id")}
     max_id = start_max_id or ""
@@ -205,13 +210,15 @@ def _friendship_loop(cl, edge, uid, uname, limit, progress, should_stop, log, st
                 log(f"✓ fim da lista — {_tot(len(rows))}")
             return rows, None
         cursor = max_id
+        if checkpoint and page_n % _CHECKPOINT_EVERY == 0:   # resume-safe num crash
+            checkpoint(rows, cursor)
         _page_sleep(delay_ms, page_n, next_pause, log)
         _session_cooldown(session_ref, max_pages, should_stop, log)
     return rows, cursor
 
 
 def _posts_loop(cl, uid, uname, limit, progress, should_stop, log, start_max_id, seed_rows,
-                delay_ms=2500, total=None):
+                delay_ms=2500, total=None, checkpoint=None):
     rows = list(seed_rows or [])
     seen = {str(r.get("Shortcode")) for r in rows if r.get("Shortcode")}
     end_cursor = start_max_id or ""
@@ -250,13 +257,15 @@ def _posts_loop(cl, uid, uname, limit, progress, should_stop, log, start_max_id,
                 log(f"✓ fim dos posts — {_tot(len(rows))}")
             return rows, None
         cursor = end_cursor
+        if checkpoint and page_n % _CHECKPOINT_EVERY == 0:   # resume-safe num crash
+            checkpoint(rows, cursor)
         _page_sleep(delay_ms, page_n, next_pause, log)
         _session_cooldown(session_ref, max_pages, should_stop, log)
     return rows, cursor
 
 
 def _extract_sync(account, kind, target, limit, progress, should_stop, code_provider, status,
-                  use_local, log, start_max_id, seed_rows, delay_ms, on_total):
+                  use_local, log, start_max_id, seed_rows, delay_ms, on_total, checkpoint=None):
     """Loga uma vez e despacha por tipo. Retorna (rows, cursor, total)."""
     if log:
         _who = (account.get("username") or account.get("id") or "conta")
@@ -286,10 +295,11 @@ def _extract_sync(account, kind, target, limit, progress, should_stop, code_prov
             + (f" — {total} {kind}" if total is not None else "") + " — iniciando extração…")
     if kind in ("followers", "following"):
         rows, cursor = _friendship_loop(cl, kind, uid, uname, limit, progress, should_stop, log,
-                                        start_max_id, seed_rows, delay_ms, total=total)
+                                        start_max_id, seed_rows, delay_ms, total=total,
+                                        checkpoint=checkpoint)
     elif kind == "posts":
         rows, cursor = _posts_loop(cl, uid, uname, limit, progress, should_stop, log, start_max_id,
-                                   seed_rows, delay_ms, total=total)
+                                   seed_rows, delay_ms, total=total, checkpoint=checkpoint)
     else:
         rows, cursor = list(seed_rows or []), None
     return rows, cursor, total
@@ -298,7 +308,7 @@ def _extract_sync(account, kind, target, limit, progress, should_stop, code_prov
 async def extract(account: dict, kind: str, target: str, limit: int = 0,
                   progress=None, should_stop=None, code_provider=None, status=None,
                   use_local=False, log=None, start_max_id=None, seed_rows=None,
-                  delay_ms=2500, on_total=None) -> dict:
+                  delay_ms=2500, on_total=None, checkpoint=None) -> dict:
     """Extrai via instagrapi: followers/following/posts. Suporta resume + velocidade."""
     if kind not in ("followers", "following", "posts"):
         return {"error": f"tipo '{kind}' não suportado no modo app (use followers/following/posts)"}
@@ -306,7 +316,8 @@ async def extract(account: dict, kind: str, target: str, limit: int = 0,
     try:
         rows, cursor, total = await loop.run_in_executor(
             None, _extract_sync, account, kind, target, limit, progress, should_stop,
-            code_provider, status, use_local, log, start_max_id, seed_rows, delay_ms, on_total)
+            code_provider, status, use_local, log, start_max_id, seed_rows, delay_ms, on_total,
+            checkpoint)
         return {"rows": rows, "cursor": cursor, "total": total,
                 "target": (target or "").lstrip("@"), "kind": kind}
     except Exception as e:

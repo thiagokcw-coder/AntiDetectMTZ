@@ -94,6 +94,10 @@ POSTS_HEADERS = ["Shortcode", "URL", "Caption", "Likes", "Comments", "Views",
 
 _MEDIA_TYPE = {1: "foto", 2: "vídeo", 8: "carrossel"}
 
+# A cada quantas páginas gravar um checkpoint (linhas + cursor) no banco. Assim um
+# crash/reinício perde no máximo ~N páginas e a run pode CONTINUAR do cursor salvo.
+_CHECKPOINT_EVERY = 10
+
 
 def headers_for(kind: str) -> list:
     """Cabeçalhos do CSV conforme o tipo extraído."""
@@ -172,7 +176,7 @@ async def _resolve_user(page, username: str):
 
 async def _friendship_list(page, user_id, username, edge, limit, progress, should_stop,
                            log=None, start_max_id=None, seed_rows=None, delay_ms=2500, total=None,
-                           shift_pages=None):
+                           shift_pages=None, checkpoint=None):
     """Lista de relacionamento (edge='followers' ou 'following') via GraphQL.
     Pagina de verdade pelo `end_cursor` (a API v1 /friendships/ capava em ~50).
     Retorna (rows, cursor); cursor=None => completo. cursor = end_cursor do GraphQL."""
@@ -269,6 +273,10 @@ async def _friendship_list(page, user_id, username, edge, limit, progress, shoul
             if log:
                 log(f"✓ fim da lista — {_tot(len(rows))}")
             break
+        # Checkpoint: grava linhas + cursor no banco a cada N páginas, pra um
+        # reinício/crash não perder o progresso (e poder continuar do cursor).
+        if checkpoint and page_n % _CHECKPOINT_EVERY == 0:
+            checkpoint(rows, cursor)
         # Rodízio multi-conta: fim do turno → devolve o cursor p/ a próxima conta
         # continuar (em vez do cooldown longo na mesma conta).
         if shift_pages and page_n >= shift_pages:
@@ -284,6 +292,8 @@ async def _friendship_list(page, user_id, username, edge, limit, progress, shoul
             next_pause = page_n + random.randint(15, 25)
         session_pages += 1
         if session_pages >= max_pages:                 # cooldown longo de sessão
+            if checkpoint:                             # salva ANTES da pausa longa
+                checkpoint(rows, cursor)
             await _session_cooldown(should_stop, log)
             session_pages = 0
     return rows, cursor
@@ -315,7 +325,7 @@ def _post_row(it) -> dict:
 
 async def _posts(page, user_id, username, limit, progress, should_stop, log=None,
                  start_max_id=None, seed_rows=None, delay_ms=2500, total=None,
-                 shift_pages=None):
+                 shift_pages=None, checkpoint=None):
     """Posts do perfil (`/api/v1/feed/user/{id}/`). Retorna (rows, cursor)."""
     rows = list(seed_rows or [])
     seen = {str(r.get("Shortcode")) for r in rows if r.get("Shortcode")}
@@ -400,6 +410,9 @@ async def _posts(page, user_id, username, limit, progress, should_stop, log=None
             cursor = None
             break
         cursor = max_id
+        # Checkpoint: grava linhas + cursor a cada N páginas (resume-safe num crash).
+        if checkpoint and page_n % _CHECKPOINT_EVERY == 0:
+            checkpoint(rows, cursor)
         # Rodízio multi-conta: fim do turno → devolve o cursor p/ a próxima conta.
         if shift_pages and page_n >= shift_pages:
             if log:
@@ -414,6 +427,8 @@ async def _posts(page, user_id, username, limit, progress, should_stop, log=None
             next_pause = page_n + random.randint(15, 25)
         session_pages += 1
         if session_pages >= max_pages:
+            if checkpoint:                             # salva ANTES da pausa longa
+                checkpoint(rows, cursor)
             await _session_cooldown(should_stop, log)
             session_pages = 0
     return rows, cursor
@@ -432,7 +447,7 @@ def _total_for(info: dict, kind: str):
 async def extract(profile: dict, kind: str, target: str, limit: int = 0,
                   progress=None, should_stop=None, log=None,
                   start_max_id=None, seed_rows=None, delay_ms=2500, on_total=None,
-                  use_local=False, shift_pages=None) -> dict:
+                  use_local=False, shift_pages=None, checkpoint=None) -> dict:
     """Abre o perfil (logado) e extrai (followers/following/posts).
     Retorna {rows, cursor, total, target, kind, user} ou {error}. start_max_id/seed_rows
     permitem CONTINUAR de onde parou; delay_ms = velocidade; on_total(t) avisa o total.
@@ -475,13 +490,14 @@ async def extract(profile: dict, kind: str, target: str, limit: int = 0,
             rows, cursor = await _friendship_list(page, uid, uname, kind, limit, progress,
                                                   should_stop, log, start_max_id=start_max_id,
                                                   seed_rows=seed_rows, delay_ms=delay_ms, total=total,
-                                                  shift_pages=shift_pages)
+                                                  shift_pages=shift_pages, checkpoint=checkpoint)
         elif kind == "posts":
             if log:
                 log("iniciando extração de posts…")
             rows, cursor = await _posts(page, uid, uname, limit, progress, should_stop, log,
                                         start_max_id=start_max_id, seed_rows=seed_rows,
-                                        delay_ms=delay_ms, total=total, shift_pages=shift_pages)
+                                        delay_ms=delay_ms, total=total, shift_pages=shift_pages,
+                                        checkpoint=checkpoint)
         else:
             return {"error": f"tipo '{kind}' não suportado (use followers/following/posts)"}
         return {"rows": rows, "cursor": cursor, "total": total, "target": uname, "kind": kind, "user": info}

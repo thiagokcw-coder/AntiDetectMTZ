@@ -696,6 +696,20 @@ def delete_spider_run(run_id: str):
         _ex(conn, "DELETE FROM spider_runs WHERE id = ?", (run_id,))
 
 
+def recover_orphan_spider_runs() -> int:
+    """No boot, runs presas em 'running'/'needs_code' (o processo morreu/reiniciou)
+    viram 'stopped' — assim a UI mostra o botão de continuar (o checkpoint já salvou
+    linhas + cursor). Retorna quantas foram recuperadas."""
+    with get_conn() as conn:
+        cur = _ex(conn,
+            "UPDATE spider_runs SET status = 'stopped' "
+            "WHERE status IN ('running', 'needs_code')")
+        try:
+            return cur.rowcount if cur.rowcount is not None and cur.rowcount >= 0 else 0
+        except Exception:
+            return 0
+
+
 # ── Lock de perfil em uso (compartilhado) ──────────────────────────────────────
 
 def _stale_str(ttl_seconds: int) -> str:
