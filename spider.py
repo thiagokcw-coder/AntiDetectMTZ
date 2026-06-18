@@ -116,7 +116,10 @@ def _page_delay_s(delay_ms) -> float:
         f = 1.00 + random.random() * 1.00
     else:
         f = 2.00 + random.random() * 4.00
-    return round(base * f, 2)
+    # Cap o multiplicador: o modo "distraído" (até 6×) gerava páginas de minutos
+    # (ex.: 45s base × 6 = 270s), o que tornava a extração inviável. Mantém a
+    # variância humana, mas nenhuma página passa de ~2,5× o base.
+    return round(base * min(f, 2.5), 2)
 
 
 def _max_pages_for(delay_ms) -> int:

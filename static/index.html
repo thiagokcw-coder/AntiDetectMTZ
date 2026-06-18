@@ -1135,10 +1135,11 @@
           <label>Velocidade — pela CONFIANÇA da conta que raspa</label>
           <select id="sp-speed">
             <option value="120000">🛡️ Ultra seguro — ~30 req/h (conta muito nova/descartável)</option>
-            <option value="45000" selected>🐢 Conta nova — ~80 req/h</option>
+            <option value="45000">🐢 Conta nova — ~80 req/h</option>
             <option value="14400">⚖ Conta média — ~250 req/h</option>
-            <option value="7200">🔼 Conta boa/aquecida — ~500 req/h</option>
+            <option value="7200" selected>🔼 Conta boa/aquecida — ~500 req/h</option>
             <option value="4500">🚀 Conta forte/antiga — ~800 req/h</option>
+            <option value="2000">⚡ Turbo — ~1800 req/h (só conta antiga/validada — risco maior)</option>
           </select>
           <div class="form-hint">Cada requisição = ~50 itens. <b>O limite por hora é o que evita a suspensão</b> — escolha pela confiança da conta: descartável/nova aguenta pouco; conta antiga/aquecida aguenta muito (é o segredo do volume alto numa conta só). Inclui jitter ±40% + pausas de proteção.</div>
         </div>
