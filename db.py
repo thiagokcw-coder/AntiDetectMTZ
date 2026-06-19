@@ -475,6 +475,16 @@ def count_accounts_by_whatsapp(number: str) -> int:
     return (row["n"] if row else 0) or 0
 
 
+def whatsapp_counts() -> dict:
+    """{whatsapp_number: count} — grouped for fast enrichment in lists."""
+    with get_conn() as conn:
+        rows = _ex(conn,
+            "SELECT whatsapp_number, COUNT(*) AS n FROM accounts "
+            "WHERE whatsapp_number IS NOT NULL AND whatsapp_number <> '' "
+            "GROUP BY whatsapp_number").fetchall()
+    return {r["whatsapp_number"]: (r["n"] or 0) for r in rows if r.get("whatsapp_number")}
+
+
 # ── Settings ──────────────────────────────────────────────────────────────────
 
 def get_setting(key: str, default=None):
@@ -672,6 +682,16 @@ def spider_run_upsert(d: dict):
              int(d.get("delay_ms") or 2500), d.get("cursor"), d.get("target"), d.get("kind"),
              int(d.get("count") or 0), d.get("total"), d.get("status"), d.get("error"),
              d.get("rows_json"), d.get("started_at"), d.get("finished_at"), d.get("profile_ids")))
+
+
+def spider_run_update_progress(run_id: str, count: int, cursor: str = None):
+    """Atualização BARATA de progresso (count + cursor) sem re-serializar rows_json gigante.
+    Usado nos checkpoints frequentes durante extração longa. Evita 1min/page causado por
+    json.dumps de dezenas/centenas de milhares de linhas + write no DB a cada 10 páginas."""
+    with get_conn() as conn:
+        _ex(conn,
+            "UPDATE spider_runs SET count = ?, cursor = ? WHERE id = ?",
+            (int(count or 0), cursor, run_id))
 
 
 def list_spider_runs(limit: int = 50) -> list:

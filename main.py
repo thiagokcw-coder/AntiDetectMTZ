@@ -142,11 +142,16 @@ def shutdown():
         try:
             import session_manager as sm
             fut = asyncio.run_coroutine_threadsafe(sm.shutdown_all(), _loop)
-            fut.result(timeout=15)
+            fut.result(timeout=10)
         except Exception:
             pass
     if _server is not None:
         _server.should_exit = True
+        # Tenta forçar parada mais agressiva do uvicorn
+        try:
+            _server.handle_exit()
+        except Exception:
+            pass
 
 
 def wait_api_ready(timeout=30):

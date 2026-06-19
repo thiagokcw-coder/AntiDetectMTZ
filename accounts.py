@@ -83,20 +83,30 @@ def set_limits(proxy_limit: Optional[int] = None, whatsapp_limit: Optional[int] 
     return get_limits()
 
 
-def proxy_limit_status(proxy: Optional[dict]) -> dict:
+def proxy_limit_status(proxy: Optional[dict], *, rec_map: dict = None, usage_map: dict = None, limits: dict = None) -> dict:
     """Status de uso do proxy.
     Quando não há limite global rígido, usa recomendações baseadas em ban rate real.
+    Pass rec_map/usage_map/limits to avoid recomputing globals on hot list paths.
     """
     key = proxy_key(proxy)
-    used = db.count_accounts_by_proxy(key) if key else 0
-    limits = get_limits()
-    global_limit = limits["proxy_limit"]
+    if usage_map is not None:
+        used = usage_map.get(key, 0) if key else 0
+    else:
+        used = db.count_accounts_by_proxy(key) if key else 0
 
-    try:
-        recs = get_proxy_recommendations()
-        rec = next((r for r in recs if r["proxy_key"] == key), None)
-    except Exception:
-        rec = None
+    if limits is None:
+        limits = get_limits()
+    global_limit = limits.get("proxy_limit", 0) if isinstance(limits, dict) else get_limits()["proxy_limit"]
+
+    rec = None
+    if rec_map is not None:
+        rec = rec_map.get(key)
+    else:
+        try:
+            recs = get_proxy_recommendations()
+            rec = next((r for r in recs if r.get("proxy_key") == key), None)
+        except Exception:
+            rec = None
 
     if rec:
         recommended_max = rec.get("recommended_max", 999)
@@ -126,9 +136,17 @@ def profile_account_status(profile_id: str) -> dict:
     }
 
 
-def whatsapp_limit_status(number: Optional[str]) -> dict:
-    used = db.count_accounts_by_whatsapp(number) if number else 0
-    limit = get_limits()["whatsapp_limit"]
+def whatsapp_limit_status(number: Optional[str], *, wa_map: dict = None, limits: dict = None) -> dict:
+    if not number:
+        used = 0
+    elif wa_map is not None:
+        used = wa_map.get(number, 0)
+    else:
+        used = db.count_accounts_by_whatsapp(number)
+
+    if limits is None:
+        limits = get_limits()
+    limit = limits.get("whatsapp_limit", 1) if isinstance(limits, dict) else get_limits()["whatsapp_limit"]
     return {
         "number": number,
         "used": used,
@@ -334,17 +352,30 @@ def _device_label(platform: str) -> str:
     return "Desktop"
 
 
-def _public(acc: dict, reveal: bool = False) -> dict:
+def _public(acc: dict, reveal: bool = False, *, stats_cache: dict = None, profile_map: dict = None) -> dict:
+    stats_cache = stats_cache or {}
     out = dict(acc)
     out["lifespan"] = _lifespan(acc)
-    out["proxy_usage"] = proxy_limit_status(acc.get("proxy"))
-    out["whatsapp_usage"] = whatsapp_limit_status(acc.get("whatsapp_number"))
+    out["proxy_usage"] = proxy_limit_status(
+        acc.get("proxy"),
+        rec_map=stats_cache.get("rec_map"),
+        usage_map=stats_cache.get("usage_map"),
+        limits=stats_cache.get("limits"),
+    )
+    out["whatsapp_usage"] = whatsapp_limit_status(
+        acc.get("whatsapp_number"),
+        wa_map=stats_cache.get("wa_map"),
+        limits=stats_cache.get("limits"),
+    )
     # Aquecimento da CONTA (atividade no IG) — distinto do aquecimento do perfil
     out["account_warmed"] = bool(acc.get("warmup_count"))
     out["account_warmup_count"] = acc.get("warmup_count") or 0
     out["warming"] = warming_status(acc["id"])
-    # Vínculo com o perfil (nome + dispositivo/SO)
-    prof = db.get_profile(acc.get("profile_id")) if acc.get("profile_id") else None
+    # Vínculo com o perfil (nome + dispositivo/SO) — use preloaded map to avoid N+1
+    pid = acc.get("profile_id")
+    prof = (profile_map or {}).get(pid) if pid and profile_map is not None else (
+        db.get_profile(pid) if pid else None
+    )
     if prof:
         out["profile_name"] = prof.get("name")
         out["profile_device"] = _device_label(prof.get("fingerprint", {}).get("platform", ""))
@@ -367,7 +398,46 @@ def _public(acc: dict, reveal: bool = False) -> dict:
 
 
 def list_accounts() -> list:
-    return [_public(a) for a in db.list_accounts()]
+    """Return all accounts with enrichment. Heavy global stats (recommendations,
+    ban analytics, usage maps) and profile lookups are computed ONCE, not per row.
+    This fixes the O(N) full history scans that made the Contas tab (and spider
+    account lists) slow on remote Postgres.
+    """
+    raw = db.list_accounts()
+    if not raw:
+        return []
+
+    stats: dict = {}
+    try:
+        recs = get_proxy_recommendations()
+        stats["rec_map"] = {r.get("proxy_key"): r for r in recs}
+    except Exception:
+        stats["rec_map"] = {}
+
+    try:
+        stats["usage_map"] = db.completed_accounts_by_proxy()
+    except Exception:
+        stats["usage_map"] = {}
+
+    try:
+        stats["wa_map"] = db.whatsapp_counts()
+    except Exception:
+        stats["wa_map"] = {}
+
+    try:
+        stats["limits"] = get_limits()
+    except Exception:
+        stats["limits"] = {"proxy_limit": 0, "whatsapp_limit": 1, "target_country": "", "auto_recheck_hours": 0}
+
+    # Bulk load profiles (table is small) → 1 query instead of N get_profile calls
+    profile_map: dict = {}
+    try:
+        for p in db.list_profiles():
+            profile_map[p["id"]] = p
+    except Exception:
+        pass
+
+    return [_public(a, stats_cache=stats, profile_map=profile_map) for a in raw]
 
 
 def get_account(account_id: str) -> Optional[dict]:

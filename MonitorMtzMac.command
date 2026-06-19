@@ -89,3 +89,30 @@ if [ "$STATUS" -ne 0 ]; then
     echo
     read -r -p "Pressione Enter para fechar..." _
 fi
+
+# ========================================================
+# Fecha automaticamente a janela do Terminal no macOS
+# quando o app (GUI) é fechado. Assim o terminal some junto.
+# ========================================================
+if [ "$(uname)" = "Darwin" ]; then
+    sleep 0.7
+    osascript -e '
+        tell application "Terminal"
+            try
+                -- Tenta fechar janelas que parecem ser deste launcher
+                set scriptName to "MonitorMtzMac"
+                set theWindows to (every window whose name contains scriptName or name ends with ".command")
+                if (count of theWindows) > 0 then
+                    repeat with w in theWindows
+                        close w saving no
+                    end repeat
+                else
+                    -- fallback: fecha a janela da frente (comum ao dar duplo-clique)
+                    close front window saving no
+                end if
+            end try
+        end tell
+    ' >/dev/null 2>&1 || true
+fi
+
+

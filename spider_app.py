@@ -19,7 +19,8 @@ from paths import APP_DIR
 
 
 def _human_delay_s(delay_ms) -> float:
-    """Variância humana trimodal (scan/leitura/distraído) — igual ao reference."""
+    """Variância humana trimodal (scan/leitura/distraído) — igual ao reference.
+    Capped igual ao web spider para evitar páginas de vários minutos no 'distraído'."""
     base = max(0.3, (delay_ms or 2500) / 1000.0)
     r = random.random()
     if r < 0.55:
@@ -28,7 +29,8 @@ def _human_delay_s(delay_ms) -> float:
         f = 1.00 + random.random() * 1.00
     else:
         f = 2.00 + random.random() * 4.00
-    return round(base * f, 2)
+    # Mesmo cap do spider web: evita 6x em presets rápidos virar minutos por página.
+    return round(base * min(f, 2.5), 2)
 
 
 def _max_pages_for(delay_ms) -> int:
@@ -53,11 +55,11 @@ def _page_sleep(delay_ms, page_n, next_pause_ref, log):
     """Pausa entre páginas (variância humana) + pausa de proteção periódica. Sync."""
     time.sleep(_human_delay_s(delay_ms))
     if page_n >= next_pause_ref[0]:
-        pause = round(random.uniform(5, 20), 1)
+        pause = round(random.uniform(4, 12), 1)
         if log:
             log(f"🛡️ pausa de proteção: {pause}s")
         time.sleep(pause)
-        next_pause_ref[0] = page_n + random.randint(15, 25)
+        next_pause_ref[0] = page_n + random.randint(25, 45)
 
 
 def _session_cooldown(session_ref, max_pages, should_stop, log):
@@ -66,7 +68,7 @@ def _session_cooldown(session_ref, max_pages, should_stop, log):
     if session_ref[0] < max_pages:
         return
     session_ref[0] = 0
-    secs = random.randint(600, 1500)
+    secs = random.randint(180, 480)  # 3-8 min (reduzido)
     if log:
         log(f"🧊 cooldown de sessão: ~{secs // 60} min (deixa a conta descansar)…")
     waited = 0
@@ -174,7 +176,7 @@ def _friendship_loop(cl, edge, uid, uname, limit, progress, should_stop, log, st
     max_id = start_max_id or ""
     cursor = max_id or None
     page_n = 0
-    next_pause = [random.randint(15, 25)]
+    next_pause = [random.randint(25, 45)]
     max_pages = _max_pages_for(delay_ms)
     session_ref = [0]
     _tot = (lambda n: f"{n}/{total}" if total else str(n))
@@ -224,7 +226,7 @@ def _posts_loop(cl, uid, uname, limit, progress, should_stop, log, start_max_id,
     end_cursor = start_max_id or ""
     cursor = end_cursor or None
     page_n = 0
-    next_pause = [random.randint(15, 25)]
+    next_pause = [random.randint(25, 45)]
     max_pages = _max_pages_for(delay_ms)
     session_ref = [0]
     _tot = (lambda n: f"{n}/{total}" if total else str(n))
