@@ -1460,11 +1460,16 @@ def _launch_spider_job(*, method, account, profile, label, kind, target, limit, 
                 last_error = r.get("error")
                 _log(f"⚠ conta '{prof.get('name')}' falhou: {str(last_error)[:120]}")
                 if fails >= len(pool):
+                    # TODAS as contas do rodízio falharam no mesmo ponto = provável
+                    # suspensão de todas → marca o run como bloqueado (alimenta o
+                    # aprendizado: essa velocidade derrubou as contas).
+                    job["blocked"] = True
+                    _log("✖ TODAS as contas do rodízio falharam — provável suspensão "
+                         "(velocidade alta demais p/ essas contas). Marcado como bloqueado.")
                     if not made_progress:
                         return {"rows": rows, "cursor": cursor, "total": job.get("total"),
                                 "target": target, "kind": kind, "user": last_user,
                                 "error": last_error}
-                    _log("✖ todas as contas falharam neste ponto — pausando (dá pra continuar de onde parou)")
                     break
                 await asyncio.sleep(round(random.uniform(5, 12), 1))
                 continue
@@ -1659,6 +1664,24 @@ def spider_job(job_id: str):
 def spider_history(limit: int = 50):
     """Histórico persistente das execuções do Spider (metadados)."""
     return {"items": db.list_spider_runs(limit)}
+
+
+class SpiderBlockedRequest(BaseModel):
+    blocked: bool = True
+
+
+@app.post("/spider/history/{run_id}/blocked")
+def spider_history_set_blocked(run_id: str, body: SpiderBlockedRequest):
+    """Corrige o desfecho de um run (terminou em suspensão?) — ENSINA a recomendação
+    de velocidade. Útil quando a suspensão não foi auto-detectada (ex.: parou no meio
+    porque as contas caíram, mas o app registrou como 'parado')."""
+    if not db.get_spider_run(run_id):
+        raise HTTPException(404, "Execução não encontrada")
+    db.set_spider_run_blocked(run_id, body.blocked)
+    j = _spider_jobs.get(run_id)
+    if j is not None:
+        j["blocked"] = body.blocked
+    return {"id": run_id, "blocked": body.blocked}
 
 
 @app.delete("/spider/history/{run_id}", status_code=204)

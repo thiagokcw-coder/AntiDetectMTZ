@@ -709,9 +709,17 @@ def list_spider_runs(limit: int = 50) -> list:
     with get_conn() as conn:
         rows = _ex(conn,
             "SELECT id, method, profile, target, kind, count, total, status, error, "
-            "cursor, started_at, finished_at FROM spider_runs "
+            "cursor, started_at, finished_at, delay_ms, blocked FROM spider_runs "
             "ORDER BY started_at DESC LIMIT ?", (limit,)).fetchall()
     return [dict(r) for r in rows]
+
+
+def set_spider_run_blocked(run_id: str, blocked: bool):
+    """Marca/desmarca um run como 'terminou em suspensão/bloqueio' — o usuário pode
+    corrigir o desfecho p/ ENSINAR a recomendação de velocidade do Spider."""
+    with get_conn() as conn:
+        _ex(conn, "UPDATE spider_runs SET blocked = ? WHERE id = ?",
+            (1 if blocked else 0, run_id))
 
 
 def spider_runs_stats() -> list:
