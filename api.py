@@ -2770,7 +2770,7 @@ def whatsapps_update(wa_id: str, body: WhatsappUpdateRequest):
     if body.notes is not None:
         fields["notes"] = body.notes
     if body.account_id is not None:
-        fields["account_id"] = body.account_id
+        fields["account_id"] = body.account_id or None   # "" → desvincula
     db.update_whatsapp(wa_id, **fields)
     return db.get_whatsapp(wa_id)
 

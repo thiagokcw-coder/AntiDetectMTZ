@@ -796,7 +796,7 @@
 
         <div class="table-wrap">
           <table>
-            <thead><tr><th>Número</th><th>Status</th><th>Observação</th><th>Usado em</th><th>Ações</th></tr></thead>
+            <thead><tr><th>Número</th><th>Status</th><th>Observação</th><th>Usado em</th><th>Conta vinculada</th><th>Ações</th></tr></thead>
             <tbody id="wa-body"></tbody>
           </table>
         </div>
@@ -1483,7 +1483,10 @@ function _waEsc(s) {
 
 async function loadWhatsapps() {
   try {
-    const r = await api('GET', '/whatsapps');
+    const [r, accounts] = await Promise.all([
+      api('GET', '/whatsapps'),
+      api('GET', '/accounts').catch(() => []),
+    ]);
     const items = r.items || [];
     const s = r.summary || { total: 0, free: 0, used: 0 };
     document.getElementById('wa-total').textContent = s.total;
@@ -1493,9 +1496,14 @@ async function loadWhatsapps() {
       `${s.total} número(s) — ${s.free} livre(s), ${s.used} usado(s)`;
     const body = document.getElementById('wa-body');
     if (!items.length) {
-      body.innerHTML = '<tr><td colspan="5" style="color:var(--muted);text-align:center;padding:18px">Nenhum número cadastrado ainda.</td></tr>';
+      body.innerHTML = '<tr><td colspan="6" style="color:var(--muted);text-align:center;padding:18px">Nenhum número cadastrado ainda.</td></tr>';
       return;
     }
+    // opções do select de conta vinculada (— nenhuma — + cada conta)
+    const acctOpts = (sel) => '<option value="">— nenhuma —</option>' +
+      (accounts || []).map(a =>
+        `<option value="${a.id}"${a.id === sel ? ' selected' : ''}>@${_waEsc(a.username || a.id.slice(0, 8))}</option>`
+      ).join('');
     body.innerHTML = items.map(w => {
       const used = (w.status || 'free') === 'used';
       const badge = used
@@ -1505,10 +1513,12 @@ async function loadWhatsapps() {
         ? `<button class="btn btn-ghost btn-sm" onclick="setWhatsappStatus('${w.id}','free')">Marcar livre</button>`
         : `<button class="btn btn-ghost btn-sm" onclick="setWhatsappStatus('${w.id}','used')">Marcar usado</button>`;
       return `<tr>
-        <td style="font-family:monospace">${_waEsc(w.number)}</td>
+        <td><span style="font-family:monospace">${_waEsc(w.number)}</span>
+            <span class="copy" onclick="copyText('${_waEsc(w.number)}')">copiar</span></td>
         <td>${badge}</td>
         <td style="color:var(--muted)">${_waEsc(w.notes || '')}</td>
         <td style="color:var(--muted)">${_waEsc(w.used_at || '')}</td>
+        <td><select onchange="setWhatsappAccount('${w.id}', this.value)" style="max-width:170px">${acctOpts(w.account_id)}</select></td>
         <td style="white-space:nowrap">${toggle}
           <button class="btn btn-ghost btn-sm" onclick="deleteWhatsapp('${w.id}')" title="Excluir">🗑</button></td>
       </tr>`;
@@ -1541,6 +1551,18 @@ async function setWhatsappStatus(id, status) {
     loadWhatsapps();
   } catch (e) {
     toast(e.message || 'Erro ao atualizar', 'error');
+  }
+}
+
+async function setWhatsappAccount(id, accountId) {
+  // Vincular a uma conta também marca o número como "usado"; "— nenhuma —" desvincula.
+  const payload = accountId ? { account_id: accountId, status: 'used' } : { account_id: '' };
+  try {
+    await api('PATCH', `/whatsapps/${id}`, payload);
+    toast(accountId ? 'Número vinculado à conta' : 'Número desvinculado');
+    loadWhatsapps();
+  } catch (e) {
+    toast(e.message || 'Erro ao vincular', 'error');
   }
 }
 
