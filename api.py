@@ -1311,6 +1311,18 @@ def spider_insights():
         except Exception:
             return None
 
+    def _failed(r):
+        """Falhou = a sessão NÃO chegou no total e NÃO foi você que parou (a conta caiu).
+        Também conta o bloqueio explícito. Só julga runs já encerradas."""
+        if r.get("blocked"):
+            return True
+        if r.get("stopped_by_user"):
+            return False
+        finished = (r.get("status") in ("done", "stopped", "error")) or r.get("finished_at")
+        total = r.get("total")
+        count = int(r.get("count") or 0)
+        return bool(finished and total and count < int(total))
+
     tiers = {}
     for r in db.spider_runs_stats():
         d = int(r.get("delay_ms") or 2500)
@@ -1318,7 +1330,7 @@ def spider_insights():
                                  "before_block": [], "minutes": 0.0})
         t["runs"] += 1
         t["items"] += int(r.get("count") or 0)
-        if r.get("blocked"):
+        if _failed(r):
             t["blocked"] += 1
             t["before_block"].append(int(r.get("count") or 0))
         dm = _dur_min(r.get("started_at"), r.get("finished_at"))
@@ -1370,7 +1382,7 @@ def _launch_spider_job(*, method, account, profile, label, kind, target, limit, 
                  "status": job.get("status"),
                  "error": job.get("error"), "rows_json": json.dumps(job.get("rows") or []),
                  "started_at": started_at, "finished_at": job.get("finished_at"),
-                 "blocked": job.get("blocked")}
+                 "blocked": job.get("blocked"), "stopped_by_user": job.get("stopped_by_user")}
             if status_extra:
                 d.update(status_extra)
             db.spider_run_upsert(d)
@@ -1714,6 +1726,8 @@ def spider_job_stop(job_id: str):
     if not j:
         raise HTTPException(404, "Job não encontrado")
     j["stop"] = True
+    j["stopped_by_user"] = True   # parada manual → NÃO conta como falha/suspensão
+    # o finally do worker chama _save() ao encerrar o loop → persiste o flag
     return {"ok": True}
 
 

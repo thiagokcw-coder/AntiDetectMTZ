@@ -3520,7 +3520,7 @@ async function loadSpiderInsights() {
     const reqh = rec ? Math.round(3600 / (rec / 1000)) : null;
     // resumo por velocidade já testada (req/h · runs · bloqueios · itens)
     const parts = (ins.by_speed || []).map(s =>
-      `${s.req_per_hour_nominal}/h: ${s.runs} run(s), ${s.blocked_runs} bloqueio(s)`
+      `${s.req_per_hour_nominal}/h: ${s.runs} run(s), ${s.blocked_runs} falha(s)`
       + (s.avg_items_before_block != null ? ` (caiu ~${s.avg_items_before_block} itens)` : '')
     );
     hint.innerHTML = (rec ? `🧠 Recomendado pelo seu histórico: <b>~${reqh} req/h</b> (selecionado). ` : '')
@@ -3624,30 +3624,27 @@ async function loadSpiderHistory() {
       const alvo = (it.target || '').replace(/^@+/, '');           // evita @@
       const regs = (it.total != null) ? `${it.count || 0}/${it.total}` : `${it.count || 0}`;
       const reqh = it.delay_ms ? Math.round(3600 / (it.delay_ms / 1000)) : null;   // velocidade usada
-      const isBlk = (it.blocked == 1 || it.blocked === true);
-      // Marcar que terminou em SUSPENSÃO (ensina a recomendação de velocidade)
-      const blk = `<button class="btn btn-ghost btn-sm" style="padding:1px 8px;${isBlk ? 'color:var(--red)' : ''}" onclick="spiderToggleBlocked('${it.id}', ${isBlk ? 0 : 1})" title="${isBlk ? 'Terminou em suspensão (clique p/ desmarcar)' : 'Marcar que terminou em SUSPENSÃO (ensina a velocidade segura)'}">${isBlk ? '🚫 suspendeu' : 'suspendeu?'}</button>`;
+      // Desfecho DERIVADO: falhou = não chegou no total e NÃO foi parada manual (a conta caiu).
+      const byUser = (it.stopped_by_user == 1 || it.stopped_by_user === true);
+      const reachedTotal = it.total ? ((it.count || 0) >= it.total) : !it.cursor;
+      const failed = (it.blocked == 1 || it.blocked === true)
+        || (!byUser && it.status !== 'running' && it.total && (it.count || 0) < it.total);
+      const outcome = failed ? '🚫 falhou (conta caiu)'
+        : reachedTotal ? '✓ completou'
+        : byUser ? '⏸ você parou'
+        : (SP_STATUS_LABEL[it.status] || escapeHtml(it.status || ''));
+      const outColor = failed ? 'var(--red)' : reachedTotal ? 'var(--green)' : stColor;
       return `<tr>
         <td style="font-size:12px;color:var(--muted)">${escapeHtml(when)}</td>
         <td><code>@${escapeHtml(alvo)}</code>${reqh ? `<div style="font-size:11px;color:var(--muted)">${reqh} req/h</div>` : ''}</td>
         <td>${escapeHtml(it.kind || '')}</td>
         <td>${escapeHtml(it.method || '')}</td>
         <td><b>${regs}</b></td>
-        <td style="color:${isBlk ? 'var(--red)' : stColor}">${isBlk ? '🚫 suspendeu' : (SP_STATUS_LABEL[it.status] || escapeHtml(it.status || ''))}</td>
-        <td>${cont} ${rerun} ${blk} ${dl} <button class="btn btn-ghost btn-sm" style="padding:1px 8px" onclick="spiderHistoryDelete('${it.id}')" title="Remover do histórico">🗑</button></td>
+        <td style="color:${outColor}">${outcome}</td>
+        <td>${cont} ${rerun} ${dl} <button class="btn btn-ghost btn-sm" style="padding:1px 8px" onclick="spiderHistoryDelete('${it.id}')" title="Remover do histórico">🗑</button></td>
       </tr>`;
     }).join('');
   } catch (e) { /* silencioso */ }
-}
-
-// Marca/desmarca que um run terminou em SUSPENSÃO — ensina a recomendação de velocidade.
-async function spiderToggleBlocked(id, blocked) {
-  try {
-    await api('POST', `/spider/history/${id}/blocked`, { blocked: !!blocked });
-    toast(blocked ? 'Marcado como suspensão — a recomendação vai considerar isso' : 'Desmarcado');
-    loadSpiderHistory();
-    loadSpiderInsights();   // recalcula a velocidade recomendada na hora
-  } catch (e) { toast(e.message || 'Erro ao marcar', 'error'); }
 }
 
 // Baixa o CSV de uma execução. O servidor SEMPRE salva em data/<alvo>/ (o app roda
