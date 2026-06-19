@@ -12,6 +12,33 @@
 - **Aba Emails** virou **registro manual** (livre/usado) espelhando WhatsApps; IMAP/catch-all removido da UI (código IMAP do backend fica dormente). Endpoints `/emails` (GET/POST/PATCH/DELETE).
 - Menu: Início = Comece aqui · Perfis · Contas · Emails · WhatsApps · Métricas; Utilitários = Importar CSV · Novo Perfil · Proxies · Abrir Todos · Sessões · Diagnóstico.
 
+## 🆕 SESSÃO 2026-06-19 (Mac, branch `macos`) — PORTAR P/ WINDOWS (main)
+
+**O trabalho desta sessão está na branch `macos` (11 commits à frente do `origin/main`).** O `main` = Windows (sincroniza com o reference do chefe). Decisão do usuário: **não misturar Mac e Windows ao commitar** → tudo foi pra `macos`. **Próximo passo (de casa, no Windows): trazer essas mudanças pro `main`.**
+
+**Como portar (de casa):**
+1. `git fetch` (a branch foi publicada via GitHub Desktop → `origin/macos`).
+2. `git checkout main && git merge macos` (ou cherry-pick commit a commit). **Tudo é multiplataforma** (código Mac-específico é guardado por `sys.platform`/`platform.system()`), exceto a 1 mudança em **`MonitorMtzMac.command`** (auto-fechar Terminal no Mac) — inofensiva no Windows, pode vir junto.
+3. **Banco:** as migrações (colunas novas) rodam sozinhas no startup via `db._ensure_column` (idempotente). Como o **Postgres é COMPARTILHADO**, as colunas **já foram criadas** pelo Mac — o Windows só usa. Colunas novas: `accounts.suspension_count`, `account_history.suspension_count`, `spider_runs.blocked`, `spider_runs.stopped_by_user`.
+4. Validar no Windows (`venv\Scripts\python.exe -m py_compile`), testar a aba Spider/Métricas, e push do `main` pelo GitHub Desktop.
+
+**Os 11 commits (mais novo → mais antigo) e o que cada um traz:**
+- `406141b` Spider: **detecta falha sozinho** — sessão que não chega no `total` e NÃO foi parada por você = falhou (conta caiu). Registra `stopped_by_user` no run; `/spider/insights` deriva "falhou"; histórico mostra ✓ completou / 🚫 falhou / ⏸ você parou + req/h por run.
+- `c8a0c0e` Spider: rodízio marca bloqueio quando TODAS as contas falham; endpoint `POST /spider/history/{id}/blocked` (override manual).
+- `8530230` Spider: **aprendizado por velocidade** — `GET /spider/insights` agrega por `delay_ms` (runs/itens/taxa de falha/itens-até-cair/itens-h efetivo) e `_spider_recommended_delay()` = a mais rápida testada que nunca falhou (senão, mais lenta); UI **pré-seleciona** a velocidade recomendada + hint "🧠 Recomendado pelo seu histórico".
+- `5722cbd` Spider: bloqueio/desafio (`meta["blocked"]`) marca a conta como `checkpoint` (entra no contador de suspensões). `spider.extract` retorna `blocked`; `_spider_mark_blocked` em api.
+- `fb59746` Métricas: **contador de suspensões persistente** (`suspension_count` em accounts+account_history; conta a ENTRADA em suspended/checkpoint, não recontа re-checagem; helper `accounts._apply_status` centraliza set_status/aquecimento/check_status). `get_ban_analytics` agora traz `checkpoint`/`in_suspension`/`total_suspension_events`. UI: "Vezes suspensa" no detalhe + breakdown de Métricas. **Corrige bug:** checkpoint não era contado como "em suspensão".
+- `0d4e7a4` Performance/UX: `accounts.list_accounts()` calcula stats globais e perfis 1×, não por linha (corrige O(N) lento no Postgres remoto); `db.spider_run_update_progress` (checkpoint barato sem re-serializar rows_json gigante — evitava ~1min/página); `whatsapp_counts`; spider_app cap de variância; uvicorn shutdown mais firme; MonitorMtzMac.command fecha Terminal. **(Esse commit conserta um HEAD quebrado: api.py chamava `db.spider_run_update_progress` que só existia aqui.)**
+- `c3947ef` WhatsApps: número com "copiar" + coluna "Conta vinculada" (vincular grava account_id+used; "" desvincula).
+- `7bd3ef0` Spider: **"Continuar de onde parou" usa a velocidade do seletor ATUAL** (antes reusava a salva na run — por isso mudar p/ Turbo não fazia efeito num resume).
+- `10d2cae` Spider: diagnóstico `· req Xs` por página (revelou que o gargalo era o delay, não 429/rede).
+- `dc4819d` Spider: default mais rápido (Boa 7,2s), opção **Turbo** (2s), cap da variância em 2,5× (acabaram páginas de minutos).
+- `eb82123` Spider: **Parar responde na hora** (`_sleep_stop` interrompível; antes esperava até ~45s o sleep entre páginas).
+
+**Aprendizado-chave validado:** a extração de 217k/1M com 3 contas no rodízio a **800 req/h FALHOU** (as 3 foram suspensas) — o sistema agora detecta isso sozinho e recomenda velocidade mais lenta. **Fator nº1 continua a CONFIANÇA da conta** (descartável cai cedo em qualquer velocidade).
+
+**Pendências/ideias:** recomendação **por conta** (cada conta tem teto próprio) em vez de global por velocidade; método **App (instagrapi)** ainda não seta `blocked` (só o Web).
+
 ## 🆕 SESSÃO 2026-06-16 (continuar de outro PC daqui)
 
 **Banco compartilhado CONFIGURADO (Supabase Postgres).** Projeto "ManagerMTZ data", região São Paulo. Conexão via **Session pooler** (`postgresql://postgres.lakoruwdfabeyqbqcffg:<senha>@aws-1-sa-east-1.pooler.supabase.com:5432/postgres?sslmode=require`). Dados locais já migrados (`migrate_to_postgres.py`). A URL fica em **`database_url.txt`** ao lado do launcher (**gitignored** — não vai pro git). Compartilhado = registro de perfis/contas/emails/proxies/métricas; **local em cada PC** = `user_data` (cookies/sessão logada).
