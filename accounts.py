@@ -245,9 +245,26 @@ def edit(account_id: str, data: dict) -> dict:
     return get_account(account_id)
 
 
-def set_status(account_id: str, status: str, detail: str = ""):
-    fields = {"status": status, "status_detail": detail}
-    if status in ("banned", "suspended"):
+# Estados de "Em suspensão" (recuperável). checkpoint e suspended contam como suspensão.
+SUSPEND_STATES = ("suspended", "checkpoint")
+
+
+def _apply_status(account_id: str, status: str, detail: str = "", extra: dict = None):
+    """Aplica um novo status à conta, CONTANDO as entradas em suspensão e gravando no
+    histórico. Centraliza as vias (manual / aquecimento / verificação) p/ a contagem
+    ser consistente. Conta só a TRANSIÇÃO p/ suspensão (não recontа a cada re-checagem
+    enquanto a conta já está suspensa)."""
+    acc = db.get_account(account_id)
+    if not acc:
+        return
+    fields = dict(extra or {})
+    fields["status"] = status
+    if detail is not None:
+        fields["status_detail"] = detail
+    prev = acc.get("status")
+    if status in SUSPEND_STATES and prev not in SUSPEND_STATES:
+        fields["suspension_count"] = int(acc.get("suspension_count") or 0) + 1
+    if status in ("banned", "suspended") and not acc.get("banned_at"):
         fields["banned_at"] = _now().strftime("%Y-%m-%d %H:%M:%S")
     db.update_account(account_id, **fields)
     # Espelha no histórico append-only (métricas persistem mesmo se a conta/perfil for apagado).
@@ -255,6 +272,10 @@ def set_status(account_id: str, status: str, detail: str = ""):
         db.record_account_history(db.get_account(account_id))
     except Exception:
         pass
+
+
+def set_status(account_id: str, status: str, detail: str = ""):
+    _apply_status(account_id, status, detail)
 
 
 def set_whatsapp(account_id: str, number: str):
@@ -321,14 +342,12 @@ async def run_account_warmup(account_id: str, minutes: float = 8, headless: bool
         st = await sm.run_profile_task(profile, _fn, headless=headless, load_extension=False)
         db.mark_account_warmed(account_id)
         # Atualiza o status real se a verificação foi conclusiva
-        fields = {"last_checked_at": _now().strftime("%Y-%m-%d %H:%M:%S")}
+        ts = _now().strftime("%Y-%m-%d %H:%M:%S")
         if isinstance(st, dict) and st.get("status") and st["status"] != "unknown":
-            fields["status"] = st["status"]
-            fields["status_detail"] = st.get("detail", "")
-            if st["status"] in ("banned", "suspended") and not acc.get("banned_at"):
-                fields["banned_at"] = _now().strftime("%Y-%m-%d %H:%M:%S")
-            fields["last_check_result"] = st.get("detail", "")
-        db.update_account(account_id, **fields)
+            _apply_status(account_id, st["status"], st.get("detail", ""),
+                          extra={"last_checked_at": ts, "last_check_result": st.get("detail", "")})
+        else:
+            db.update_account(account_id, last_checked_at=ts)
         _warming[account_id] = {"status": "done", "minutes": minutes, "ends_at": time.time()}
     except Exception as e:
         _warming[account_id] = {"status": "error", "minutes": minutes,
@@ -536,7 +555,12 @@ def get_ban_analytics() -> dict:
     active = sum(1 for a in all_accounts if a.get("status") == "active")
     banned = sum(1 for a in all_accounts if a.get("status") == "banned")
     suspended = sum(1 for a in all_accounts if a.get("status") == "suspended")
-    other = total - active - banned - suspended
+    checkpoint = sum(1 for a in all_accounts if a.get("status") == "checkpoint")
+    # "Em suspensão" AGORA (recuperável) = suspended + checkpoint (a UI mostra os dois assim)
+    in_suspension = suspended + checkpoint
+    # Total de EVENTOS de suspensão somando todas as contas (persiste no histórico)
+    total_suspension_events = sum(int(a.get("suspension_count") or 0) for a in all_accounts)
+    other = total - active - banned - suspended - checkpoint
 
     ban_rate = round((banned + suspended) / total * 100, 1) if total > 0 else 0.0
 
@@ -580,6 +604,9 @@ def get_ban_analytics() -> dict:
         "active": active,
         "banned": banned,
         "suspended": suspended,
+        "checkpoint": checkpoint,
+        "in_suspension": in_suspension,                  # suspensas AGORA (suspended + checkpoint)
+        "total_suspension_events": total_suspension_events,  # quantas vezes contas foram suspensas (histórico)
         "other": other,
         "ban_rate_pct": ban_rate,
         "average_lifespan_days": avg_lifespan,
@@ -706,17 +733,13 @@ async def check_status(account_id: str, headless: bool = True) -> dict:
     result = await sm.check_account_status(profile, ig.detect_status, headless=headless)
     status = result.get("status", "unknown")
     detail = result.get("detail", "")
-    fields = {
-        "last_checked_at": _now().strftime("%Y-%m-%d %H:%M:%S"),
-        "last_check_result": detail,
-    }
-    # Só sobrescreve status com resultados conclusivos
+    ts = _now().strftime("%Y-%m-%d %H:%M:%S")
+    # Só sobrescreve status com resultados conclusivos; _apply_status conta a suspensão.
     if status != "unknown":
-        fields["status"] = status
-        fields["status_detail"] = detail
-        if status in ("banned", "suspended") and not acc.get("banned_at"):
-            fields["banned_at"] = _now().strftime("%Y-%m-%d %H:%M:%S")
-    db.update_account(account_id, **fields)
+        _apply_status(account_id, status, detail,
+                      extra={"last_checked_at": ts, "last_check_result": detail})
+    else:
+        db.update_account(account_id, last_checked_at=ts, last_check_result=detail)
     # Conta confirmada logada → marca o e-mail vinculado como 'usado' (se cadastrado).
     if status == "active" and acc.get("email"):
         try:

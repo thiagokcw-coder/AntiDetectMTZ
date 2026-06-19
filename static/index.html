@@ -3158,7 +3158,9 @@ async function loadAnalytics() {
     document.getElementById('an-ban-rate').textContent = (data.ban_rate_pct != null) ? `${data.ban_rate_pct}%` : '—';
     document.getElementById('an-avg-life').textContent = (data.average_lifespan_days != null) ? data.average_lifespan_days : '—';
 
-    const breakdown = `${data.active ?? 0} ativas • ${data.banned ?? 0} banidas • ${data.suspended ?? 0} suspensas`;
+    const inSusp = data.in_suspension ?? ((data.suspended ?? 0) + (data.checkpoint ?? 0));
+    const breakdown = `${data.active ?? 0} ativas • ${data.banned ?? 0} banidas (final) • ${inSusp} em suspensão agora`
+      + ` • ${data.total_suspension_events ?? 0} suspensões no total`;
     document.getElementById('an-breakdown').textContent = breakdown;
 
     const tbody = document.getElementById('an-proxy-body');
@@ -3283,6 +3285,7 @@ async function accountDetail(id) {
     detailRow('Proxy', proxyStr, true) +
     detailRow('Uso do proxy', a.proxy_usage ? `${a.proxy_usage.used}/${a.proxy_usage.limit || '∞'}` : '—') +
     detailRow('Vida útil', a.lifespan?.label) +
+    detailRow('Vezes suspensa', String(a.suspension_count || 0)) +
     detailRow('Status detalhe', a.status_detail) +
     detailRow('Criada em', a.created_at ? a.created_at.replace('T', ' ') : null) +
     detailRow('Banida em', a.banned_at ? a.banned_at.replace('T', ' ') : null) +

@@ -249,6 +249,10 @@ def init_db():
         _ensure_column(conn, "profiles", "pool_status", "TEXT")
         # Momento em que o aquecimento começou (para mostrar tempo decorrido na UI)
         _ensure_column(conn, "profiles", "warm_started_at", "TEXT")
+        # Quantas vezes a conta entrou em suspensão (suspended/checkpoint). Persiste
+        # no histórico (nunca diminui) — suspensão é recuperável, mas o histórico conta.
+        _ensure_column(conn, "accounts", "suspension_count", "INTEGER DEFAULT 0")
+        _ensure_column(conn, "account_history", "suspension_count", "INTEGER DEFAULT 0")
 
 
 def _ensure_column(conn, table: str, col: str, decl: str):
@@ -404,15 +408,18 @@ def record_account_history(acc: dict):
     with get_conn() as conn:
         _ex(conn,
             "INSERT INTO account_history "
-            "(account_id, username, email, proxy_key, status, status_detail, created_at, banned_at, last_checked_at, recorded_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+            "(account_id, username, email, proxy_key, status, status_detail, created_at, banned_at, last_checked_at, recorded_at, suspension_count) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
             "ON CONFLICT(account_id) DO UPDATE SET "
             "username=excluded.username, email=excluded.email, proxy_key=excluded.proxy_key, "
             "status=excluded.status, status_detail=excluded.status_detail, created_at=excluded.created_at, "
-            "banned_at=excluded.banned_at, last_checked_at=excluded.last_checked_at, recorded_at=excluded.recorded_at",
+            "banned_at=excluded.banned_at, last_checked_at=excluded.last_checked_at, recorded_at=excluded.recorded_at, "
+            # espelha o contador da conta viva (que só cresce); compatível SQLite+Postgres
+            "suspension_count=excluded.suspension_count",
             (acc.get("id"), acc.get("username"), acc.get("email"), acc.get("proxy_key"),
              acc.get("status"), acc.get("status_detail"), acc.get("created_at"),
-             acc.get("banned_at"), acc.get("last_checked_at"), _now_str()))
+             acc.get("banned_at"), acc.get("last_checked_at"), _now_str(),
+             int(acc.get("suspension_count") or 0)))
 
 
 def list_account_history() -> list:
