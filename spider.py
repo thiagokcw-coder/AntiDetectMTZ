@@ -189,7 +189,7 @@ async def _resolve_user(page, username: str):
 
 async def _friendship_list(page, user_id, username, edge, limit, progress, should_stop,
                            log=None, start_max_id=None, seed_rows=None, delay_ms=2500, total=None,
-                           shift_pages=None, checkpoint=None):
+                           shift_pages=None, checkpoint=None, meta=None):
     """Lista de relacionamento (edge='followers' ou 'following') via GraphQL.
     Pagina de verdade pelo `end_cursor` (a API v1 /friendships/ capava em ~50).
     Retorna (rows, cursor); cursor=None => completo. cursor = end_cursor do GraphQL."""
@@ -252,6 +252,8 @@ async def _friendship_list(page, user_id, username, edge, limit, progress, shoul
             if log:
                 log(f"✖ resposta inesperada (status {st}) — possível bloqueio/desafio "
                     f"na conta. Encerrando (dá pra continuar de onde parou).")
+            if meta is not None:
+                meta["blocked"] = True   # sinaliza p/ marcar a conta como suspensa
             break
         before = len(rows)
         for e in (data.get("edges") or []):
@@ -340,7 +342,7 @@ def _post_row(it) -> dict:
 
 async def _posts(page, user_id, username, limit, progress, should_stop, log=None,
                  start_max_id=None, seed_rows=None, delay_ms=2500, total=None,
-                 shift_pages=None, checkpoint=None):
+                 shift_pages=None, checkpoint=None, meta=None):
     """Posts do perfil (`/api/v1/feed/user/{id}/`). Retorna (rows, cursor)."""
     rows = list(seed_rows or [])
     seen = {str(r.get("Shortcode")) for r in rows if r.get("Shortcode")}
@@ -397,6 +399,8 @@ async def _posts(page, user_id, username, limit, progress, should_stop, log=None
             if log:
                 log(f"✖ resposta inesperada (status {st}) — possível bloqueio/desafio "
                     f"na conta. Encerrando (dá pra continuar de onde parou).")
+            if meta is not None:
+                meta["blocked"] = True   # sinaliza p/ marcar a conta como suspensa
             cursor = max_id
             break
         j = res["json"]
@@ -475,6 +479,7 @@ async def extract(profile: dict, kind: str, target: str, limit: int = 0,
     _actor = profile.get("name") or profile.get("id") or "perfil"
     _px = profile.get("proxy") or {}
     _conn = "IP local (sem proxy)" if use_local else (f"proxy {_px.get('host')}" if _px.get("host") else "sem proxy")
+    meta = {}   # loops sinalizam aqui (ex.: blocked=True em bloqueio/desafio)
     async def _run(page):
         if log:
             log(f"🧭 raspando com a conta/perfil: '{_actor}' · {_conn}")
@@ -505,17 +510,18 @@ async def extract(profile: dict, kind: str, target: str, limit: int = 0,
             rows, cursor = await _friendship_list(page, uid, uname, kind, limit, progress,
                                                   should_stop, log, start_max_id=start_max_id,
                                                   seed_rows=seed_rows, delay_ms=delay_ms, total=total,
-                                                  shift_pages=shift_pages, checkpoint=checkpoint)
+                                                  shift_pages=shift_pages, checkpoint=checkpoint, meta=meta)
         elif kind == "posts":
             if log:
                 log("iniciando extração de posts…")
             rows, cursor = await _posts(page, uid, uname, limit, progress, should_stop, log,
                                         start_max_id=start_max_id, seed_rows=seed_rows,
                                         delay_ms=delay_ms, total=total, shift_pages=shift_pages,
-                                        checkpoint=checkpoint)
+                                        checkpoint=checkpoint, meta=meta)
         else:
             return {"error": f"tipo '{kind}' não suportado (use followers/following/posts)"}
-        return {"rows": rows, "cursor": cursor, "total": total, "target": uname, "kind": kind, "user": info}
+        return {"rows": rows, "cursor": cursor, "total": total, "target": uname, "kind": kind,
+                "user": info, "blocked": bool(meta.get("blocked"))}
 
     try:
         return await sm.run_profile_task(profile, _run, headless=True)

@@ -1260,6 +1260,23 @@ def _spider_pool_from_run(run: dict) -> list:
     return [pr for pr in (get_profile(x) for x in pids) if pr]
 
 
+def _spider_mark_blocked(profile=None, account=None,
+                         reason="Spider: possível bloqueio/desafio na extração"):
+    """O Spider bateu em bloqueio/desafio (não 429/rede) → normalmente a conta foi
+    suspensa. Marca a conta (do perfil, no Web; ou a conta, no App) como 'checkpoint'
+    = 'Em suspensão' → entra no contador de suspensões e nas métricas."""
+    try:
+        a = account
+        if a is None and profile:
+            a = db.get_account_by_profile(profile.get("id"))
+        if a and a.get("id"):
+            acc.set_status(a["id"], "checkpoint", reason)
+            return a.get("username") or a.get("id")
+    except Exception:
+        logger.exception("spider: falha ao marcar conta como suspensa")
+    return None
+
+
 def _launch_spider_job(*, method, account, profile, label, kind, target, limit, use_local,
                        delay_ms=2500, profile_id=None, account_id=None, seed_rows=None,
                        start_cursor=None, job_id=None, started_at=None, profiles=None):
@@ -1395,6 +1412,10 @@ def _launch_spider_job(*, method, account, profile, label, kind, target, limit, 
             job["rows"] = rows; job["count"] = len(rows); job["cursor"] = cursor
             if r.get("total") is not None:
                 job["total"] = r.get("total")
+            if r.get("blocked"):   # bloqueio/desafio nesta conta → marca suspensa
+                u = _spider_mark_blocked(profile=prof)
+                if u:
+                    _log(f"⚠ '{u}' marcada como 'em suspensão' (possível bloqueio/desafio)")
             _save()   # persiste após CADA turno (resume-safe; soma no mesmo CSV)
             if not cursor:
                 _log(f"✓ rodízio concluído — {len(rows)} registro(s)")
@@ -1434,6 +1455,13 @@ def _launch_spider_job(*, method, account, profile, label, kind, target, limit, 
                 # Parou no meio (cursor presente) e não foi erro → 'stopped' (continuável)
                 job["status"] = "stopped" if job.get("cursor") else "done"
                 job["detail"] = ""
+                # Bloqueio/desafio detectado (modo single; o rodízio já marca por turno)
+                # → marca a conta como suspensa p/ entrar nas métricas.
+                if res.get("blocked") and not (profiles and len(profiles) > 1):
+                    u = _spider_mark_blocked(account=account if method == "app" else None,
+                                             profile=None if method == "app" else profile)
+                    if u:
+                        _log(f"⚠ '{u}' marcada como 'em suspensão' (possível bloqueio/desafio)")
         except Exception as e:
             job["status"] = "error"; job["error"] = str(e)
             _log("✖ erro: " + str(e)[:160])
