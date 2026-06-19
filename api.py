@@ -1277,6 +1277,69 @@ def _spider_mark_blocked(profile=None, account=None,
     return None
 
 
+_SPIDER_SPEED_TIERS = (2000, 4500, 7200, 14400, 45000, 120000)
+
+
+def _spider_recommended_delay(by_speed: list):
+    """Regra (estatística, sem IA): a velocidade MAIS RÁPIDA testada que NUNCA bloqueou.
+    Se alguma bloqueou, recomenda uma mais LENTA (delay maior) que a pior que bloqueou.
+    Sem dados → None (mantém o default)."""
+    tested = [t for t in by_speed if t["runs"] >= 1]
+    if not tested:
+        return None
+    blocked = [t["delay_ms"] for t in tested if t["blocked_runs"] > 0]
+    safe = [t["delay_ms"] for t in tested if t["blocked_runs"] == 0]
+    if blocked:
+        worst = max(blocked)   # a velocidade mais lenta (maior delay) que AINDA bloqueou
+        slower = [d for d in _SPIDER_SPEED_TIERS if d > worst]
+        return min(slower) if slower else max(_SPIDER_SPEED_TIERS)
+    return min(safe) if safe else None
+
+
+@app.get("/spider/insights")
+def spider_insights():
+    """Aprendizado do Spider: agrega o histórico de extrações por VELOCIDADE (delay_ms)
+    — quantas runs, itens, taxa de bloqueio, itens até bloquear, ritmo efetivo — e
+    recomenda a velocidade segura. Regras + estatística (sem IA)."""
+    import datetime as _dt2
+
+    def _dur_min(a, b):
+        try:
+            ta = _dt2.datetime.strptime(a, "%Y-%m-%d %H:%M:%S")
+            tb = _dt2.datetime.strptime(b, "%Y-%m-%d %H:%M:%S")
+            return max(0.0, (tb - ta).total_seconds() / 60.0)
+        except Exception:
+            return None
+
+    tiers = {}
+    for r in db.spider_runs_stats():
+        d = int(r.get("delay_ms") or 2500)
+        t = tiers.setdefault(d, {"runs": 0, "items": 0, "blocked": 0,
+                                 "before_block": [], "minutes": 0.0})
+        t["runs"] += 1
+        t["items"] += int(r.get("count") or 0)
+        if r.get("blocked"):
+            t["blocked"] += 1
+            t["before_block"].append(int(r.get("count") or 0))
+        dm = _dur_min(r.get("started_at"), r.get("finished_at"))
+        if dm:
+            t["minutes"] += dm
+    by_speed = []
+    for d, t in sorted(tiers.items()):
+        br = round(t["blocked"] / t["runs"] * 100, 1) if t["runs"] else 0.0
+        avg_before = round(sum(t["before_block"]) / len(t["before_block"])) if t["before_block"] else None
+        eff = round(t["items"] / (t["minutes"] / 60.0)) if t["minutes"] > 0 else None
+        by_speed.append({"delay_ms": d,
+                         "req_per_hour_nominal": (round(3600 / (d / 1000.0)) if d else 0),
+                         "runs": t["runs"], "items": t["items"],
+                         "blocked_runs": t["blocked"], "block_rate_pct": br,
+                         "avg_items_before_block": avg_before,
+                         "effective_items_per_hour": eff})
+    return {"by_speed": by_speed,
+            "recommended_delay_ms": _spider_recommended_delay(by_speed),
+            "total_runs": sum(t["runs"] for t in tiers.values())}
+
+
 def _launch_spider_job(*, method, account, profile, label, kind, target, limit, use_local,
                        delay_ms=2500, profile_id=None, account_id=None, seed_rows=None,
                        start_cursor=None, job_id=None, started_at=None, profiles=None):
@@ -1306,7 +1369,8 @@ def _launch_spider_job(*, method, account, profile, label, kind, target, limit, 
                  "count": job.get("count", 0), "total": job.get("total"),
                  "status": job.get("status"),
                  "error": job.get("error"), "rows_json": json.dumps(job.get("rows") or []),
-                 "started_at": started_at, "finished_at": job.get("finished_at")}
+                 "started_at": started_at, "finished_at": job.get("finished_at"),
+                 "blocked": job.get("blocked")}
             if status_extra:
                 d.update(status_extra)
             db.spider_run_upsert(d)
@@ -1413,6 +1477,7 @@ def _launch_spider_job(*, method, account, profile, label, kind, target, limit, 
             if r.get("total") is not None:
                 job["total"] = r.get("total")
             if r.get("blocked"):   # bloqueio/desafio nesta conta → marca suspensa
+                job["blocked"] = True
                 u = _spider_mark_blocked(profile=prof)
                 if u:
                     _log(f"⚠ '{u}' marcada como 'em suspensão' (possível bloqueio/desafio)")
@@ -1458,6 +1523,7 @@ def _launch_spider_job(*, method, account, profile, label, kind, target, limit, 
                 # Bloqueio/desafio detectado (modo single; o rodízio já marca por turno)
                 # → marca a conta como suspensa p/ entrar nas métricas.
                 if res.get("blocked") and not (profiles and len(profiles) > 1):
+                    job["blocked"] = True
                     u = _spider_mark_blocked(account=account if method == "app" else None,
                                              profile=None if method == "app" else profile)
                     if u:

@@ -1142,6 +1142,7 @@
             <option value="2000">⚡ Turbo — ~1800 req/h (só conta antiga/validada — risco maior)</option>
           </select>
           <div class="form-hint">Cada requisição = ~50 itens. <b>O limite por hora é o que evita a suspensão</b> — escolha pela confiança da conta: descartável/nova aguenta pouco; conta antiga/aquecida aguenta muito (é o segredo do volume alto numa conta só). Inclui jitter ±40% + pausas de proteção.</div>
+          <div class="form-hint" id="sp-insights-hint" style="display:none;margin-top:6px;color:var(--accent2)"></div>
         </div>
         <div style="display:flex;gap:8px;align-items:center">
           <button id="sp-start" class="btn btn-primary" onclick="spiderStart()">▶ Iniciar</button>
@@ -3501,7 +3502,31 @@ async function loadSpider() {
     ).join('') || '<option value="">(nenhuma conta com usuário)</option>';
     spiderMethodChange();
     loadSpiderHistory();
+    loadSpiderInsights();
   } catch (e) { toast(e.message || 'Erro ao carregar perfis/contas', 'error'); }
+}
+
+// Aprendizado: lê o histórico de extrações e recomenda/seleciona a velocidade segura.
+async function loadSpiderInsights() {
+  const hint = document.getElementById('sp-insights-hint');
+  if (!hint) return;
+  try {
+    const ins = await api('GET', '/spider/insights');
+    if (!ins || !ins.total_runs) { hint.style.display = 'none'; return; }
+    const sel = document.getElementById('sp-speed');
+    const rec = ins.recommended_delay_ms;
+    // pré-seleciona a velocidade recomendada (se a opção existir e o usuário não mexeu)
+    if (rec && [...sel.options].some(o => +o.value === rec)) sel.value = String(rec);
+    const reqh = rec ? Math.round(3600 / (rec / 1000)) : null;
+    // resumo por velocidade já testada (req/h · runs · bloqueios · itens)
+    const parts = (ins.by_speed || []).map(s =>
+      `${s.req_per_hour_nominal}/h: ${s.runs} run(s), ${s.blocked_runs} bloqueio(s)`
+      + (s.avg_items_before_block != null ? ` (caiu ~${s.avg_items_before_block} itens)` : '')
+    );
+    hint.innerHTML = (rec ? `🧠 Recomendado pelo seu histórico: <b>~${reqh} req/h</b> (selecionado). ` : '')
+      + (parts.length ? `<span style="color:var(--muted)">Histórico — ${parts.join(' · ')}</span>` : '');
+    hint.style.display = '';
+  } catch (e) { hint.style.display = 'none'; }
 }
 
 async function spiderStart() {
