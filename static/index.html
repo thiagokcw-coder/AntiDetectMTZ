@@ -1097,7 +1097,7 @@
         <div class="form-group" id="sp-profile-group">
           <label>Contas que vão raspar — marque <b>1</b> (conta única) ou <b>várias</b></label>
           <div id="sp-profile-list" style="max-height:168px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;padding:6px 8px;background:var(--surface)"></div>
-          <div class="form-hint">Use contas de scraping <b>descartáveis</b> já logadas — não use suas contas boas (raspar queima conta). Marcar <b>2+</b> abre a escolha: <b>alvos diferentes</b> (recomendado — cada conta no seu alvo, em paralelo) ou <b>rodízio</b> no mesmo alvo (arriscado).</div>
+          <div class="form-hint">Use contas de scraping <b>descartáveis</b> já logadas — não use suas contas boas (raspar queima conta). Marcar <b>2+</b> abre a escolha: <b>alvos diferentes</b> (recomendado — cada conta no seu alvo, em paralelo) ou <b>rodízio</b> no mesmo alvo (arriscado).<br>↪ <b>Trocar de conta e continuar:</b> se uma run caiu, marque <b>1 conta nova</b> aqui e clique <b>Continuar de onde parou</b> — segue do mesmo ponto com a conta fresca (faça logo: o cursor expira com o tempo).</div>
           <label style="margin-top:10px">Conexão de saída</label>
           <select id="sp-web-ipmode" onchange="spiderIpModeHint()">
             <option value="local" selected>IP local — todas saem pelo MESMO IP do PC (sem proxy)</option>
@@ -3808,7 +3808,15 @@ async function spiderResume(id) {
   try {
     // Usa a velocidade selecionada AGORA (antes o Continuar reusava a salva na run).
     const delay_ms = parseInt(document.getElementById('sp-speed').value, 10) || 2500;
-    const r = await api('POST', `/spider/resume/${id}`, { delay_ms });
+    const body = { delay_ms };
+    // HANDOFF: se você marcou conta(s) na lista, continua com ELA(s) do mesmo cursor
+    // (útil quando a conta original caiu). Sem marcar nada = continua com a original.
+    const ids = [...document.querySelectorAll('.sp-prof-chk:checked')].map(c => c.value);
+    if (ids.length) {
+      body.profile_ids = ids;
+      body.use_local = document.getElementById('sp-web-ipmode').value === 'local';
+    }
+    const r = await api('POST', `/spider/resume/${id}`, body);
     _spiderJob = r.job_id;
     document.getElementById('sp-status').style.display = '';
     document.getElementById('sp-log').textContent = '(continuando…)';
@@ -3819,7 +3827,7 @@ async function spiderResume(id) {
     document.getElementById('sp-detail').textContent = 'Retomando de onde parou…';
     showPage('spider');
     spiderPoll();
-    toast('Continuando a extração');
+    toast(ids.length ? 'Continuando com a conta selecionada' : 'Continuando a extração');
   } catch (e) { toast(e.message || 'Erro ao continuar', 'error'); }
 }
 

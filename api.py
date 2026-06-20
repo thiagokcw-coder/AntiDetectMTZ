@@ -1630,13 +1630,18 @@ async def spider_extract_batch(body: SpiderBatchRequest):
 
 class SpiderResumeRequest(BaseModel):
     delay_ms: Optional[int] = None   # velocidade ATUAL do seletor; sobrepõe a salva na run
+    profile_ids: Optional[list] = None  # web: CONTINUAR com OUTRA(s) conta(s) (handoff p/ conta fresca)
+    use_local: Optional[bool] = None    # idem: modo de IP ATUAL ao trocar de conta
 
 
 @app.post("/spider/resume/{run_id}")
 async def spider_resume(run_id: str, body: SpiderResumeRequest = SpiderResumeRequest()):
     """Continua uma execução que parou no meio (cursor salvo + linhas já coletadas).
-    A velocidade vem do seletor ATUAL (body.delay_ms) — antes reusava a salva na run,
-    então mudar o tier no 'Continuar' não fazia efeito."""
+    A velocidade vem do seletor ATUAL (body.delay_ms). body.profile_ids permite
+    CONTINUAR com OUTRA(s) conta(s) (handoff manual: a conta original caiu, você passa
+    pra uma conta fresca continuando do MESMO cursor — sem rodízio simultâneo).
+    OBS: o cursor de seguidores expira com o tempo; trocar de conta não revive um
+    cursor já morto (resume tem que ser logo após a conta cair)."""
     run = db.get_spider_run(run_id)
     if not run:
         raise HTTPException(404, "Execução não encontrada")
@@ -1644,16 +1649,25 @@ async def spider_resume(run_id: str, body: SpiderResumeRequest = SpiderResumeReq
         raise HTTPException(400, "Esta execução já está completa — nada para continuar.")
     method = (run.get("method") or "web").lower()
     a = p = None
+    profile_id = run.get("profile_id")
     if method == "app":
         a = db.get_account(run.get("account_id")) if run.get("account_id") else None
         if not a:
             raise HTTPException(404, "Conta original não existe mais — não dá para continuar.")
         label = a.get("username")
+        pool = None
     else:
-        pool = _spider_pool_from_run(run)
-        if not pool:
-            raise HTTPException(404, "Perfil original não existe mais — não dá para continuar.")
+        # Override de conta(s): continua com as que o usuário marcou; senão, as da run.
+        if body.profile_ids:
+            pool = [pr for pr in (get_profile(i) for i in body.profile_ids) if pr]
+            if not pool:
+                raise HTTPException(404, "Conta(s) selecionada(s) não encontrada(s) — marque um perfil logado.")
+        else:
+            pool = _spider_pool_from_run(run)
+            if not pool:
+                raise HTTPException(404, "Perfil original não existe mais — marque a conta com que quer continuar.")
         p = pool[0]
+        profile_id = p.get("id")
         label = f"{len(pool)} contas (rodízio)" if len(pool) > 1 else p.get("name")
     try:
         seed_rows = json.loads(run.get("rows_json") or "[]")
@@ -1662,10 +1676,10 @@ async def spider_resume(run_id: str, body: SpiderResumeRequest = SpiderResumeReq
     job_id = _launch_spider_job(
         method=method, account=a, profile=p, label=label, kind=run.get("kind") or "followers",
         target=run.get("target"), limit=int(run.get("limit_n") or 0),
-        use_local=bool(run.get("use_local")),
+        use_local=(body.use_local if body.use_local is not None else bool(run.get("use_local"))),
         delay_ms=(body.delay_ms if body.delay_ms else int(run.get("delay_ms") or 2500)),
-        profile_id=run.get("profile_id"), account_id=run.get("account_id"),
-        profiles=(pool if method != "app" and len(pool) > 1 else None),
+        profile_id=profile_id, account_id=run.get("account_id"),
+        profiles=(pool if method != "app" and pool and len(pool) > 1 else None),
         seed_rows=seed_rows, start_cursor=run.get("cursor"),
         job_id=run_id, started_at=run.get("started_at"))   # MESMO id → soma no mesmo CSV
     return {"job_id": job_id}
