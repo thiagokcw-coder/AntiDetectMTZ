@@ -1095,15 +1095,27 @@
           </select>
         </div>
         <div class="form-group" id="sp-profile-group">
-          <label>Contas que vão raspar — marque <b>1</b> (conta única) ou <b>várias</b> (rodízio)</label>
+          <label>Contas que vão raspar — marque <b>1</b> (conta única) ou <b>várias</b></label>
           <div id="sp-profile-list" style="max-height:168px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;padding:6px 8px;background:var(--surface)"></div>
-          <div class="form-hint">Use contas de scraping <b>descartáveis</b> já logadas — não use suas contas boas (raspar queima conta). Marcar <b>2+</b> liga o <b>rodízio</b>: as contas revezam no mesmo alvo (cada uma faz um turno e descansa) — espalha o limite por conta.</div>
+          <div class="form-hint">Use contas de scraping <b>descartáveis</b> já logadas — não use suas contas boas (raspar queima conta). Marcar <b>2+</b> abre a escolha: <b>alvos diferentes</b> (recomendado — cada conta no seu alvo, em paralelo) ou <b>rodízio</b> no mesmo alvo (arriscado).</div>
           <label style="margin-top:10px">Conexão de saída</label>
           <select id="sp-web-ipmode" onchange="spiderIpModeHint()">
             <option value="local" selected>IP local — todas saem pelo MESMO IP do PC (sem proxy)</option>
             <option value="proxy">Proxy por conta — cada conta sai pelo SEU proxy</option>
           </select>
           <div class="form-hint" id="sp-ipmode-hint"></div>
+        </div>
+        <div class="form-group" id="sp-multi-mode" style="display:none">
+          <label>Várias contas marcadas — como usar</label>
+          <label style="display:flex;align-items:flex-start;gap:8px;margin-top:4px;font-weight:400;cursor:pointer">
+            <input type="radio" name="sp-mode" value="batch" checked onchange="spiderMultiUI()" style="margin-top:3px">
+            <span style="font-size:12px"><b>Alvos diferentes (recomendado)</b> — cada conta raspa o SEU alvo, em paralelo. Não encadeia contas no mesmo alvo = sem correlação entre elas.</span>
+          </label>
+          <label style="display:flex;align-items:flex-start;gap:8px;margin-top:6px;font-weight:400;cursor:pointer">
+            <input type="radio" name="sp-mode" value="relay" onchange="spiderMultiUI()" style="margin-top:3px">
+            <span style="font-size:12px"><b>Rodízio no mesmo alvo (arriscado)</b> — as contas revezam num alvo só.</span>
+          </label>
+          <div class="form-hint" id="sp-relay-warn" style="display:none;color:#f87171">⚠ Rodízio no mesmo alvo pode causar <b>suspensão em cluster</b>: várias contas enumerando a MESMA lista em cadeia é um padrão correlacionável — já derrubou 3 contas juntas, enquanto 1 conta sozinha fez 1,6M. Prefira "alvos diferentes".</div>
         </div>
         <div class="form-group" id="sp-account-group" style="display:none">
           <label>Conta (com usuário e senha cadastrados)</label>
@@ -1113,9 +1125,14 @@
             <span style="font-size:12px;color:var(--muted)">Usar <b>conexão local do PC</b> (IP local, sem proxy) em vez do proxy da conta. <b>Recomendado</b>: IP coerente = bem menos chance de "challenge_required".</span>
           </label>
         </div>
-        <div class="form-group">
+        <div class="form-group" id="sp-target-group">
           <label>Alvo</label>
           <input id="sp-target" type="text" placeholder="@usuario ou https://www.instagram.com/usuario/">
+        </div>
+        <div class="form-group" id="sp-batch-box" style="display:none">
+          <label>Alvos — um por linha (pareados com as contas marcadas, na ordem)</label>
+          <textarea id="sp-batch-targets" rows="4" oninput="spiderMultiUI()" placeholder="@alvo_da_conta1&#10;@alvo_da_conta2&#10;@alvo_da_conta3" style="width:100%;box-sizing:border-box;padding:8px 10px;background:var(--surface);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;font-family:inherit;resize:vertical"></textarea>
+          <div class="form-hint" id="sp-batch-hint"></div>
         </div>
         <div class="form-row">
           <div class="form-group">
@@ -3455,25 +3472,62 @@ function spiderMethodChange() {
   const m = document.getElementById('sp-method').value;
   document.getElementById('sp-profile-group').style.display = m === 'web' ? '' : 'none';
   document.getElementById('sp-account-group').style.display = m === 'app' ? '' : 'none';
+  spiderMultiUI();
 }
 
-// Atualiza o aviso conforme o modo de IP e quantas contas estão marcadas (rodízio).
+// Lê o modo escolhido para várias contas ('batch' = alvos diferentes | 'relay' = rodízio).
+function spiderMultiModeValue() {
+  const r = document.querySelector('input[name="sp-mode"]:checked');
+  return r ? r.value : 'batch';
+}
+
+// Mostra/esconde os blocos conforme o nº de contas marcadas e o modo escolhido.
+function spiderMultiUI() {
+  const method = (document.getElementById('sp-method') || {}).value;
+  const n = document.querySelectorAll('.sp-prof-chk:checked').length;
+  const multi = method === 'web' && n >= 2;
+  const mode = spiderMultiModeValue();
+  const batch = multi && mode === 'batch';
+  const relay = multi && mode === 'relay';
+  const el = id => document.getElementById(id);
+  if (el('sp-multi-mode')) el('sp-multi-mode').style.display = multi ? '' : 'none';
+  if (el('sp-relay-warn')) el('sp-relay-warn').style.display = relay ? '' : 'none';
+  if (el('sp-batch-box')) el('sp-batch-box').style.display = batch ? '' : 'none';
+  if (el('sp-target-group')) el('sp-target-group').style.display = batch ? 'none' : '';
+  if (batch && el('sp-batch-hint')) {
+    const alvos = el('sp-batch-targets').value.split('\n').map(s => s.trim()).filter(Boolean).length;
+    const k = Math.min(n, alvos);
+    el('sp-batch-hint').innerHTML = `${n} conta(s) marcada(s) · ${alvos} alvo(s) → <b>${k} extração(ões)</b> em paralelo (pareadas 1↔1 na ordem). Acompanhe no Histórico e na caixa de Sessões.`;
+  }
+  spiderIpModeHint();
+}
+
+// Atualiza o aviso conforme o modo de IP, quantas contas estão marcadas e o modo.
 function spiderIpModeHint() {
   const hint = document.getElementById('sp-ipmode-hint');
   if (!hint) return;
   const n = document.querySelectorAll('.sp-prof-chk:checked').length;
+  const batch = n >= 2 && spiderMultiModeValue() === 'batch';
   const local = (document.getElementById('sp-web-ipmode') || {}).value === 'local';
   let msg;
   if (local) {
     msg = 'Sai pela conexão local (IP do PC, sem proxy). ';
-    msg += n > 1
-      ? `⚠ <b>${n} contas no mesmo IP</b>: o rodízio faz cada conta descansar, mas o IP soma o tráfego de todas e a IG pode vincular as contas. Bom p/ testar; ideal é 1 proxy por conta.`
-      : 'Como o setup que extrai mais (IP limpo). A sessão já está logada por cookies.';
+    if (n > 1) {
+      msg += batch
+        ? `⚠ <b>${n} contas no mesmo IP</b>: alvos diferentes evita correlação por alvo, mas o IP ainda soma o tráfego de todas e a IG pode vincular as contas. Ideal é 1 proxy por conta.`
+        : `⚠ <b>${n} contas no mesmo IP</b>: o rodízio faz cada conta descansar, mas o IP soma o tráfego de todas e a IG pode vincular as contas. Bom p/ testar; ideal é 1 proxy por conta.`;
+    } else {
+      msg += 'Como o setup que extrai mais (IP limpo). A sessão já está logada por cookies.';
+    }
   } else {
     msg = 'Cada conta sai pelo <b>seu próprio proxy</b> (1 conta = 1 IP). ';
-    msg += n > 1
-      ? '✅ É o modo ideal de rodízio: espalha por contas E por IPs distintos.'
-      : 'Use quando o IP local ficar ruim — 1 proxy por vez, na própria conta.';
+    if (n > 1) {
+      msg += batch
+        ? '✅ Ideal p/ alvos diferentes: cada conta no seu alvo E no seu IP — sem nenhuma ligação entre elas.'
+        : '✅ É o modo ideal de rodízio: espalha por contas E por IPs distintos.';
+    } else {
+      msg += 'Use quando o IP local ficar ruim — 1 proxy por vez, na própria conta.';
+    }
   }
   hint.innerHTML = msg;
 }
@@ -3490,7 +3544,7 @@ async function loadSpider() {
     document.getElementById('sp-profile-list').innerHTML = logged.map(p => {
       const acct = p.account_username ? ` (@${p.account_username})` : '';
       return `<label style="display:flex;align-items:center;gap:8px;padding:3px 2px;font-weight:400;cursor:pointer">
-        <input type="checkbox" class="sp-prof-chk" value="${p.id}" onchange="spiderIpModeHint()">
+        <input type="checkbox" class="sp-prof-chk" value="${p.id}" onchange="spiderMultiUI()">
         <span style="font-size:13px">${escapeHtml(p.name)}<span style="color:var(--muted)">${escapeHtml(acct)} ✅ logada</span></span>
       </label>`;
     }).join('') || '<div style="color:var(--muted);font-size:12px;padding:4px">Nenhum perfil com conta logada. Abra um perfil (aba Perfis/Contas), faça login no Instagram e ele aparece aqui.</div>';
@@ -3535,17 +3589,33 @@ async function spiderStart() {
   const limit = parseInt(document.getElementById('sp-limit').value, 10) || 0;
   const kind = document.getElementById('sp-kind').value;
   const delay_ms = parseInt(document.getElementById('sp-speed').value, 10) || 2500;
-  if (!target) { toast('Informe o alvo', 'error'); return; }
   const payload = { method, target, limit, kind, delay_ms };
   if (method === 'app') {
     payload.account_id = document.getElementById('sp-account').value;
     payload.use_local = document.getElementById('sp-local').checked;
     if (!payload.account_id) { toast('Selecione uma conta', 'error'); return; }
+    if (!target) { toast('Informe o alvo', 'error'); return; }
   } else {
     const ids = [...document.querySelectorAll('.sp-prof-chk:checked')].map(c => c.value);
     if (!ids.length) { toast('Marque ao menos uma conta', 'error'); return; }
+    const use_local = document.getElementById('sp-web-ipmode').value === 'local';
+    // VÁRIAS contas + modo "alvos diferentes": dispara N extrações em PARALELO (1 conta ↔ 1 alvo).
+    if (ids.length >= 2 && spiderMultiModeValue() === 'batch') {
+      const alvos = document.getElementById('sp-batch-targets').value.split('\n').map(s => s.trim()).filter(Boolean);
+      if (!alvos.length) { toast('Informe ao menos um alvo (um por linha)', 'error'); return; }
+      const pairs = [];
+      for (let i = 0; i < Math.min(ids.length, alvos.length); i++)
+        pairs.push({ profile_id: ids[i], target: alvos[i] });
+      try {
+        const r = await api('POST', '/spider/extract-batch', { pairs, kind, limit, delay_ms, use_local });
+        toast(`✓ ${r.jobs.length} extração(ões) iniciada(s) em paralelo — acompanhe no Histórico e na caixa de Sessões`, 'success');
+        loadSpiderHistory();
+      } catch (e) { toast(e.message || 'Erro ao iniciar o lote', 'error'); }
+      return;
+    }
+    if (!target) { toast('Informe o alvo', 'error'); return; }
     payload.profile_ids = ids;
-    payload.use_local = document.getElementById('sp-web-ipmode').value === 'local';
+    payload.use_local = use_local;
   }
   try {
     const r = await api('POST', '/spider/extract', payload);

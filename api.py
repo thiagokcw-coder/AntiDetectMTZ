@@ -1594,6 +1594,40 @@ async def spider_extract(body: SpiderExtractRequest):
     return {"job_id": job_id}
 
 
+class SpiderBatchRequest(BaseModel):
+    """Lote 'alvos diferentes': pares conta↔alvo rodando em PARALELO (sem rodízio).
+    Cada par vira um job single-account independente — não encadeia contas no mesmo
+    alvo, então não há correlação/suspensão em cluster entre elas."""
+    pairs: list = []                  # [{profile_id, target}, ...]
+    kind: str = "followers"
+    use_local: bool = False
+    delay_ms: int = 2500
+    limit: int = 0
+
+
+@app.post("/spider/extract-batch")
+async def spider_extract_batch(body: SpiderBatchRequest):
+    launched = []
+    seen_pid = set()
+    for pr in (body.pairs or []):
+        target = (pr.get("target") or "").strip()
+        pid = pr.get("profile_id")
+        if not target or not pid or pid in seen_pid:
+            continue
+        prof = get_profile(pid)
+        if not prof:
+            continue
+        seen_pid.add(pid)
+        job_id = _launch_spider_job(
+            method="web", account=None, profile=prof, label=prof.get("name"),
+            kind=body.kind, target=target, limit=body.limit, use_local=body.use_local,
+            delay_ms=body.delay_ms, profile_id=pid, account_id=None, profiles=None)
+        launched.append({"job_id": job_id, "target": target, "profile": prof.get("name")})
+    if not launched:
+        raise HTTPException(400, "Nenhum par válido (informe alvo + perfil logado)")
+    return {"jobs": launched}
+
+
 class SpiderResumeRequest(BaseModel):
     delay_ms: Optional[int] = None   # velocidade ATUAL do seletor; sobrepõe a salva na run
 
