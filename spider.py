@@ -12,6 +12,7 @@ Fase 1: seguidores. (curtidas/comentários/posts/perfil/hashtag/local vêm depoi
 import asyncio
 import random
 import re
+import time
 
 import session_manager as sm
 
@@ -116,7 +117,10 @@ def _page_delay_s(delay_ms) -> float:
         f = 1.00 + random.random() * 1.00
     else:
         f = 2.00 + random.random() * 4.00
-    return round(base * f, 2)
+    # Cap o multiplicador: o modo "distraído" (até 6×) gerava páginas de minutos
+    # (ex.: 45s base × 6 = 270s), o que tornava a extração inviável. Mantém a
+    # variância humana, mas nenhuma página passa de ~2,5× o base.
+    return round(base * min(f, 2.5), 2)
 
 
 def _max_pages_for(delay_ms) -> int:
@@ -134,18 +138,27 @@ def _max_pages_for(delay_ms) -> int:
     return 1600         # forte (~80000)
 
 
+async def _sleep_stop(secs, should_stop, step: float = 0.4) -> bool:
+    """Sleep INTERROMPÍVEL: dorme em passos curtos e sai assim que should_stop()
+    fica True. Retorna True se foi interrompido. Sem isto, o botão Parar só era
+    visto depois que o sleep longo entre páginas (até ~45s+) terminava."""
+    waited = 0.0
+    while waited < secs:
+        if should_stop and should_stop():
+            return True
+        await asyncio.sleep(min(step, secs - waited))
+        waited += step
+    return bool(should_stop and should_stop())
+
+
 async def _session_cooldown(should_stop, log):
     """Pausa longa (10–25 min) entre sessões — interrompível. Deixa a conta 'descansar'
     para não estourar o limite e ser suspensa."""
-    secs = random.randint(600, 1500)
+    secs = random.randint(180, 480)  # 3-8 min (reduzido; antes 10-25min matava o ritmo)
     if log:
         log(f"🧊 cooldown de sessão: ~{secs // 60} min (deixa a conta descansar)…")
-    waited = 0
-    while waited < secs:
-        if should_stop and should_stop():
-            return
-        await asyncio.sleep(min(20, secs - waited))
-        waited += 20
+    if await _sleep_stop(secs, should_stop):
+        return
     if log:
         log("▶ retomando após o cooldown")
 
@@ -176,7 +189,7 @@ async def _resolve_user(page, username: str):
 
 async def _friendship_list(page, user_id, username, edge, limit, progress, should_stop,
                            log=None, start_max_id=None, seed_rows=None, delay_ms=2500, total=None,
-                           shift_pages=None, checkpoint=None):
+                           shift_pages=None, checkpoint=None, meta=None):
     """Lista de relacionamento (edge='followers' ou 'following') via GraphQL.
     Pagina de verdade pelo `end_cursor` (a API v1 /friendships/ capava em ~50).
     Retorna (rows, cursor); cursor=None => completo. cursor = end_cursor do GraphQL."""
@@ -190,7 +203,7 @@ async def _friendship_list(page, user_id, username, edge, limit, progress, shoul
     rate_hits = 0
     net_hits = 0
     page_n = 0
-    next_pause = random.randint(15, 25)   # pausa de proteção a cada ~15-25 páginas
+    next_pause = random.randint(25, 45)   # pausa de proteção a cada ~25-45 páginas (menos intrusivo)
     max_pages = _max_pages_for(delay_ms)  # páginas por sessão antes do cooldown longo
     session_pages = 0
     if seed_rows and log:
@@ -203,7 +216,9 @@ async def _friendship_list(page, user_id, username, edge, limit, progress, shoul
         variables = {"id": str(user_id), "first": 50}
         if cursor:
             variables["after"] = cursor
+        _t0 = time.monotonic()
         res = await _graphql(page, qhash, variables, referer)
+        req_s = time.monotonic() - _t0
         st = res.get("status")
         if st in (429, 560):                 # rate limit → espera e tenta de novo
             rate_hits += 1
@@ -213,7 +228,7 @@ async def _friendship_list(page, user_id, username, edge, limit, progress, shoul
                 if log:
                     log("✖ muitas vezes em rate limit — encerrando")
                 break
-            await asyncio.sleep(60)
+            await _sleep_stop(60, should_stop)
             continue
         # Falha TRANSITÓRIA (fetch lançou exceção / erro de servidor 5xx): NÃO é
         # bloqueio — espera e tenta de novo o MESMO cursor, sem matar a run. Uma
@@ -228,7 +243,7 @@ async def _friendship_list(page, user_id, username, edge, limit, progress, shoul
                 if log:
                     log("✖ rede instável demais — encerrando (dá pra continuar)")
                 break
-            await asyncio.sleep(wait)
+            await _sleep_stop(wait, should_stop)
             continue
         net_hits = 0
         rate_hits = 0
@@ -237,6 +252,8 @@ async def _friendship_list(page, user_id, username, edge, limit, progress, shoul
             if log:
                 log(f"✖ resposta inesperada (status {st}) — possível bloqueio/desafio "
                     f"na conta. Encerrando (dá pra continuar de onde parou).")
+            if meta is not None:
+                meta["blocked"] = True   # sinaliza p/ marcar a conta como suspensa
             break
         before = len(rows)
         for e in (data.get("edges") or []):
@@ -264,7 +281,7 @@ async def _friendship_list(page, user_id, username, edge, limit, progress, shoul
                 return rows, (pi.get("end_cursor") if pi.get("has_next_page") else None)
         page_n += 1
         if log:
-            log(f"página {page_n}: +{len(rows) - before} ({_tot(len(rows))})")
+            log(f"página {page_n}: +{len(rows) - before} ({_tot(len(rows))}) · req {req_s:.1f}s")
         if progress:
             progress(len(rows))
         pi = data.get("page_info") or {}
@@ -283,13 +300,13 @@ async def _friendship_list(page, user_id, username, edge, limit, progress, shoul
             if log:
                 log(f"⏸ turno de {shift_pages} páginas concluído — passando p/ a próxima conta")
             return rows, cursor
-        await asyncio.sleep(_page_delay_s(delay_ms))
+        await _sleep_stop(_page_delay_s(delay_ms), should_stop)
         if page_n >= next_pause:                       # pausa de proteção curta
-            pause = round(random.uniform(5, 20), 1)
+            pause = round(random.uniform(4, 12), 1)
             if log:
                 log(f"🛡️ pausa de proteção: {pause}s")
-            await asyncio.sleep(pause)
-            next_pause = page_n + random.randint(15, 25)
+            await _sleep_stop(pause, should_stop)
+            next_pause = page_n + random.randint(25, 45)
         session_pages += 1
         if session_pages >= max_pages:                 # cooldown longo de sessão
             if checkpoint:                             # salva ANTES da pausa longa
@@ -325,7 +342,7 @@ def _post_row(it) -> dict:
 
 async def _posts(page, user_id, username, limit, progress, should_stop, log=None,
                  start_max_id=None, seed_rows=None, delay_ms=2500, total=None,
-                 shift_pages=None, checkpoint=None):
+                 shift_pages=None, checkpoint=None, meta=None):
     """Posts do perfil (`/api/v1/feed/user/{id}/`). Retorna (rows, cursor)."""
     rows = list(seed_rows or [])
     seen = {str(r.get("Shortcode")) for r in rows if r.get("Shortcode")}
@@ -334,7 +351,7 @@ async def _posts(page, user_id, username, limit, progress, should_stop, log=None
     rate_hits = 0
     net_hits = 0
     page_n = 0
-    next_pause = random.randint(15, 25)
+    next_pause = random.randint(25, 45)
     max_pages = _max_pages_for(delay_ms)
     session_pages = 0
     _tot = (lambda n: f"{n}/{total}" if total else str(n))
@@ -360,7 +377,7 @@ async def _posts(page, user_id, username, limit, progress, should_stop, log=None
                     log("✖ muitas vezes em rate limit — encerrando")
                 cursor = max_id
                 break
-            await asyncio.sleep(60)
+            await _sleep_stop(60, should_stop)
             continue
         # Falha transitória (rede/5xx) → retry do mesmo max_id, sem matar a run.
         if st == -1 or (isinstance(st, int) and st >= 500):
@@ -374,7 +391,7 @@ async def _posts(page, user_id, username, limit, progress, should_stop, log=None
                     log("✖ rede instável demais — encerrando (dá pra continuar)")
                 cursor = max_id
                 break
-            await asyncio.sleep(wait)
+            await _sleep_stop(wait, should_stop)
             continue
         net_hits = 0
         rate_hits = 0
@@ -382,6 +399,8 @@ async def _posts(page, user_id, username, limit, progress, should_stop, log=None
             if log:
                 log(f"✖ resposta inesperada (status {st}) — possível bloqueio/desafio "
                     f"na conta. Encerrando (dá pra continuar de onde parou).")
+            if meta is not None:
+                meta["blocked"] = True   # sinaliza p/ marcar a conta como suspensa
             cursor = max_id
             break
         j = res["json"]
@@ -418,13 +437,13 @@ async def _posts(page, user_id, username, limit, progress, should_stop, log=None
             if log:
                 log(f"⏸ turno de {shift_pages} páginas concluído — passando p/ a próxima conta")
             return rows, cursor
-        await asyncio.sleep(_page_delay_s(delay_ms))
+        await _sleep_stop(_page_delay_s(delay_ms), should_stop)
         if page_n >= next_pause:
-            pause = round(random.uniform(5, 20), 1)
+            pause = round(random.uniform(4, 12), 1)
             if log:
                 log(f"🛡️ pausa de proteção: {pause}s")
-            await asyncio.sleep(pause)
-            next_pause = page_n + random.randint(15, 25)
+            await _sleep_stop(pause, should_stop)
+            next_pause = page_n + random.randint(25, 45)
         session_pages += 1
         if session_pages >= max_pages:
             if checkpoint:                             # salva ANTES da pausa longa
@@ -460,12 +479,13 @@ async def extract(profile: dict, kind: str, target: str, limit: int = 0,
     _actor = profile.get("name") or profile.get("id") or "perfil"
     _px = profile.get("proxy") or {}
     _conn = "IP local (sem proxy)" if use_local else (f"proxy {_px.get('host')}" if _px.get("host") else "sem proxy")
+    meta = {}   # loops sinalizam aqui (ex.: blocked=True em bloqueio/desafio)
     async def _run(page):
         if log:
             log(f"🧭 raspando com a conta/perfil: '{_actor}' · {_conn}")
             log("abrindo instagram.com no perfil…")
         await page.goto(IG + "/", wait_until="domcontentloaded")
-        await asyncio.sleep(round(random.uniform(2.0, 4.0), 2))
+        await asyncio.sleep(round(random.uniform(1.0, 2.5), 1))  # reduzido
         if log:
             log(f"resolvendo @{clean_username(target)}…")
         uid, info = await _resolve_user(page, target)
@@ -481,7 +501,7 @@ async def extract(profile: dict, kind: str, target: str, limit: int = 0,
         # Warm-up: visita o perfil alvo antes de raspar (parece navegação humana).
         try:
             await page.goto(f"{IG}/{uname}/", wait_until="domcontentloaded")
-            await asyncio.sleep(round(random.uniform(2.0, 4.0), 2))
+            await asyncio.sleep(round(random.uniform(1.0, 2.0), 1))
         except Exception:
             pass
         if kind in ("followers", "following"):
@@ -490,17 +510,18 @@ async def extract(profile: dict, kind: str, target: str, limit: int = 0,
             rows, cursor = await _friendship_list(page, uid, uname, kind, limit, progress,
                                                   should_stop, log, start_max_id=start_max_id,
                                                   seed_rows=seed_rows, delay_ms=delay_ms, total=total,
-                                                  shift_pages=shift_pages, checkpoint=checkpoint)
+                                                  shift_pages=shift_pages, checkpoint=checkpoint, meta=meta)
         elif kind == "posts":
             if log:
                 log("iniciando extração de posts…")
             rows, cursor = await _posts(page, uid, uname, limit, progress, should_stop, log,
                                         start_max_id=start_max_id, seed_rows=seed_rows,
                                         delay_ms=delay_ms, total=total, shift_pages=shift_pages,
-                                        checkpoint=checkpoint)
+                                        checkpoint=checkpoint, meta=meta)
         else:
             return {"error": f"tipo '{kind}' não suportado (use followers/following/posts)"}
-        return {"rows": rows, "cursor": cursor, "total": total, "target": uname, "kind": kind, "user": info}
+        return {"rows": rows, "cursor": cursor, "total": total, "target": uname, "kind": kind,
+                "user": info, "blocked": bool(meta.get("blocked"))}
 
     try:
         return await sm.run_profile_task(profile, _run, headless=True)

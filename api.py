@@ -1260,6 +1260,98 @@ def _spider_pool_from_run(run: dict) -> list:
     return [pr for pr in (get_profile(x) for x in pids) if pr]
 
 
+def _spider_mark_blocked(profile=None, account=None,
+                         reason="Spider: possível bloqueio/desafio na extração"):
+    """O Spider bateu em bloqueio/desafio (não 429/rede) → normalmente a conta foi
+    suspensa. Marca a conta (do perfil, no Web; ou a conta, no App) como 'checkpoint'
+    = 'Em suspensão' → entra no contador de suspensões e nas métricas."""
+    try:
+        a = account
+        if a is None and profile:
+            a = db.get_account_by_profile(profile.get("id"))
+        if a and a.get("id"):
+            acc.set_status(a["id"], "checkpoint", reason)
+            return a.get("username") or a.get("id")
+    except Exception:
+        logger.exception("spider: falha ao marcar conta como suspensa")
+    return None
+
+
+_SPIDER_SPEED_TIERS = (2000, 4500, 7200, 14400, 45000, 120000)
+
+
+def _spider_recommended_delay(by_speed: list):
+    """Regra (estatística, sem IA): a velocidade MAIS RÁPIDA testada que NUNCA bloqueou.
+    Se alguma bloqueou, recomenda uma mais LENTA (delay maior) que a pior que bloqueou.
+    Sem dados → None (mantém o default)."""
+    tested = [t for t in by_speed if t["runs"] >= 1]
+    if not tested:
+        return None
+    blocked = [t["delay_ms"] for t in tested if t["blocked_runs"] > 0]
+    safe = [t["delay_ms"] for t in tested if t["blocked_runs"] == 0]
+    if blocked:
+        worst = max(blocked)   # a velocidade mais lenta (maior delay) que AINDA bloqueou
+        slower = [d for d in _SPIDER_SPEED_TIERS if d > worst]
+        return min(slower) if slower else max(_SPIDER_SPEED_TIERS)
+    return min(safe) if safe else None
+
+
+@app.get("/spider/insights")
+def spider_insights():
+    """Aprendizado do Spider: agrega o histórico de extrações por VELOCIDADE (delay_ms)
+    — quantas runs, itens, taxa de bloqueio, itens até bloquear, ritmo efetivo — e
+    recomenda a velocidade segura. Regras + estatística (sem IA)."""
+    import datetime as _dt2
+
+    def _dur_min(a, b):
+        try:
+            ta = _dt2.datetime.strptime(a, "%Y-%m-%d %H:%M:%S")
+            tb = _dt2.datetime.strptime(b, "%Y-%m-%d %H:%M:%S")
+            return max(0.0, (tb - ta).total_seconds() / 60.0)
+        except Exception:
+            return None
+
+    def _failed(r):
+        """Falhou = a sessão NÃO chegou no total e NÃO foi você que parou (a conta caiu).
+        Também conta o bloqueio explícito. Só julga runs já encerradas."""
+        if r.get("blocked"):
+            return True
+        if r.get("stopped_by_user"):
+            return False
+        finished = (r.get("status") in ("done", "stopped", "error")) or r.get("finished_at")
+        total = r.get("total")
+        count = int(r.get("count") or 0)
+        return bool(finished and total and count < int(total))
+
+    tiers = {}
+    for r in db.spider_runs_stats():
+        d = int(r.get("delay_ms") or 2500)
+        t = tiers.setdefault(d, {"runs": 0, "items": 0, "blocked": 0,
+                                 "before_block": [], "minutes": 0.0})
+        t["runs"] += 1
+        t["items"] += int(r.get("count") or 0)
+        if _failed(r):
+            t["blocked"] += 1
+            t["before_block"].append(int(r.get("count") or 0))
+        dm = _dur_min(r.get("started_at"), r.get("finished_at"))
+        if dm:
+            t["minutes"] += dm
+    by_speed = []
+    for d, t in sorted(tiers.items()):
+        br = round(t["blocked"] / t["runs"] * 100, 1) if t["runs"] else 0.0
+        avg_before = round(sum(t["before_block"]) / len(t["before_block"])) if t["before_block"] else None
+        eff = round(t["items"] / (t["minutes"] / 60.0)) if t["minutes"] > 0 else None
+        by_speed.append({"delay_ms": d,
+                         "req_per_hour_nominal": (round(3600 / (d / 1000.0)) if d else 0),
+                         "runs": t["runs"], "items": t["items"],
+                         "blocked_runs": t["blocked"], "block_rate_pct": br,
+                         "avg_items_before_block": avg_before,
+                         "effective_items_per_hour": eff})
+    return {"by_speed": by_speed,
+            "recommended_delay_ms": _spider_recommended_delay(by_speed),
+            "total_runs": sum(t["runs"] for t in tiers.values())}
+
+
 def _launch_spider_job(*, method, account, profile, label, kind, target, limit, use_local,
                        delay_ms=2500, profile_id=None, account_id=None, seed_rows=None,
                        start_cursor=None, job_id=None, started_at=None, profiles=None):
@@ -1289,7 +1381,8 @@ def _launch_spider_job(*, method, account, profile, label, kind, target, limit, 
                  "count": job.get("count", 0), "total": job.get("total"),
                  "status": job.get("status"),
                  "error": job.get("error"), "rows_json": json.dumps(job.get("rows") or []),
-                 "started_at": started_at, "finished_at": job.get("finished_at")}
+                 "started_at": started_at, "finished_at": job.get("finished_at"),
+                 "blocked": job.get("blocked"), "stopped_by_user": job.get("stopped_by_user")}
             if status_extra:
                 d.update(status_extra)
             db.spider_run_upsert(d)
@@ -1308,12 +1401,30 @@ def _launch_spider_job(*, method, account, profile, label, kind, target, limit, 
     def _on_total(t): job["total"] = t      # total de itens do alvo (p/ mostrar X/Y)
 
     def _checkpoint(rows, cursor):
-        # Chamado pelo spider a cada N páginas: persiste linhas + cursor no banco
-        # para que um reinício/crash não perca o progresso (e dê pra continuar).
+        # Chamado pelo spider a cada N páginas.
+        # LIGHT update (só count + cursor) — evita serializar JSON gigante de todas as rows
+        # a cada 10 páginas (que estava causando lentidão extrema em runs longas: "1min por página").
+        # Full rows_json (para resume + CSV fallback) é salvo em momentos importantes:
+        # início de turnos, fim de turnos (relay), final da job, e ocasionalmente a cada ~2500 itens.
         job["rows"] = rows
         job["count"] = len(rows)
         job["cursor"] = cursor
-        _save()
+        try:
+            db.spider_run_update_progress(job_id, job["count"], cursor)
+        except Exception:
+            pass
+        # Snapshot completo de rows_json a cada ~2500 itens NOVOS (proteção contra
+        # crash sem matar o throughput). Conta itens desde o último save completo —
+        # robusto a páginas de tamanho variável (a dedup faz o count somar 48/49/50,
+        # então `count % 2500 == 0` quase nunca caía no múltiplo exato e o save
+        # completo não disparava → era a brecha que perdia dados num crash).
+        try:
+            job["_last_full_save"] = job.get("_last_full_save", job["count"])
+            if job["count"] - job["_last_full_save"] >= 2500:
+                job["_last_full_save"] = job["count"]
+                _save()
+        except Exception:
+            pass
 
     def _status(state):
         job["detail"] = {"logando": "Logando na conta (o IG pode pedir um código)…",
@@ -1367,11 +1478,16 @@ def _launch_spider_job(*, method, account, profile, label, kind, target, limit, 
                 last_error = r.get("error")
                 _log(f"⚠ conta '{prof.get('name')}' falhou: {str(last_error)[:120]}")
                 if fails >= len(pool):
+                    # TODAS as contas do rodízio falharam no mesmo ponto = provável
+                    # suspensão de todas → marca o run como bloqueado (alimenta o
+                    # aprendizado: essa velocidade derrubou as contas).
+                    job["blocked"] = True
+                    _log("✖ TODAS as contas do rodízio falharam — provável suspensão "
+                         "(velocidade alta demais p/ essas contas). Marcado como bloqueado.")
                     if not made_progress:
                         return {"rows": rows, "cursor": cursor, "total": job.get("total"),
                                 "target": target, "kind": kind, "user": last_user,
                                 "error": last_error}
-                    _log("✖ todas as contas falharam neste ponto — pausando (dá pra continuar de onde parou)")
                     break
                 await asyncio.sleep(round(random.uniform(5, 12), 1))
                 continue
@@ -1383,13 +1499,18 @@ def _launch_spider_job(*, method, account, profile, label, kind, target, limit, 
             job["rows"] = rows; job["count"] = len(rows); job["cursor"] = cursor
             if r.get("total") is not None:
                 job["total"] = r.get("total")
+            if r.get("blocked"):   # bloqueio/desafio nesta conta → marca suspensa
+                job["blocked"] = True
+                u = _spider_mark_blocked(profile=prof)
+                if u:
+                    _log(f"⚠ '{u}' marcada como 'em suspensão' (possível bloqueio/desafio)")
             _save()   # persiste após CADA turno (resume-safe; soma no mesmo CSV)
             if not cursor:
                 _log(f"✓ rodízio concluído — {len(rows)} registro(s)")
                 break
             if limit and len(rows) >= limit:
                 break
-            await asyncio.sleep(round(random.uniform(5, 12), 1))   # troca de conta/janela
+            await asyncio.sleep(round(random.uniform(3, 8), 1))   # troca de conta (reduzido)
         return {"rows": rows, "cursor": cursor, "total": job.get("total"),
                 "target": target, "kind": kind, "user": last_user}
 
@@ -1422,6 +1543,14 @@ def _launch_spider_job(*, method, account, profile, label, kind, target, limit, 
                 # Parou no meio (cursor presente) e não foi erro → 'stopped' (continuável)
                 job["status"] = "stopped" if job.get("cursor") else "done"
                 job["detail"] = ""
+                # Bloqueio/desafio detectado (modo single; o rodízio já marca por turno)
+                # → marca a conta como suspensa p/ entrar nas métricas.
+                if res.get("blocked") and not (profiles and len(profiles) > 1):
+                    job["blocked"] = True
+                    u = _spider_mark_blocked(account=account if method == "app" else None,
+                                             profile=None if method == "app" else profile)
+                    if u:
+                        _log(f"⚠ '{u}' marcada como 'em suspensão' (possível bloqueio/desafio)")
         except Exception as e:
             job["status"] = "error"; job["error"] = str(e)
             _log("✖ erro: " + str(e)[:160])
@@ -1465,9 +1594,15 @@ async def spider_extract(body: SpiderExtractRequest):
     return {"job_id": job_id}
 
 
+class SpiderResumeRequest(BaseModel):
+    delay_ms: Optional[int] = None   # velocidade ATUAL do seletor; sobrepõe a salva na run
+
+
 @app.post("/spider/resume/{run_id}")
-async def spider_resume(run_id: str):
-    """Continua uma execução que parou no meio (cursor salvo + linhas já coletadas)."""
+async def spider_resume(run_id: str, body: SpiderResumeRequest = SpiderResumeRequest()):
+    """Continua uma execução que parou no meio (cursor salvo + linhas já coletadas).
+    A velocidade vem do seletor ATUAL (body.delay_ms) — antes reusava a salva na run,
+    então mudar o tier no 'Continuar' não fazia efeito."""
     run = db.get_spider_run(run_id)
     if not run:
         raise HTTPException(404, "Execução não encontrada")
@@ -1493,7 +1628,8 @@ async def spider_resume(run_id: str):
     job_id = _launch_spider_job(
         method=method, account=a, profile=p, label=label, kind=run.get("kind") or "followers",
         target=run.get("target"), limit=int(run.get("limit_n") or 0),
-        use_local=bool(run.get("use_local")), delay_ms=int(run.get("delay_ms") or 2500),
+        use_local=bool(run.get("use_local")),
+        delay_ms=(body.delay_ms if body.delay_ms else int(run.get("delay_ms") or 2500)),
         profile_id=run.get("profile_id"), account_id=run.get("account_id"),
         profiles=(pool if method != "app" and len(pool) > 1 else None),
         seed_rows=seed_rows, start_cursor=run.get("cursor"),
@@ -1548,6 +1684,24 @@ def spider_history(limit: int = 50):
     return {"items": db.list_spider_runs(limit)}
 
 
+class SpiderBlockedRequest(BaseModel):
+    blocked: bool = True
+
+
+@app.post("/spider/history/{run_id}/blocked")
+def spider_history_set_blocked(run_id: str, body: SpiderBlockedRequest):
+    """Corrige o desfecho de um run (terminou em suspensão?) — ENSINA a recomendação
+    de velocidade. Útil quando a suspensão não foi auto-detectada (ex.: parou no meio
+    porque as contas caíram, mas o app registrou como 'parado')."""
+    if not db.get_spider_run(run_id):
+        raise HTTPException(404, "Execução não encontrada")
+    db.set_spider_run_blocked(run_id, body.blocked)
+    j = _spider_jobs.get(run_id)
+    if j is not None:
+        j["blocked"] = body.blocked
+    return {"id": run_id, "blocked": body.blocked}
+
+
 @app.delete("/spider/history/{run_id}", status_code=204)
 def spider_history_delete(run_id: str):
     db.delete_spider_run(run_id)
@@ -1578,6 +1732,8 @@ def spider_job_stop(job_id: str):
     if not j:
         raise HTTPException(404, "Job não encontrado")
     j["stop"] = True
+    j["stopped_by_user"] = True   # parada manual → NÃO conta como falha/suspensão
+    # o finally do worker chama _save() ao encerrar o loop → persiste o flag
     return {"ok": True}
 
 
@@ -2751,7 +2907,7 @@ def whatsapps_update(wa_id: str, body: WhatsappUpdateRequest):
     if body.notes is not None:
         fields["notes"] = body.notes
     if body.account_id is not None:
-        fields["account_id"] = body.account_id
+        fields["account_id"] = body.account_id or None   # "" → desvincula
     db.update_whatsapp(wa_id, **fields)
     return db.get_whatsapp(wa_id)
 

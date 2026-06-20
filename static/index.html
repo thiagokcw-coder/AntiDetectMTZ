@@ -796,7 +796,7 @@
 
         <div class="table-wrap">
           <table>
-            <thead><tr><th>Número</th><th>Status</th><th>Observação</th><th>Usado em</th><th>Ações</th></tr></thead>
+            <thead><tr><th>Número</th><th>Status</th><th>Observação</th><th>Usado em</th><th>Conta vinculada</th><th>Ações</th></tr></thead>
             <tbody id="wa-body"></tbody>
           </table>
         </div>
@@ -1135,12 +1135,14 @@
           <label>Velocidade — pela CONFIANÇA da conta que raspa</label>
           <select id="sp-speed">
             <option value="120000">🛡️ Ultra seguro — ~30 req/h (conta muito nova/descartável)</option>
-            <option value="45000" selected>🐢 Conta nova — ~80 req/h</option>
+            <option value="45000">🐢 Conta nova — ~80 req/h</option>
             <option value="14400">⚖ Conta média — ~250 req/h</option>
-            <option value="7200">🔼 Conta boa/aquecida — ~500 req/h</option>
+            <option value="7200" selected>🔼 Conta boa/aquecida — ~500 req/h</option>
             <option value="4500">🚀 Conta forte/antiga — ~800 req/h</option>
+            <option value="2000">⚡ Turbo — ~1800 req/h (só conta antiga/validada — risco maior)</option>
           </select>
           <div class="form-hint">Cada requisição = ~50 itens. <b>O limite por hora é o que evita a suspensão</b> — escolha pela confiança da conta: descartável/nova aguenta pouco; conta antiga/aquecida aguenta muito (é o segredo do volume alto numa conta só). Inclui jitter ±40% + pausas de proteção.</div>
+          <div class="form-hint" id="sp-insights-hint" style="display:none;margin-top:6px;color:var(--accent2)"></div>
         </div>
         <div style="display:flex;gap:8px;align-items:center">
           <button id="sp-start" class="btn btn-primary" onclick="spiderStart()">▶ Iniciar</button>
@@ -1482,7 +1484,10 @@ function _waEsc(s) {
 
 async function loadWhatsapps() {
   try {
-    const r = await api('GET', '/whatsapps');
+    const [r, accounts] = await Promise.all([
+      api('GET', '/whatsapps'),
+      api('GET', '/accounts').catch(() => []),
+    ]);
     const items = r.items || [];
     const s = r.summary || { total: 0, free: 0, used: 0 };
     document.getElementById('wa-total').textContent = s.total;
@@ -1492,9 +1497,14 @@ async function loadWhatsapps() {
       `${s.total} número(s) — ${s.free} livre(s), ${s.used} usado(s)`;
     const body = document.getElementById('wa-body');
     if (!items.length) {
-      body.innerHTML = '<tr><td colspan="5" style="color:var(--muted);text-align:center;padding:18px">Nenhum número cadastrado ainda.</td></tr>';
+      body.innerHTML = '<tr><td colspan="6" style="color:var(--muted);text-align:center;padding:18px">Nenhum número cadastrado ainda.</td></tr>';
       return;
     }
+    // opções do select de conta vinculada (— nenhuma — + cada conta)
+    const acctOpts = (sel) => '<option value="">— nenhuma —</option>' +
+      (accounts || []).map(a =>
+        `<option value="${a.id}"${a.id === sel ? ' selected' : ''}>@${_waEsc(a.username || a.id.slice(0, 8))}</option>`
+      ).join('');
     body.innerHTML = items.map(w => {
       const used = (w.status || 'free') === 'used';
       const badge = used
@@ -1504,10 +1514,12 @@ async function loadWhatsapps() {
         ? `<button class="btn btn-ghost btn-sm" onclick="setWhatsappStatus('${w.id}','free')">Marcar livre</button>`
         : `<button class="btn btn-ghost btn-sm" onclick="setWhatsappStatus('${w.id}','used')">Marcar usado</button>`;
       return `<tr>
-        <td style="font-family:monospace">${_waEsc(w.number)}</td>
+        <td><span style="font-family:monospace">${_waEsc(w.number)}</span>
+            <span class="copy" onclick="copyText('${_waEsc(w.number)}')">copiar</span></td>
         <td>${badge}</td>
         <td style="color:var(--muted)">${_waEsc(w.notes || '')}</td>
         <td style="color:var(--muted)">${_waEsc(w.used_at || '')}</td>
+        <td><select onchange="setWhatsappAccount('${w.id}', this.value)" style="max-width:170px">${acctOpts(w.account_id)}</select></td>
         <td style="white-space:nowrap">${toggle}
           <button class="btn btn-ghost btn-sm" onclick="deleteWhatsapp('${w.id}')" title="Excluir">🗑</button></td>
       </tr>`;
@@ -1540,6 +1552,18 @@ async function setWhatsappStatus(id, status) {
     loadWhatsapps();
   } catch (e) {
     toast(e.message || 'Erro ao atualizar', 'error');
+  }
+}
+
+async function setWhatsappAccount(id, accountId) {
+  // Vincular a uma conta também marca o número como "usado"; "— nenhuma —" desvincula.
+  const payload = accountId ? { account_id: accountId, status: 'used' } : { account_id: '' };
+  try {
+    await api('PATCH', `/whatsapps/${id}`, payload);
+    toast(accountId ? 'Número vinculado à conta' : 'Número desvinculado');
+    loadWhatsapps();
+  } catch (e) {
+    toast(e.message || 'Erro ao vincular', 'error');
   }
 }
 
@@ -3135,7 +3159,9 @@ async function loadAnalytics() {
     document.getElementById('an-ban-rate').textContent = (data.ban_rate_pct != null) ? `${data.ban_rate_pct}%` : '—';
     document.getElementById('an-avg-life').textContent = (data.average_lifespan_days != null) ? data.average_lifespan_days : '—';
 
-    const breakdown = `${data.active ?? 0} ativas • ${data.banned ?? 0} banidas • ${data.suspended ?? 0} suspensas`;
+    const inSusp = data.in_suspension ?? ((data.suspended ?? 0) + (data.checkpoint ?? 0));
+    const breakdown = `${data.active ?? 0} ativas • ${data.banned ?? 0} banidas (final) • ${inSusp} em suspensão agora`
+      + ` • ${data.total_suspension_events ?? 0} suspensões no total`;
     document.getElementById('an-breakdown').textContent = breakdown;
 
     const tbody = document.getElementById('an-proxy-body');
@@ -3260,6 +3286,7 @@ async function accountDetail(id) {
     detailRow('Proxy', proxyStr, true) +
     detailRow('Uso do proxy', a.proxy_usage ? `${a.proxy_usage.used}/${a.proxy_usage.limit || '∞'}` : '—') +
     detailRow('Vida útil', a.lifespan?.label) +
+    detailRow('Vezes suspensa', String(a.suspension_count || 0)) +
     detailRow('Status detalhe', a.status_detail) +
     detailRow('Criada em', a.created_at ? a.created_at.replace('T', ' ') : null) +
     detailRow('Banida em', a.banned_at ? a.banned_at.replace('T', ' ') : null) +
@@ -3475,7 +3502,31 @@ async function loadSpider() {
     ).join('') || '<option value="">(nenhuma conta com usuário)</option>';
     spiderMethodChange();
     loadSpiderHistory();
+    loadSpiderInsights();
   } catch (e) { toast(e.message || 'Erro ao carregar perfis/contas', 'error'); }
+}
+
+// Aprendizado: lê o histórico de extrações e recomenda/seleciona a velocidade segura.
+async function loadSpiderInsights() {
+  const hint = document.getElementById('sp-insights-hint');
+  if (!hint) return;
+  try {
+    const ins = await api('GET', '/spider/insights');
+    if (!ins || !ins.total_runs) { hint.style.display = 'none'; return; }
+    const sel = document.getElementById('sp-speed');
+    const rec = ins.recommended_delay_ms;
+    // pré-seleciona a velocidade recomendada (se a opção existir e o usuário não mexeu)
+    if (rec && [...sel.options].some(o => +o.value === rec)) sel.value = String(rec);
+    const reqh = rec ? Math.round(3600 / (rec / 1000)) : null;
+    // resumo por velocidade já testada (req/h · runs · bloqueios · itens)
+    const parts = (ins.by_speed || []).map(s =>
+      `${s.req_per_hour_nominal}/h: ${s.runs} run(s), ${s.blocked_runs} falha(s)`
+      + (s.avg_items_before_block != null ? ` (caiu ~${s.avg_items_before_block} itens)` : '')
+    );
+    hint.innerHTML = (rec ? `🧠 Recomendado pelo seu histórico: <b>~${reqh} req/h</b> (selecionado). ` : '')
+      + (parts.length ? `<span style="color:var(--muted)">Histórico — ${parts.join(' · ')}</span>` : '');
+    hint.style.display = '';
+  } catch (e) { hint.style.display = 'none'; }
 }
 
 async function spiderStart() {
@@ -3572,13 +3623,24 @@ async function loadSpiderHistory() {
       const rerun = `<button class="btn btn-ghost btn-sm" style="padding:1px 8px" onclick="spiderRerun('${it.id}')" title="Rodar de novo (do zero)">↻</button>`;
       const alvo = (it.target || '').replace(/^@+/, '');           // evita @@
       const regs = (it.total != null) ? `${it.count || 0}/${it.total}` : `${it.count || 0}`;
+      const reqh = it.delay_ms ? Math.round(3600 / (it.delay_ms / 1000)) : null;   // velocidade usada
+      // Desfecho DERIVADO: falhou = não chegou no total e NÃO foi parada manual (a conta caiu).
+      const byUser = (it.stopped_by_user == 1 || it.stopped_by_user === true);
+      const reachedTotal = it.total ? ((it.count || 0) >= it.total) : !it.cursor;
+      const failed = (it.blocked == 1 || it.blocked === true)
+        || (!byUser && it.status !== 'running' && it.total && (it.count || 0) < it.total);
+      const outcome = failed ? '🚫 falhou (conta caiu)'
+        : reachedTotal ? '✓ completou'
+        : byUser ? '⏸ você parou'
+        : (SP_STATUS_LABEL[it.status] || escapeHtml(it.status || ''));
+      const outColor = failed ? 'var(--red)' : reachedTotal ? 'var(--green)' : stColor;
       return `<tr>
         <td style="font-size:12px;color:var(--muted)">${escapeHtml(when)}</td>
-        <td><code>@${escapeHtml(alvo)}</code></td>
+        <td><code>@${escapeHtml(alvo)}</code>${reqh ? `<div style="font-size:11px;color:var(--muted)">${reqh} req/h</div>` : ''}</td>
         <td>${escapeHtml(it.kind || '')}</td>
         <td>${escapeHtml(it.method || '')}</td>
         <td><b>${regs}</b></td>
-        <td style="color:${stColor}">${SP_STATUS_LABEL[it.status] || escapeHtml(it.status || '')}</td>
+        <td style="color:${outColor}">${outcome}</td>
         <td>${cont} ${rerun} ${dl} <button class="btn btn-ghost btn-sm" style="padding:1px 8px" onclick="spiderHistoryDelete('${it.id}')" title="Remover do histórico">🗑</button></td>
       </tr>`;
     }).join('');
@@ -3661,7 +3723,9 @@ async function spiderRerun(id) {
 async function spiderResume(id) {
   if (!id) return;
   try {
-    const r = await api('POST', `/spider/resume/${id}`);
+    // Usa a velocidade selecionada AGORA (antes o Continuar reusava a salva na run).
+    const delay_ms = parseInt(document.getElementById('sp-speed').value, 10) || 2500;
+    const r = await api('POST', `/spider/resume/${id}`, { delay_ms });
     _spiderJob = r.job_id;
     document.getElementById('sp-status').style.display = '';
     document.getElementById('sp-log').textContent = '(continuando…)';

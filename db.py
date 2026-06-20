@@ -233,7 +233,9 @@ def init_db():
         for _c, _d in (("profile_id", "TEXT"), ("account_id", "TEXT"),
                        ("use_local", "INTEGER DEFAULT 0"), ("limit_n", "INTEGER DEFAULT 0"),
                        ("delay_ms", "INTEGER DEFAULT 2500"), ("cursor", "TEXT"),
-                       ("total", "INTEGER"), ("profile_ids", "TEXT")):
+                       ("total", "INTEGER"), ("profile_ids", "TEXT"),
+                       ("blocked", "INTEGER DEFAULT 0"),    # desfecho: terminou em bloqueio/desafio
+                       ("stopped_by_user", "INTEGER DEFAULT 0")):  # parada manual (não é falha)
             _ensure_column(conn, "spider_runs", _c, _d)
         # Defaults de limite (não sobrescreve se já existir)
         _ex(conn, "INSERT INTO settings (key, value) VALUES ('proxy_limit', '3') "
@@ -249,6 +251,10 @@ def init_db():
         _ensure_column(conn, "profiles", "pool_status", "TEXT")
         # Momento em que o aquecimento começou (para mostrar tempo decorrido na UI)
         _ensure_column(conn, "profiles", "warm_started_at", "TEXT")
+        # Quantas vezes a conta entrou em suspensão (suspended/checkpoint). Persiste
+        # no histórico (nunca diminui) — suspensão é recuperável, mas o histórico conta.
+        _ensure_column(conn, "accounts", "suspension_count", "INTEGER DEFAULT 0")
+        _ensure_column(conn, "account_history", "suspension_count", "INTEGER DEFAULT 0")
 
 
 def _ensure_column(conn, table: str, col: str, decl: str):
@@ -404,15 +410,18 @@ def record_account_history(acc: dict):
     with get_conn() as conn:
         _ex(conn,
             "INSERT INTO account_history "
-            "(account_id, username, email, proxy_key, status, status_detail, created_at, banned_at, last_checked_at, recorded_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+            "(account_id, username, email, proxy_key, status, status_detail, created_at, banned_at, last_checked_at, recorded_at, suspension_count) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
             "ON CONFLICT(account_id) DO UPDATE SET "
             "username=excluded.username, email=excluded.email, proxy_key=excluded.proxy_key, "
             "status=excluded.status, status_detail=excluded.status_detail, created_at=excluded.created_at, "
-            "banned_at=excluded.banned_at, last_checked_at=excluded.last_checked_at, recorded_at=excluded.recorded_at",
+            "banned_at=excluded.banned_at, last_checked_at=excluded.last_checked_at, recorded_at=excluded.recorded_at, "
+            # espelha o contador da conta viva (que só cresce); compatível SQLite+Postgres
+            "suspension_count=excluded.suspension_count",
             (acc.get("id"), acc.get("username"), acc.get("email"), acc.get("proxy_key"),
              acc.get("status"), acc.get("status_detail"), acc.get("created_at"),
-             acc.get("banned_at"), acc.get("last_checked_at"), _now_str()))
+             acc.get("banned_at"), acc.get("last_checked_at"), _now_str(),
+             int(acc.get("suspension_count") or 0)))
 
 
 def list_account_history() -> list:
@@ -473,6 +482,16 @@ def count_accounts_by_whatsapp(number: str) -> int:
         row = _ex(conn,
             "SELECT COUNT(*) AS n FROM accounts WHERE whatsapp_number = ?", (number,)).fetchone()
     return (row["n"] if row else 0) or 0
+
+
+def whatsapp_counts() -> dict:
+    """{whatsapp_number: count} — grouped for fast enrichment in lists."""
+    with get_conn() as conn:
+        rows = _ex(conn,
+            "SELECT whatsapp_number, COUNT(*) AS n FROM accounts "
+            "WHERE whatsapp_number IS NOT NULL AND whatsapp_number <> '' "
+            "GROUP BY whatsapp_number").fetchall()
+    return {r["whatsapp_number"]: (r["n"] or 0) for r in rows if r.get("whatsapp_number")}
 
 
 # ── Settings ──────────────────────────────────────────────────────────────────
@@ -658,20 +677,32 @@ def spider_run_upsert(d: dict):
         _ex(conn,
             "INSERT INTO spider_runs (id, method, profile, profile_id, account_id, "
             "use_local, limit_n, delay_ms, cursor, target, kind, count, total, status, error, "
-            "rows_json, started_at, finished_at, profile_ids) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+            "rows_json, started_at, finished_at, profile_ids, blocked, stopped_by_user) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
             "ON CONFLICT (id) DO UPDATE SET method=excluded.method, profile=excluded.profile, "
             "profile_id=excluded.profile_id, account_id=excluded.account_id, "
             "use_local=excluded.use_local, limit_n=excluded.limit_n, delay_ms=excluded.delay_ms, "
             "cursor=excluded.cursor, target=excluded.target, kind=excluded.kind, "
             "count=excluded.count, total=excluded.total, status=excluded.status, "
             "error=excluded.error, rows_json=excluded.rows_json, finished_at=excluded.finished_at, "
-            "profile_ids=excluded.profile_ids",
+            "profile_ids=excluded.profile_ids, blocked=excluded.blocked, "
+            "stopped_by_user=excluded.stopped_by_user",
             (d.get("id"), d.get("method"), d.get("profile"), d.get("profile_id"),
              d.get("account_id"), 1 if d.get("use_local") else 0, int(d.get("limit_n") or 0),
              int(d.get("delay_ms") or 2500), d.get("cursor"), d.get("target"), d.get("kind"),
              int(d.get("count") or 0), d.get("total"), d.get("status"), d.get("error"),
-             d.get("rows_json"), d.get("started_at"), d.get("finished_at"), d.get("profile_ids")))
+             d.get("rows_json"), d.get("started_at"), d.get("finished_at"), d.get("profile_ids"),
+             1 if d.get("blocked") else 0, 1 if d.get("stopped_by_user") else 0))
+
+
+def spider_run_update_progress(run_id: str, count: int, cursor: str = None):
+    """Atualização BARATA de progresso (count + cursor) sem re-serializar rows_json gigante.
+    Usado nos checkpoints frequentes durante extração longa. Evita 1min/page causado por
+    json.dumps de dezenas/centenas de milhares de linhas + write no DB a cada 10 páginas."""
+    with get_conn() as conn:
+        _ex(conn,
+            "UPDATE spider_runs SET count = ?, cursor = ? WHERE id = ?",
+            (int(count or 0), cursor, run_id))
 
 
 def list_spider_runs(limit: int = 50) -> list:
@@ -680,8 +711,26 @@ def list_spider_runs(limit: int = 50) -> list:
     with get_conn() as conn:
         rows = _ex(conn,
             "SELECT id, method, profile, target, kind, count, total, status, error, "
-            "cursor, started_at, finished_at FROM spider_runs "
+            "cursor, started_at, finished_at, delay_ms, blocked, stopped_by_user FROM spider_runs "
             "ORDER BY started_at DESC LIMIT ?", (limit,)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def set_spider_run_blocked(run_id: str, blocked: bool):
+    """Marca/desmarca um run como 'terminou em suspensão/bloqueio' — o usuário pode
+    corrigir o desfecho p/ ENSINAR a recomendação de velocidade do Spider."""
+    with get_conn() as conn:
+        _ex(conn, "UPDATE spider_runs SET blocked = ? WHERE id = ?",
+            (1 if blocked else 0, run_id))
+
+
+def spider_runs_stats() -> list:
+    """Campos por execução p/ o aprendizado do Spider (velocidade/itens/desfecho/duração).
+    SEM rows_json (leve). Base para recomendar a velocidade segura."""
+    with get_conn() as conn:
+        rows = _ex(conn,
+            "SELECT delay_ms, count, total, blocked, stopped_by_user, status, kind, "
+            "account_id, profile_id, started_at, finished_at FROM spider_runs").fetchall()
     return [dict(r) for r in rows]
 
 
