@@ -142,7 +142,7 @@
   input[type=checkbox] { width: auto; }
 
   /* Sessions table */
-  .table-wrap { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+  .table-wrap { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); overflow-x: auto; }
   table { width: 100%; border-collapse: collapse; }
   th { background: var(--surface2); padding: 10px 16px; text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 600; }
   td { padding: 12px 16px; border-top: 1px solid var(--border); font-size: 13px; }
@@ -1183,7 +1183,7 @@
       </div>
 
       <!-- Histórico de execuções -->
-      <div style="margin-top:22px;max-width:680px">
+      <div style="margin-top:22px;max-width:980px">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
           <div style="font-weight:600">📜 Histórico de execuções</div>
           <button class="btn btn-ghost btn-sm" onclick="loadSpiderHistory()">↻ Atualizar</button>
@@ -3698,7 +3698,7 @@ async function loadSpiderHistory() {
     tb.innerHTML = items.map(it => {
       const when = it.finished_at || it.started_at || '—';
       const stColor = it.status === 'done' ? 'var(--green)' : (it.status === 'error' ? 'var(--red)' : 'var(--yellow)');
-      const dl = it.count ? `<button class="btn btn-ghost btn-sm" style="padding:1px 8px" onclick="spiderHistoryCsv('${it.id}')">⬇ CSV</button>` : '';
+      const dl = it.count ? `<button class="btn btn-ghost btn-sm" style="padding:1px 8px" onclick="spiderHistoryCsv('${it.id}')" title="Baixar CSV">⬇</button>` : '';
       // Continuar: só quando parou no meio (cursor salvo)
       const cont = it.cursor ? `<button class="btn btn-primary btn-sm" style="padding:1px 8px" onclick="spiderResume('${it.id}')" title="Continuar de onde parou">▶</button>` : '';
       // Re-rodar do zero (sempre disponível) — útil pra refazer com a correção
@@ -3711,10 +3711,11 @@ async function loadSpiderHistory() {
       const reachedTotal = it.total ? ((it.count || 0) >= it.total) : !it.cursor;
       const failed = (it.blocked == 1 || it.blocked === true)
         || (!byUser && it.status !== 'running' && it.total && (it.count || 0) < it.total);
-      const outcome = failed ? '🚫 falhou (conta caiu)'
+      const outcome = failed ? '🚫 falhou'
         : reachedTotal ? '✓ completou'
         : byUser ? '⏸ você parou'
         : (SP_STATUS_LABEL[it.status] || escapeHtml(it.status || ''));
+      const outTitle = failed ? 'A conta caiu (não chegou no total)' + (it.cursor ? ' — dá pra continuar (▶)' : '') : '';
       const outColor = failed ? 'var(--red)' : reachedTotal ? 'var(--green)' : stColor;
       return `<tr>
         <td style="font-size:12px;color:var(--muted)">${escapeHtml(when)}</td>
@@ -3722,8 +3723,8 @@ async function loadSpiderHistory() {
         <td>${escapeHtml(it.kind || '')}</td>
         <td>${escapeHtml(it.method || '')}</td>
         <td><b>${regs}</b></td>
-        <td style="color:${outColor}">${outcome}</td>
-        <td>${cont} ${rerun} ${dl} <button class="btn btn-ghost btn-sm" style="padding:1px 8px" onclick="spiderHistoryDelete('${it.id}')" title="Remover do histórico">🗑</button></td>
+        <td style="color:${outColor};white-space:nowrap"${outTitle ? ` title="${outTitle}"` : ''}>${outcome}</td>
+        <td style="white-space:nowrap">${cont} ${rerun} ${dl} <button class="btn btn-ghost btn-sm" style="padding:1px 8px" onclick="spiderHistoryDelete('${it.id}')" title="Remover do histórico">🗑</button></td>
       </tr>`;
     }).join('');
   } catch (e) { /* silencioso */ }
