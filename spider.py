@@ -79,12 +79,63 @@ async ([url, referer]) => {
 _GQL = {"followers": "37479f2b8209594dde7facb0d904896a",
         "following": "58712303d941c6855d4e888c5f0cd22f"}
 
+# POST de "seguir" (friendships/create). Descoberta validada (2026-06-21): uma conta
+# que SEGUE o alvo acessa a lista profunda de seguidores sem queimar; uma conta que
+# NÃO segue, ao pular pra um cursor profundo, é bloqueada/suspensa na hora.
+_FOLLOW_JS = r"""
+async ([url, referer]) => {
+  const m = document.cookie.match(/(?:^|;\s*)csrftoken=([^;]+)/);
+  const csrf = m ? m[1] : '';
+  try {
+    const r = await fetch(url, {
+      method: 'POST',
+      credentials: 'include',
+      headers: {
+        'x-csrftoken': csrf,
+        'x-ig-app-id': '936619743392459',
+        'x-asbd-id': '129477',
+        'x-requested-with': 'XMLHttpRequest',
+        'content-type': 'application/x-www-form-urlencoded',
+      },
+      body: '',
+      referrer: referer,
+    });
+    let body = null;
+    try { body = await r.json(); } catch (e) {}
+    return { ok: r.ok, status: r.status, json: body };
+  } catch (e) {
+    return { ok: false, status: -1, error: String(e) };
+  }
+}
+"""
+
 
 async def _graphql(page, query_hash: str, variables: dict, referer: str) -> dict:
     import json as _json
     from urllib.parse import quote
     url = f"{IG}/graphql/query/?query_hash={query_hash}&variables={quote(_json.dumps(variables))}"
     return await page.evaluate(_GQL_JS, [url, referer])
+
+
+async def _follow(page, user_id, username, log=None) -> bool:
+    """Segue o alvo (no-op se já seguir — o chamador checa antes). Libera o acesso
+    profundo à lista de seguidores. Falha é tolerada (segue a extração mesmo assim)."""
+    url = f"{IG}/api/v1/friendships/create/{user_id}/"
+    referer = f"{IG}/{username}/"
+    try:
+        res = await page.evaluate(_FOLLOW_JS, [url, referer])
+    except Exception as e:
+        if log:
+            log(f"⚠ não consegui seguir @{username} ({e}) — seguindo a extração mesmo assim")
+        return False
+    j = res.get("json") or {}
+    ok = bool(res.get("ok")) and (j.get("status") == "ok" or j.get("friendship_status"))
+    if log:
+        if ok:
+            log(f"➕ agora seguindo @{username} (libera o acesso à lista)")
+        else:
+            log(f"⚠ follow de @{username} não confirmou (status {res.get('status')}) — seguindo a extração")
+    return ok
 
 
 FOLLOWERS_HEADERS = ["Username", "User Id", "Full Name", "Verified", "Private",
@@ -504,6 +555,20 @@ async def extract(profile: dict, kind: str, target: str, limit: int = 0,
             await asyncio.sleep(round(random.uniform(1.0, 2.0), 1))
         except Exception:
             pass
+        # SEGUIR o alvo antes de coletar (descoberta validada): a conta que segue
+        # acessa a lista profunda sem queimar. No-op se já seguir.
+        try:
+            if info.get("followed_by_viewer"):
+                if log:
+                    log(f"✓ a conta já segue @{uname}")
+            else:
+                if log:
+                    log(f"seguindo @{uname} antes de coletar…")
+                await _follow(page, uid, uname, log=log)
+                await asyncio.sleep(round(random.uniform(1.5, 3.0), 1))
+        except Exception as e:
+            if log:
+                log(f"⚠ etapa de seguir falhou ({e}) — seguindo a extração")
         if kind in ("followers", "following"):
             if log:
                 log(f"iniciando extração de {'seguindo' if kind == 'following' else 'seguidores'}…")
