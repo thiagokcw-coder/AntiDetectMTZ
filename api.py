@@ -1398,7 +1398,11 @@ def _launch_spider_job(*, method, account, profile, label, kind, target, limit, 
 
     def _progress(n): job["count"] = n
     def _should_stop(): return job.get("stop", False)
-    def _on_total(t): job["total"] = t      # total de itens do alvo (p/ mostrar X/Y)
+    def _on_total(t):
+        job["total"] = t      # total de itens do alvo (p/ mostrar X/Y)
+        if kind == "followers":               # se o alvo é monitorado, atualiza o total
+            try: db.set_monitored_total(target, t)
+            except Exception: pass
 
     def _checkpoint(rows, cursor):
         # Chamado pelo spider a cada N páginas.
@@ -1711,6 +1715,47 @@ async def spider_rerun(run_id: str):
         profile_id=run.get("profile_id"), account_id=run.get("account_id"),
         profiles=(pool if method != "app" and len(pool) > 1 else None))
     return {"job_id": job_id}
+
+
+# ── Perfis monitorados ─────────────────────────────────────────────────────────
+
+class MonitoredRequest(BaseModel):
+    username: str
+    followers_total: Optional[int] = None   # opcional: total conhecido (senão o Spider preenche)
+    notes: Optional[str] = None
+
+
+@app.get("/monitored")
+def monitored_list():
+    """Lista os perfis monitorados + progresso de extração (de spider_runs por alvo)."""
+    items = []
+    tot_followers = tot_extracted = 0
+    for m in db.list_monitored():
+        extracted = db.spider_extracted_for(m.get("username"))
+        total = m.get("followers_total")
+        pct = (round(100 * extracted / total, 1) if total else None)
+        tot_followers += int(total or 0)
+        tot_extracted += int(extracted or 0)
+        items.append({**m, "extracted": extracted, "pct": pct})
+    return {"items": items, "count": len(items),
+            "total_followers": tot_followers, "total_extracted": tot_extracted}
+
+
+@app.post("/monitored")
+def monitored_add(body: MonitoredRequest):
+    uname = (body.username or "").strip().lstrip("@")
+    if not uname:
+        raise HTTPException(400, "Informe o @usuário")
+    m = db.add_monitored(uname, followers_total=body.followers_total, notes=body.notes)
+    if not m:
+        raise HTTPException(400, "Usuário inválido")
+    return m
+
+
+@app.delete("/monitored/{mid}")
+def monitored_delete(mid: str):
+    db.delete_monitored(mid)
+    return {"ok": True}
 
 
 @app.get("/spider/jobs/{job_id}")

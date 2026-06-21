@@ -311,6 +311,10 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 9V3M12 21v-6M9 12H3M21 12h-6M7 7 4 4M17 7l3-3M7 17l-3 3M17 17l3 3"/></svg>
       Spider
     </div>
+    <div class="nav-item" data-page-link="monitored" onclick="showPage('monitored')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+      Monitorados
+    </div>
     <div class="nav-item" data-page-link="create" onclick="showPage('create')">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
       Novo Perfil
@@ -1197,6 +1201,29 @@
       </div>
     </div>
 
+    <!-- PERFIS MONITORADOS -->
+    <div class="page" id="page-monitored">
+      <div class="page-header">
+        <div>
+          <div class="page-title">Perfis Monitorados</div>
+          <div class="page-subtitle">Alvos cujos seguidores você acompanha. O Spider extrai esses perfis; o progresso (extraído / total) aparece em cada um.</div>
+        </div>
+        <button class="btn btn-ghost btn-sm" onclick="loadMonitored()">↻ Atualizar</button>
+      </div>
+      <div style="max-width:980px;background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:16px 18px">
+        <div id="mon-stats" style="font-size:14px;margin-bottom:14px">—</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+          <input id="mon-username" type="text" placeholder="@usuario" onkeydown="if(event.key==='Enter')addMonitored()"
+                 style="flex:1;min-width:180px;padding:8px 10px;background:var(--surface);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px">
+          <input id="mon-total" type="number" min="0" placeholder="total (opcional)"
+                 style="width:150px;padding:8px 10px;background:var(--surface);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px">
+          <button class="btn btn-primary btn-sm" onclick="addMonitored()">+ Adicionar perfil</button>
+        </div>
+        <div class="form-hint" style="margin-top:8px">O <b>total</b> de seguidores é preenchido sozinho quando o Spider extrai o perfil (ou informe manualmente). O <b>extraído</b> vem do histórico do Spider. Clique em <b>Extrair</b> num perfil pra raspá-lo (abre o Spider já com o alvo).</div>
+        <div id="mon-list" style="display:flex;flex-wrap:wrap;gap:10px;margin-top:16px"></div>
+      </div>
+    </div>
+
     <!-- INFORMAÇÕES LOCAIS (salvar/carregar todo o local data) -->
     <div class="page" id="page-localdata">
       <div class="page-header">
@@ -1486,6 +1513,7 @@ function showPage(name) {
   if (name === 'proxies') loadProxiesPage();
   if (name === 'analytics') loadAnalytics();
   if (name === 'spider') loadSpider();
+  if (name === 'monitored') loadMonitored();
   if (name === 'start') loadStartProxyHealth();
   if (name === 'localdata') loadLocalData();
 }
@@ -3531,6 +3559,67 @@ function spiderIpModeHint() {
     }
   }
   hint.innerHTML = msg;
+}
+
+// ── Perfis monitorados ────────────────────────────────────────────────────────
+function fmtNum(n) { return (n == null ? '—' : Number(n).toLocaleString('pt-BR')); }
+
+async function loadMonitored() {
+  const wrap = document.getElementById('mon-list');
+  const stats = document.getElementById('mon-stats');
+  if (!wrap) return;
+  try {
+    const r = await api('GET', '/monitored');
+    const items = r.items || [];
+    stats.innerHTML = `<b>${r.count}</b> perfil(is) monitorado(s) · <b>${fmtNum(r.total_followers)}</b> seguidores no total · <b>${fmtNum(r.total_extracted)}</b> já extraídos`;
+    if (!items.length) {
+      wrap.innerHTML = '<div style="color:var(--muted);font-size:13px;padding:6px">Nenhum perfil monitorado ainda — adicione um acima.</div>';
+      return;
+    }
+    wrap.innerHTML = items.map(m => {
+      const total = m.followers_total, pct = m.pct;
+      const bar = total ? `<div style="height:5px;background:var(--surface2);border-radius:3px;overflow:hidden;margin-top:6px"><div style="height:100%;width:${Math.min(100, pct || 0)}%;background:var(--green)"></div></div>` : '';
+      const prog = total
+        ? `${fmtNum(m.extracted)} / ${fmtNum(total)}${pct != null ? ` · <b>${pct}%</b>` : ''}`
+        : `${fmtNum(m.extracted)} extraídos · total ainda não resolvido`;
+      return `<div style="width:280px;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px 14px">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+          <div style="font-weight:600;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">@${escapeHtml(m.username)}</div>
+          <button class="btn btn-ghost btn-sm" style="padding:1px 7px" title="Remover dos monitorados" onclick="removeMonitored('${m.id}','${escapeHtml(m.username)}')">🗑</button>
+        </div>
+        <div style="font-size:12px;color:var(--muted);margin-top:4px">${prog}</div>
+        ${bar}
+        <button class="btn btn-primary btn-sm" style="margin-top:10px;width:100%" onclick="monitorExtract('${escapeHtml(m.username)}')">🕷️ Extrair com o Spider</button>
+      </div>`;
+    }).join('');
+  } catch (e) { toast(e.message || 'Erro ao carregar monitorados', 'error'); }
+}
+
+async function addMonitored() {
+  const u = document.getElementById('mon-username').value.trim();
+  const t = parseInt(document.getElementById('mon-total').value, 10);
+  if (!u) { toast('Informe o @usuário', 'error'); return; }
+  try {
+    await api('POST', '/monitored', { username: u, followers_total: (t > 0 ? t : null) });
+    document.getElementById('mon-username').value = '';
+    document.getElementById('mon-total').value = '';
+    toast('Perfil adicionado aos monitorados', 'success');
+    loadMonitored();
+  } catch (e) { toast(e.message || 'Erro ao adicionar', 'error'); }
+}
+
+async function removeMonitored(id, uname) {
+  if (!confirm(`Remover @${uname} dos monitorados? (não apaga os dados já extraídos no Spider)`)) return;
+  try { await api('DELETE', `/monitored/${id}`); loadMonitored(); }
+  catch (e) { toast(e.message || 'Erro ao remover', 'error'); }
+}
+
+function monitorExtract(username) {
+  showPage('spider');
+  const t = document.getElementById('sp-target');
+  if (t) t.value = '@' + username;
+  const mt = document.getElementById('sp-method'); if (mt) { mt.value = 'web'; spiderMethodChange(); }
+  toast(`Alvo @${username} preenchido no Spider — marque a conta e clique Iniciar`, 'success');
 }
 
 async function loadSpider() {

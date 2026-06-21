@@ -237,6 +237,20 @@ def init_db():
                        ("blocked", "INTEGER DEFAULT 0"),    # desfecho: terminou em bloqueio/desafio
                        ("stopped_by_user", "INTEGER DEFAULT 0")):  # parada manual (não é falha)
             _ensure_column(conn, "spider_runs", _c, _d)
+        # Perfis MONITORADOS: alvos cujos seguidores a gente acompanha/extrai de
+        # tempos em tempos. followers_total = total do alvo (atualizado pelo Spider);
+        # o quanto já foi extraído é derivado de spider_runs (por target).
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS monitored_profiles (
+                id              TEXT PRIMARY KEY,
+                username        TEXT UNIQUE,
+                user_id         TEXT,
+                followers_total INTEGER,
+                last_total_at   TEXT,
+                added_at        TEXT,
+                notes           TEXT
+            )
+        """)
         # Defaults de limite (não sobrescreve se já existir)
         _ex(conn, "INSERT INTO settings (key, value) VALUES ('proxy_limit', '3') "
                   "ON CONFLICT (key) DO NOTHING")
@@ -594,6 +608,87 @@ def update_whatsapp(wa_id: str, **fields):
 def delete_whatsapp(wa_id: str):
     with get_conn() as conn:
         _ex(conn, "DELETE FROM whatsapp_numbers WHERE id = ?", (wa_id,))
+
+
+# ── Perfis monitorados ─────────────────────────────────────────────────────────
+
+def _clean_uname(username: str) -> str:
+    return (username or "").strip().lstrip("@").lower()
+
+
+def add_monitored(username: str, user_id=None, followers_total=None, notes=None):
+    """Adiciona um alvo monitorado (idempotente por username). Retorna a linha."""
+    import uuid
+    username = _clean_uname(username)
+    if not username:
+        return None
+    existing = get_monitored_by_username(username)
+    if existing:
+        return existing
+    mid = uuid.uuid4().hex[:12]
+    with get_conn() as conn:
+        _ex(conn,
+            "INSERT INTO monitored_profiles (id, username, user_id, followers_total, "
+            "last_total_at, added_at, notes) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (mid, username, user_id,
+             int(followers_total) if followers_total else None,
+             _now_str() if followers_total else None, _now_str(), notes))
+    return get_monitored_by_username(username)
+
+
+def list_monitored():
+    with get_conn() as conn:
+        rows = _ex(conn, "SELECT * FROM monitored_profiles "
+                         "ORDER BY COALESCE(followers_total, 0) DESC, username").fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_monitored(mid: str):
+    with get_conn() as conn:
+        row = _ex(conn, "SELECT * FROM monitored_profiles WHERE id = ?", (mid,)).fetchone()
+    return dict(row) if row else None
+
+
+def get_monitored_by_username(username: str):
+    with get_conn() as conn:
+        row = _ex(conn, "SELECT * FROM monitored_profiles WHERE username = ?",
+                  (_clean_uname(username),)).fetchone()
+    return dict(row) if row else None
+
+
+def update_monitored(mid: str, **fields):
+    if not fields:
+        return
+    cols = ", ".join(f"{k} = ?" for k in fields)
+    with get_conn() as conn:
+        _ex(conn, f"UPDATE monitored_profiles SET {cols} WHERE id = ?",
+            list(fields.values()) + [mid])
+
+
+def set_monitored_total(username: str, total):
+    """Atualiza o total de seguidores de um alvo monitorado (chamado pelo Spider
+    quando resolve o alvo). No-op se o alvo não estiver sendo monitorado."""
+    if total is None:
+        return
+    with get_conn() as conn:
+        _ex(conn, "UPDATE monitored_profiles SET followers_total = ?, last_total_at = ? "
+                  "WHERE username = ?", (int(total), _now_str(), _clean_uname(username)))
+
+
+def delete_monitored(mid: str):
+    with get_conn() as conn:
+        _ex(conn, "DELETE FROM monitored_profiles WHERE id = ?", (mid,))
+
+
+def spider_extracted_for(username: str) -> int:
+    """Maior 'count' já extraído para um alvo (de spider_runs) — usado p/ mostrar o
+    progresso de extração de cada perfil monitorado."""
+    with get_conn() as conn:
+        row = _ex(conn,
+            "SELECT MAX(count) AS c FROM spider_runs "
+            "WHERE LOWER(REPLACE(target, '@', '')) = ?", (_clean_uname(username),)).fetchone()
+    d = dict(row) if row else {}
+    return int(d.get("c") or 0)
 
 
 # ── Pool de proxies (compartilhado) ────────────────────────────────────────────
