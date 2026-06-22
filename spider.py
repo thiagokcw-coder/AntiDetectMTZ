@@ -138,8 +138,11 @@ async def _follow(page, user_id, username, log=None) -> bool:
     return ok
 
 
+# SEM "Avatar URL" de propósito: as URLs de avatar do IG são gigantes (~500 chars,
+# 86% do tamanho do CSV e o que inchava o banco) e temporárias (expiram); o mobiliza
+# e nós só usamos Username + Nome. Mantém Profile URL (clicável, leve).
 FOLLOWERS_HEADERS = ["Username", "User Id", "Full Name", "Verified", "Private",
-                     "Profile URL", "Avatar URL"]
+                     "Profile URL"]
 # 'following' usa os mesmos campos de 'followers'.
 POSTS_HEADERS = ["Shortcode", "URL", "Caption", "Likes", "Comments", "Views",
                  "Taken At", "Media Type", "Product Type"]
@@ -321,7 +324,6 @@ async def _friendship_list(page, user_id, username, edge, limit, progress, shoul
                 "Verified": bool(node.get("is_verified")),
                 "Private": bool(node.get("is_private")),
                 "Profile URL": f"{IG}/{uname}/" if uname else "",
-                "Avatar URL": node.get("profile_pic_url", ""),
             })
             if limit and len(rows) >= limit:
                 if progress:

@@ -83,8 +83,10 @@ def _session_cooldown(session_ref, max_pages, should_stop, log):
 
 SESS_DIR = APP_DIR / "ig_sessions"
 
+# SEM "Avatar URL" (igual ao Web): URL de avatar é gigante e temporária; só usamos
+# Username + Nome (+ Profile URL leve).
 FOLLOWERS_HEADERS = ["Username", "User Id", "Full Name", "Verified", "Private",
-                     "Profile URL", "Avatar URL"]
+                     "Profile URL"]
 
 
 def _proxy_url(proxy: dict):
@@ -142,7 +144,6 @@ def _row(u) -> dict:
         "Verified": bool(getattr(u, "is_verified", False)),
         "Private": bool(getattr(u, "is_private", False)),
         "Profile URL": f"https://www.instagram.com/{uname}/" if uname else "",
-        "Avatar URL": str(getattr(u, "profile_pic_url", "") or ""),
     }
 
 
