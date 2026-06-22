@@ -3795,17 +3795,22 @@ async function loadSpiderHistory() {
       const alvo = (it.target || '').replace(/^@+/, '');           // evita @@
       const regs = (it.total != null) ? `${it.count || 0}/${it.total}` : `${it.count || 0}`;
       const reqh = it.delay_ms ? Math.round(3600 / (it.delay_ms / 1000)) : null;   // velocidade usada
-      // Desfecho DERIVADO: falhou = não chegou no total e NÃO foi parada manual (a conta caiu).
+      // Desfecho DERIVADO. CHAVE: sem cursor (ou status 'done') = chegou ao FIM da
+      // lista = COMPLETOU — o 'total' do IG é aproximado/flutua, então count um pouco
+      // abaixo do total NÃO é falha. Falhou = bloqueio/erro, OU parou no meio (cursor
+      // salvo) sem ter sido você.
       const byUser = (it.stopped_by_user == 1 || it.stopped_by_user === true);
-      const reachedTotal = it.total ? ((it.count || 0) >= it.total) : !it.cursor;
-      const failed = (it.blocked == 1 || it.blocked === true)
-        || (!byUser && it.status !== 'running' && it.total && (it.count || 0) < it.total);
-      const outcome = failed ? '🚫 falhou'
-        : reachedTotal ? '✓ completou'
+      const blocked = (it.blocked == 1 || it.blocked === true);
+      const running = it.status === 'running' || it.status === 'needs_code';
+      const done = it.status === 'done' || (!it.cursor && !blocked && it.status !== 'error' && !running);
+      const failed = blocked || it.status === 'error' || (!byUser && !running && !done && !!it.cursor);
+      const outcome = running ? '⏳ rodando'
+        : failed ? '🚫 falhou'
+        : done ? '✓ completou'
         : byUser ? '⏸ você parou'
         : (SP_STATUS_LABEL[it.status] || escapeHtml(it.status || ''));
-      const outTitle = failed ? 'A conta caiu (não chegou no total)' + (it.cursor ? ' — dá pra continuar (▶)' : '') : '';
-      const outColor = failed ? 'var(--red)' : reachedTotal ? 'var(--green)' : stColor;
+      const outTitle = failed ? 'Parou no meio / a conta caiu' + (it.cursor ? ' — dá pra continuar (▶)' : '') : '';
+      const outColor = failed ? 'var(--red)' : done ? 'var(--green)' : (running ? 'var(--yellow)' : stColor);
       return `<tr>
         <td style="font-size:12px;color:var(--muted)">${escapeHtml(when)}</td>
         <td><code>@${escapeHtml(alvo)}</code>${reqh ? `<div style="font-size:11px;color:var(--muted)">${reqh} req/h</div>` : ''}</td>

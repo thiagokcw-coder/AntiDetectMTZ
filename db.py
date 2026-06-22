@@ -824,7 +824,7 @@ def spider_runs_stats() -> list:
     SEM rows_json (leve). Base para recomendar a velocidade segura."""
     with get_conn() as conn:
         rows = _ex(conn,
-            "SELECT delay_ms, count, total, blocked, stopped_by_user, status, kind, "
+            "SELECT delay_ms, count, total, blocked, stopped_by_user, status, kind, cursor, "
             "account_id, profile_id, started_at, finished_at FROM spider_runs").fetchall()
     return [dict(r) for r in rows]
 

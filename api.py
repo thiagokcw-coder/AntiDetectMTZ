@@ -1312,16 +1312,20 @@ def spider_insights():
             return None
 
     def _failed(r):
-        """Falhou = a sessão NÃO chegou no total e NÃO foi você que parou (a conta caiu).
-        Também conta o bloqueio explícito. Só julga runs já encerradas."""
+        """Falhou = a sessão parou no MEIO (cursor salvo) sem ter sido você (a conta
+        caiu), ou bloqueio/erro explícito. CHAVE: sem cursor = chegou ao FIM da lista
+        = completou (o 'total' do IG é aproximado/flutua, então count um pouco abaixo
+        do total NÃO é falha). Só julga runs já encerradas."""
         if r.get("blocked"):
             return True
         if r.get("stopped_by_user"):
             return False
-        finished = (r.get("status") in ("done", "stopped", "error")) or r.get("finished_at")
-        total = r.get("total")
-        count = int(r.get("count") or 0)
-        return bool(finished and total and count < int(total))
+        if r.get("status") == "error":
+            return True
+        if not r.get("cursor"):
+            return False   # sem cursor = terminou a lista = completou
+        finished = (r.get("status") in ("done", "stopped")) or r.get("finished_at")
+        return bool(finished)   # tem cursor e já encerrou (não foi você) = caiu no meio
 
     tiers = {}
     for r in db.spider_runs_stats():
