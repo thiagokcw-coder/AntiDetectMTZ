@@ -1117,9 +1117,9 @@
           </label>
           <label style="display:flex;align-items:flex-start;gap:8px;margin-top:6px;font-weight:400;cursor:pointer">
             <input type="radio" name="sp-mode" value="relay" onchange="spiderMultiUI()" style="margin-top:3px">
-            <span style="font-size:12px"><b>Rodízio no mesmo alvo (arriscado)</b> — as contas revezam num alvo só.</span>
+            <span style="font-size:12px"><b>Mesmo alvo — handoff seguro</b> — cada conta extrai até <b>~1,5M</b> e passa pra próxima da lista (segue o alvo antes). Pra alvos grandes (>1,6M) que uma conta só não aguenta.</span>
           </label>
-          <div class="form-hint" id="sp-relay-warn" style="display:none;color:#f87171">⚠ Rodízio no mesmo alvo pode causar <b>suspensão em cluster</b>: várias contas enumerando a MESMA lista em cadeia é um padrão correlacionável — já derrubou 3 contas juntas, enquanto 1 conta sozinha fez 1,6M. Prefira "alvos diferentes".</div>
+          <div class="form-hint" id="sp-relay-warn" style="display:none">🛟 <b>Handoff:</b> uma conta por vez extrai até ~1,5M (abaixo do teto de ~1,6M onde a conta cai), <b>segue o alvo</b> e passa o cursor pra próxima conta marcada. Use contas descartáveis. Se houver só 1 conta, roda no padrão (sem corte).</div>
         </div>
         <div class="form-group" id="sp-account-group" style="display:none">
           <label>Conta (com usuário e senha cadastrados)</label>
@@ -3544,7 +3544,7 @@ function spiderIpModeHint() {
     if (n > 1) {
       msg += batch
         ? `⚠ <b>${n} contas no mesmo IP</b>: alvos diferentes evita correlação por alvo, mas o IP ainda soma o tráfego de todas e a IG pode vincular as contas. Ideal é 1 proxy por conta.`
-        : `⚠ <b>${n} contas no mesmo IP</b>: o rodízio faz cada conta descansar, mas o IP soma o tráfego de todas e a IG pode vincular as contas. Bom p/ testar; ideal é 1 proxy por conta.`;
+        : `⚠ <b>${n} contas no mesmo IP</b>: o handoff usa uma conta por vez, mas o IP soma o tráfego de todas e a IG pode vincular as contas. Bom p/ testar; ideal é 1 proxy por conta.`;
     } else {
       msg += 'Como o setup que extrai mais (IP limpo). A sessão já está logada por cookies.';
     }
@@ -3553,7 +3553,7 @@ function spiderIpModeHint() {
     if (n > 1) {
       msg += batch
         ? '✅ Ideal p/ alvos diferentes: cada conta no seu alvo E no seu IP — sem nenhuma ligação entre elas.'
-        : '✅ É o modo ideal de rodízio: espalha por contas E por IPs distintos.';
+        : '✅ Ideal pro handoff: cada conta no seu IP, uma por vez no mesmo alvo.';
     } else {
       msg += 'Use quando o IP local ficar ruim — 1 proxy por vez, na própria conta.';
     }

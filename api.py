@@ -1279,6 +1279,11 @@ def _spider_mark_blocked(profile=None, account=None,
 
 _SPIDER_SPEED_TIERS = (2000, 4500, 7200, 14400, 45000, 120000)
 
+# Handoff: cada conta extrai até ~1,5M itens (≈30000 págs a ~50/pág) e passa pra
+# próxima. Fica ABAIXO do teto de ~1,6M onde a conta cai (validado: cobbyw524 caiu
+# em ~1,6M). Parar antes preserva a conta; a próxima segue o alvo e continua.
+_SPIDER_SAFE_PAGES_PER_ACCOUNT = 30000
+
 
 def _spider_recommended_delay(by_speed: list):
     """Regra (estatística, sem IA): a velocidade MAIS RÁPIDA testada que NUNCA bloqueou.
@@ -1531,6 +1536,66 @@ def _launch_spider_job(*, method, account, profile, label, kind, target, limit, 
         return {"rows": rows, "cursor": cursor, "total": job.get("total"),
                 "target": target, "kind": kind, "user": last_user}
 
+    async def _failover():
+        """Handoff seguro (mesmo alvo, várias contas): cada conta extrai até ~1,5M
+        itens e passa o cursor pra PRÓXIMA da lista — abaixo do teto de ~1,6M onde a
+        conta cai. A conta nova SEGUE o alvo antes (spider.extract faz isso), o que
+        libera a lista profunda. Cada conta é usada UMA vez, em ordem (não recicla,
+        pra não re-queimar). Para quando o alvo termina (cursor=None) ou as contas
+        acabam (cursor salvo → dá pra continuar com mais contas depois)."""
+        pool = profiles
+        rows = list(seed_rows or [])
+        cursor = start_cursor
+        last_user = None
+        last_error = None
+        made_progress = False
+        _log(f"🛟 handoff seguro entre {len(pool)} conta(s) no mesmo alvo: cada uma "
+             f"extrai até ~1,5M e passa pra próxima (segue o alvo antes) · "
+             + ("IP local" if use_local else "proxy por conta"))
+        for i, prof in enumerate(pool):
+            if _should_stop():
+                _log("⏹ parado pelo usuário")
+                break
+            start_count = len(rows)
+            _log(f"▶ conta '{prof.get('name')}' assumindo (de {start_count} já coletados)")
+            r = await spider.extract(
+                prof, kind, target, limit,
+                progress=_progress, should_stop=_should_stop, log=_log,
+                start_max_id=cursor, seed_rows=rows, delay_ms=delay_ms,
+                on_total=_on_total, use_local=use_local,
+                shift_pages=_SPIDER_SAFE_PAGES_PER_ACCOUNT, checkpoint=_checkpoint)
+            if r.get("blocked"):
+                job["blocked"] = True
+                u = _spider_mark_blocked(profile=prof)
+                if u:
+                    _log(f"⚠ '{u}' marcada como 'em suspensão' (possível bloqueio/desafio)")
+            if r.get("error"):
+                last_error = r.get("error")
+                _log(f"⚠ conta '{prof.get('name')}' falhou: {str(last_error)[:120]} — tentando a próxima")
+                continue
+            rows = r.get("rows", rows)
+            cursor = r.get("cursor")
+            last_user = r.get("user") or last_user
+            if len(rows) > start_count:
+                made_progress = True
+            job["rows"] = rows; job["count"] = len(rows); job["cursor"] = cursor
+            if r.get("total") is not None:
+                job["total"] = r.get("total")
+            _save()   # resume-safe; soma no mesmo CSV
+            if not cursor:
+                _log(f"✓ alvo concluído — {len(rows)} registro(s)")
+                break
+            if limit and len(rows) >= limit:
+                break
+            if i < len(pool) - 1:
+                _log(f"⏭ '{prof.get('name')}' atingiu ~1,5M (ou parou) — passando pra próxima conta")
+                await asyncio.sleep(round(random.uniform(5, 12), 1))
+            else:
+                _log("✖ acabaram as contas da lista — pausado (dá pra continuar com mais contas depois)")
+        return {"rows": rows, "cursor": cursor, "total": job.get("total"),
+                "target": target, "kind": kind, "user": last_user,
+                **({"error": last_error} if (not made_progress and last_error) else {})}
+
     async def _worker():
         try:
             if method == "app":
@@ -1541,7 +1606,7 @@ def _launch_spider_job(*, method, account, profile, label, kind, target, limit, 
                     log=_log, start_max_id=start_cursor, seed_rows=seed_rows, delay_ms=delay_ms,
                     on_total=_on_total, checkpoint=_checkpoint)
             elif profiles and len(profiles) > 1:
-                res = await _relay()
+                res = await _failover()   # handoff seguro: ~1,5M por conta, passa pra próxima
             else:
                 res = await spider.extract(
                     profile, kind, target, limit,
