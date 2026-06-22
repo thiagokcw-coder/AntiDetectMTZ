@@ -1744,7 +1744,10 @@ def monitored_list():
     items = []
     tot_followers = tot_extracted = 0
     for m in db.list_monitored():
-        extracted = db.spider_extracted_for(m.get("username"))
+        # extraído = o MAIOR entre a maior run isolada e o "extraído conhecido"
+        # (união deduplicada de várias runs/CSVs, quando setado) — evita subestimar.
+        extracted = max(db.spider_extracted_for(m.get("username")),
+                        int(m.get("extracted_known") or 0))
         total = m.get("followers_total")
         pct = (round(100 * extracted / total, 1) if total else None)
         tot_followers += int(total or 0)

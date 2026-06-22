@@ -251,6 +251,10 @@ def init_db():
                 notes           TEXT
             )
         """)
+        # extracted_known: total REAL de seguidores únicos que temos do alvo (ex.: a
+        # união deduplicada de várias runs/CSVs). Usado quando o MAX(count) de uma run
+        # isolada subestima (re-runs deixam dados espalhados). Migração aditiva.
+        _ensure_column(conn, "monitored_profiles", "extracted_known", "INTEGER")
         # Defaults de limite (não sobrescreve se já existir)
         _ex(conn, "INSERT INTO settings (key, value) VALUES ('proxy_limit', '3') "
                   "ON CONFLICT (key) DO NOTHING")
