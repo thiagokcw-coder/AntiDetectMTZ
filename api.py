@@ -1375,6 +1375,15 @@ def _launch_spider_job(*, method, account, profile, label, kind, target, limit, 
            "cursor": start_cursor}   # preserva o cursor ao CONTINUAR (senão o save inicial o zerava)
     _spider_jobs[job_id] = job
 
+    # Todo alvo que o Spider extrai entra nos Perfis Monitorados (idempotente — no-op
+    # se já estiver). Cobre extração, lote, continuar e re-rodar (todos passam aqui).
+    try:
+        _mon = spider.clean_username(target)
+        if _mon:
+            db.add_monitored(_mon)
+    except Exception:
+        pass
+
     def _save(status_extra=None):
         try:
             d = {"id": job_id, "method": method, "profile": label,
