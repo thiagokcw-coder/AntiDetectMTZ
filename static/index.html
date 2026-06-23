@@ -1208,7 +1208,7 @@
           <div class="page-title">Perfis Monitorados</div>
           <div class="page-subtitle">Alvos cujos seguidores você acompanha. O Spider extrai esses perfis; o progresso (extraído / total) aparece em cada um.</div>
         </div>
-        <button class="btn btn-ghost btn-sm" onclick="loadMonitored()">↻ Atualizar</button>
+        <button id="mon-refresh" class="btn btn-ghost btn-sm" onclick="refreshMonitored(this)">↻ Atualizar</button>
       </div>
       <div style="max-width:980px;background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:16px 18px">
         <div id="mon-stats" style="font-size:14px;margin-bottom:14px">—</div>
@@ -3593,6 +3593,20 @@ async function loadMonitored() {
       </div>`;
     }).join('');
   } catch (e) { toast(e.message || 'Erro ao carregar monitorados', 'error'); }
+}
+
+// Atualizar: varre as pastas data/<perfil>/ por CSVs (ex.: que você jogou lá) e
+// atualiza o "extraído" antes de recarregar a lista.
+async function refreshMonitored(btn) {
+  const orig = btn ? btn.textContent : null;
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ varrendo CSVs…'; }
+  try {
+    const r = await api('POST', '/monitored/scan');
+    const n = (r.updated || []).length;
+    if (n) toast(`✓ ${n} perfil(is) atualizado(s) a partir de CSV na pasta`, 'success');
+  } catch (e) { toast(e.message || 'Erro ao varrer CSVs', 'error'); }
+  finally { if (btn) { btn.disabled = false; btn.textContent = orig; } }
+  loadMonitored();
 }
 
 async function addMonitored() {

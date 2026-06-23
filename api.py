@@ -1839,6 +1839,60 @@ def monitored_delete(mid: str):
     return {"ok": True}
 
 
+_monitored_csv_cache = {}   # username -> (assinatura dos CSVs, nº de únicos) — evita re-contar à toa
+
+
+def _scan_monitored_csv(username: str):
+    """Conta seguidores ÚNICOS (por User Id) no MAIOR CSV da pasta data/<username>/.
+    Usado pra refletir CSVs que você jogou na pasta (ex.: export do mobiliza).
+    Cacheia por assinatura (nome+tamanho+mtime) — só re-conta se o arquivo mudou.
+    Retorna o nº de únicos, ou None se não há pasta/CSV."""
+    uname = spider.clean_username(username) or ""
+    folder = SPIDER_DATA_DIR / re.sub(r"[^A-Za-z0-9_.-]", "_", uname)
+    if not folder.exists():
+        return None
+    # Conta o MAIOR CSV da pasta (o mais completo) — rápido (1 arquivo) e cobre o
+    # caso comum (você joga 1 CSV na pasta). Cacheia por assinatura: só re-conta se
+    # esse arquivo mudou de tamanho/data.
+    f = max(folder.glob("*.csv"), key=lambda p: p.stat().st_size, default=None)
+    if not f:
+        return None
+    sig = (f.name, f.stat().st_size, int(f.stat().st_mtime))
+    cached = _monitored_csv_cache.get(uname)
+    if cached and cached[0] == sig:
+        return cached[1]                      # nada mudou → usa o cache
+    ids = set()
+    try:
+        with open(f, newline="", encoding="utf-8-sig") as fh:
+            r = _csv.reader(fh)
+            hdr = next(r, None)
+            uid_col = hdr.index("User Id") if (hdr and "User Id" in hdr) else 1
+            for row in r:
+                if len(row) > uid_col:
+                    v = (row[uid_col] or "").strip()
+                    if v:
+                        ids.add(v)
+    except Exception:
+        logger.exception("falha ao ler CSV de monitorado %s", f)
+        return None
+    n = len(ids)
+    _monitored_csv_cache[uname] = (sig, n)
+    return n
+
+
+@app.post("/monitored/scan")
+def monitored_scan():
+    """Varre as pastas data/<perfil>/ e atualiza o 'extraído conhecido' de cada
+    monitorado a partir dos CSVs ali (útil quando você adiciona um CSV na pasta)."""
+    updated = []
+    for m in db.list_monitored():
+        n = _scan_monitored_csv(m.get("username"))
+        if n and n != int(m.get("extracted_known") or 0):
+            db.update_monitored(m["id"], extracted_known=n)
+            updated.append({"username": m["username"], "extracted_known": n})
+    return {"updated": updated}
+
+
 @app.get("/spider/jobs/{job_id}")
 def spider_job(job_id: str):
     j = _spider_jobs.get(job_id)
