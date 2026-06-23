@@ -256,6 +256,7 @@ async def _friendship_list(page, user_id, username, edge, limit, progress, shoul
     referer = f"{IG}/{username}/{'following' if edge == 'following' else 'followers'}/"
     rate_hits = 0
     net_hits = 0
+    block_hits = 0
     page_n = 0
     next_pause = random.randint(25, 45)   # pausa de proteção a cada ~25-45 páginas (menos intrusivo)
     max_pages = _max_pages_for(delay_ms)  # páginas por sessão antes do cooldown longo
@@ -303,12 +304,25 @@ async def _friendship_list(page, user_id, username, edge, limit, progress, shoul
         rate_hits = 0
         data = ((((res.get("json") or {}).get("data") or {}).get("user") or {}).get(edge_key))
         if not res.get("ok") or not data:
+            # Pode ser bloqueio/desafio TEMPORÁRIO (a conta às vezes volta sozinha).
+            # Em vez de encerrar na hora, espera e re-tenta o MESMO cursor algumas
+            # vezes; só desiste (e marca suspensa) se realmente não voltar.
+            block_hits += 1
+            if block_hits <= 3:
+                wait = min(300, 120 * block_hits)
+                if log:
+                    log(f"⚠ resposta inesperada (status {st}) — possível bloqueio TEMPORÁRIO. "
+                        f"Esperando {wait}s e verificando se a conta volta [{block_hits}/3]…")
+                if await _sleep_stop(wait, should_stop):
+                    break                      # usuário parou durante a espera
+                continue
             if log:
-                log(f"✖ resposta inesperada (status {st}) — possível bloqueio/desafio "
-                    f"na conta. Encerrando (dá pra continuar de onde parou).")
+                log(f"✖ a conta não voltou após 3 tentativas (status {st}) — "
+                    f"encerrando (dá pra continuar de onde parou).")
             if meta is not None:
                 meta["blocked"] = True   # sinaliza p/ marcar a conta como suspensa
             break
+        block_hits = 0                   # voltou → zera o contador de bloqueio
         before = len(rows)
         for e in (data.get("edges") or []):
             node = e.get("node") or {}
@@ -403,6 +417,7 @@ async def _posts(page, user_id, username, limit, progress, should_stop, log=None
     cursor = max_id
     rate_hits = 0
     net_hits = 0
+    block_hits = 0
     page_n = 0
     next_pause = random.randint(25, 45)
     max_pages = _max_pages_for(delay_ms)
@@ -449,13 +464,26 @@ async def _posts(page, user_id, username, limit, progress, should_stop, log=None
         net_hits = 0
         rate_hits = 0
         if not res.get("ok") or not res.get("json"):
+            # Bloqueio/desafio possivelmente TEMPORÁRIO → espera e re-tenta o mesmo
+            # cursor algumas vezes; só desiste (e marca suspensa) se não voltar.
+            block_hits += 1
+            if block_hits <= 3:
+                wait = min(300, 120 * block_hits)
+                if log:
+                    log(f"⚠ resposta inesperada (status {st}) — possível bloqueio TEMPORÁRIO. "
+                        f"Esperando {wait}s e verificando se a conta volta [{block_hits}/3]…")
+                cursor = max_id
+                if await _sleep_stop(wait, should_stop):
+                    break
+                continue
             if log:
-                log(f"✖ resposta inesperada (status {st}) — possível bloqueio/desafio "
-                    f"na conta. Encerrando (dá pra continuar de onde parou).")
+                log(f"✖ a conta não voltou após 3 tentativas (status {st}) — "
+                    f"encerrando (dá pra continuar de onde parou).")
             if meta is not None:
                 meta["blocked"] = True   # sinaliza p/ marcar a conta como suspensa
             cursor = max_id
             break
+        block_hits = 0                   # voltou → zera o contador de bloqueio
         j = res["json"]
         before = len(rows)
         for it in (j.get("items") or []):
