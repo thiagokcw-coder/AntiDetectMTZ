@@ -2018,7 +2018,9 @@ def _save_spider_csv(content: str, target: str, fname: str) -> str:
     folder = SPIDER_DATA_DIR / re.sub(r"[^A-Za-z0-9_.-]", "_", sub)
     folder.mkdir(parents=True, exist_ok=True)
     path = folder / fname
-    path.write_text(content, encoding="utf-8-sig")   # BOM → abre certo no Excel
+    # newline="" → NÃO traduz \n: o csv já vem com \r\n; sem isso o write_text (modo
+    # texto, Windows) viraria \r\r\n = uma linha EM BRANCO entre cada registro.
+    path.write_text(content, encoding="utf-8-sig", newline="")   # BOM → abre certo no Excel
     return str(path)
 
 
