@@ -1208,7 +1208,10 @@
           <div class="page-title">Perfis Monitorados</div>
           <div class="page-subtitle">Alvos cujos seguidores você acompanha. O Spider extrai esses perfis; o progresso (extraído / total) aparece em cada um.</div>
         </div>
-        <button id="mon-refresh" class="btn btn-ghost btn-sm" onclick="refreshMonitored(this)">↻ Atualizar</button>
+        <div style="display:flex;gap:8px">
+          <button id="mon-resolve" class="btn btn-ghost btn-sm" onclick="resolveMonitoredTotals(this)" title="Abre um perfil logado e busca o total real de seguidores dos perfis sem total">📊 Resolver totais</button>
+          <button id="mon-refresh" class="btn btn-ghost btn-sm" onclick="refreshMonitored(this)">↻ Atualizar</button>
+        </div>
       </div>
       <div style="max-width:980px;background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:16px 18px">
         <div id="mon-stats" style="font-size:14px;margin-bottom:14px">—</div>
@@ -3570,8 +3573,10 @@ async function loadMonitored() {
   if (!wrap) return;
   try {
     const r = await api('GET', '/monitored');
+    window._monResolving = !!r.resolving;
     const items = r.items || [];
-    stats.innerHTML = `<b>${r.count}</b> perfil(is) monitorado(s) · <b>${fmtNum(r.total_followers)}</b> seguidores no total · <b>${fmtNum(r.total_extracted)}</b> já extraídos`;
+    stats.innerHTML = `<b>${r.count}</b> perfil(is) monitorado(s) · <b>${fmtNum(r.total_followers)}</b> seguidores no total · <b>${fmtNum(r.total_extracted)}</b> já extraídos`
+      + (r.resolving ? ' · <span style="color:var(--accent2)">⏳ resolvendo totais…</span>' : '');
     if (!items.length) {
       wrap.innerHTML = '<div style="color:var(--muted);font-size:13px;padding:6px">Nenhum perfil monitorado ainda — adicione um acima.</div>';
       return;
@@ -3607,6 +3612,30 @@ async function refreshMonitored(btn) {
   } catch (e) { toast(e.message || 'Erro ao varrer CSVs', 'error'); }
   finally { if (btn) { btn.disabled = false; btn.textContent = orig; } }
   loadMonitored();
+}
+
+// Resolve o total real de seguidores dos perfis sem total (abre 1 perfil logado em
+// 2º plano). Depois fica recarregando até terminar, pra os cards preencherem sozinhos.
+async function resolveMonitoredTotals(btn) {
+  const orig = btn ? btn.textContent : null;
+  try {
+    const r = await api('POST', '/monitored/resolve-totals');
+    if (r.pending === 0) { toast('Todos os perfis já têm total', 'success'); return; }
+    if (btn) { btn.disabled = true; btn.textContent = '⏳ resolvendo…'; }
+    toast(`Resolvendo o total de ${r.pending} perfil(is) — abrindo o navegador em 2º plano…`, 'success');
+    // poll: recarrega os cards a cada 8s até terminar (cap ~3min)
+    let tries = 0;
+    const tick = async () => {
+      tries++;
+      await loadMonitored();   // re-busca + renderiza (totais preenchem sozinhos)
+      if (window._monResolving && tries < 24) { setTimeout(tick, 8000); }
+      else { if (btn) { btn.disabled = false; btn.textContent = orig; } toast('Totais resolvidos', 'success'); }
+    };
+    setTimeout(tick, 8000);
+  } catch (e) {
+    toast(e.message || 'Erro ao resolver totais', 'error');
+    if (btn) { btn.disabled = false; btn.textContent = orig; }
+  }
 }
 
 async function addMonitored() {

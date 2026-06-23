@@ -1819,7 +1819,8 @@ def monitored_list():
         tot_extracted += int(extracted or 0)
         items.append({**m, "extracted": extracted, "pct": pct})
     return {"items": items, "count": len(items),
-            "total_followers": tot_followers, "total_extracted": tot_extracted}
+            "total_followers": tot_followers, "total_extracted": tot_extracted,
+            "resolving": _monitored_resolve["running"]}
 
 
 @app.post("/monitored")
@@ -1878,6 +1879,48 @@ def _scan_monitored_csv(username: str):
     n = len(ids)
     _monitored_csv_cache[uname] = (sig, n)
     return n
+
+
+_monitored_resolve = {"running": False}
+
+
+def _first_logged_profile():
+    """Acha o 1º perfil com conta IG LOGADA (status active) — pra resolver totais."""
+    for a in db.list_accounts():
+        if a.get("status") == "active" and a.get("profile_id"):
+            p = get_profile(a["profile_id"])
+            if p:
+                return p
+    return None
+
+
+@app.post("/monitored/resolve-totals")
+async def monitored_resolve_totals():
+    """Resolve o total REAL de seguidores (web_profile_info) dos monitorados que
+    estão sem total — abre UM perfil logado em 2º plano e atualiza o banco."""
+    if _monitored_resolve["running"]:
+        return {"running": True, "already": True}
+    missing = [m["username"] for m in db.list_monitored() if not m.get("followers_total")]
+    if not missing:
+        return {"running": False, "pending": 0}
+    prof = _first_logged_profile()
+    if not prof:
+        raise HTTPException(400, "Nenhum perfil logado disponível. Abra/logue um perfil pra resolver os totais.")
+    _monitored_resolve["running"] = True
+
+    async def _run():
+        try:
+            res = await spider.resolve_totals(prof, missing, use_local=True)
+            for u, tot in (res or {}).items():
+                if tot:
+                    db.set_monitored_total(u, tot)
+        except Exception:
+            logger.exception("falha ao resolver totais dos monitorados")
+        finally:
+            _monitored_resolve["running"] = False
+
+    asyncio.create_task(_run())
+    return {"running": True, "pending": len(missing)}
 
 
 @app.post("/monitored/scan")

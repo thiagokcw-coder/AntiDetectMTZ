@@ -516,6 +516,37 @@ def _total_for(info: dict, kind: str):
     return (info.get("edge_followed_by") or {}).get("count")
 
 
+async def resolve_totals(profile: dict, usernames, use_local: bool = True, log=None) -> dict:
+    """Abre o perfil logado e resolve SÓ o total de seguidores de cada username
+    (web_profile_info — não pagina, não segue = chamada leve, baixo risco). Retorna
+    {username_limpo: total|None}. Usado pra preencher o total dos perfis monitorados."""
+    if use_local:
+        profile = {**profile, "proxy": None}
+    out = {}
+    async def _run(page):
+        await page.goto(IG + "/", wait_until="domcontentloaded")
+        await asyncio.sleep(round(random.uniform(1.0, 2.0), 1))
+        for u in usernames:
+            uname = clean_username(u)
+            try:
+                uid, info = await _resolve_user(page, u)
+                out[uname] = _total_for(info, "followers") if uid else None
+                if log:
+                    log(f"{uname}: {out[uname] if out[uname] is not None else '?'} seguidores")
+            except Exception as e:
+                out[uname] = None
+                if log:
+                    log(f"{uname}: falhou ({str(e)[:60]})")
+            await asyncio.sleep(round(random.uniform(1.5, 3.0), 1))
+        return out
+    try:
+        return await sm.run_profile_task(profile, _run, headless=True)
+    except Exception as e:
+        if log:
+            log(f"erro ao abrir perfil: {e}")
+        return out
+
+
 async def extract(profile: dict, kind: str, target: str, limit: int = 0,
                   progress=None, should_stop=None, log=None,
                   start_max_id=None, seed_rows=None, delay_ms=2500, on_total=None,
