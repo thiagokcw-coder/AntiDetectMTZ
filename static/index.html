@@ -1154,7 +1154,7 @@
         </div>
         <div class="form-group">
           <label>Velocidade — pela CONFIANÇA da conta que raspa</label>
-          <select id="sp-speed">
+          <select id="sp-speed" onchange="_spiderSpeedTouched = true">
             <option value="120000">🛡️ Ultra seguro — ~30 req/h (conta muito nova/descartável)</option>
             <option value="45000">🐢 Conta nova — ~80 req/h</option>
             <option value="14400">⚖ Conta média — ~250 req/h</option>
@@ -3659,8 +3659,9 @@ async function loadSpiderInsights() {
     if (!ins || !ins.total_runs) { hint.style.display = 'none'; return; }
     const sel = document.getElementById('sp-speed');
     const rec = ins.recommended_delay_ms;
-    // pré-seleciona a velocidade recomendada; se não houver opção pra ela, cria uma
-    // dinâmica (assim nenhuma velocidade aprendida do histórico fica de fora).
+    // Pré-seleciona a velocidade recomendada SÓ se você ainda não escolheu uma —
+    // senão (ex.: ao Continuar, que reabre a aba) ele resetava a sua escolha.
+    let didSelect = false;
     if (rec) {
       [...sel.querySelectorAll('option[data-dynamic]')].forEach(o => { if (+o.value !== rec) o.remove(); });
       if (![...sel.options].some(o => +o.value === rec)) {
@@ -3670,7 +3671,7 @@ async function loadSpiderInsights() {
         opt.textContent = `🧠 Recomendado — ~${reqh} req/h (do seu histórico)`;
         sel.appendChild(opt);
       }
-      sel.value = String(rec);
+      if (!window._spiderSpeedTouched) { sel.value = String(rec); didSelect = true; }
     }
     const reqh = rec ? Math.round(3600 / (rec / 1000)) : null;
     // resumo por velocidade já testada (req/h · runs · bloqueios · itens)
@@ -3678,7 +3679,7 @@ async function loadSpiderInsights() {
       `${s.req_per_hour_nominal}/h: ${s.runs} run(s), ${s.blocked_runs} falha(s)`
       + (s.avg_items_before_block != null ? ` (caiu ~${s.avg_items_before_block} itens)` : '')
     );
-    hint.innerHTML = (rec ? `🧠 Recomendado pelo seu histórico: <b>~${reqh} req/h</b> (selecionado). ` : '')
+    hint.innerHTML = (rec ? `🧠 Recomendado pelo seu histórico: <b>~${reqh} req/h</b>${didSelect ? ' (selecionado)' : ' (você escolheu outra)'}. ` : '')
       + (parts.length ? `<span style="color:var(--muted)">Histórico — ${parts.join(' · ')}</span>` : '');
     hint.style.display = '';
   } catch (e) { hint.style.display = 'none'; }
