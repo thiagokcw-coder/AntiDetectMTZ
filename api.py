@@ -1219,13 +1219,25 @@ def accounts_create_profile(account_id: str, body: CreateProfileForAccountReques
 
 @app.get("/accounts/export")
 def accounts_export():
-    """Exporta todas as contas em CSV (download)."""
+    """Exporta todas as contas em CSV. Salva SEMPRE no disco (data/) e devolve o
+    caminho no header X-Saved-Path — no app (pywebview) o download do navegador não
+    dispara, então o arquivo fica garantido lá (igual ao Spider)."""
     from fastapi.responses import Response
     csv_data = acc.export_accounts_to_csv()
+    saved = ""
+    try:
+        d = Path(__file__).resolve().parent / "data"
+        d.mkdir(parents=True, exist_ok=True)
+        p = d / "contas_export.csv"
+        p.write_text(csv_data, encoding="utf-8-sig", newline="")
+        saved = str(p)
+    except Exception:
+        logger.exception("falha ao salvar contas_export.csv no disco")
     return Response(
         content=csv_data,
         media_type="text/csv",
-        headers={"Content-Disposition": "attachment; filename=contas_export.csv"},
+        headers={"Content-Disposition": "attachment; filename=contas_export.csv",
+                 "X-Saved-Path": saved},
     )
 
 
@@ -2232,14 +2244,16 @@ def local_data_info():
 
 @app.get("/local-data/backup")
 def local_data_backup():
-    """Gera o ZIP com todo o local data e devolve para download."""
-    import tempfile
-    from starlette.background import BackgroundTask
+    """Gera o ZIP com todo o local data. Salva no disco (data/backups/) e devolve o
+    caminho no header X-Saved-Path — no app (pywebview) o download não dispara, então
+    o .zip fica garantido lá. (Não apaga: você move o arquivo quando quiser.)"""
     name = f"profilemanager-backup-{time.strftime('%Y%m%d-%H%M%S')}.zip"
-    tmp = os.path.join(tempfile.gettempdir(), name)
-    bdata.backup(tmp)
-    return FileResponse(tmp, media_type="application/zip", filename=name,
-                        background=BackgroundTask(lambda: _safe_unlink(tmp)))
+    d = Path(__file__).resolve().parent / "data" / "backups"
+    d.mkdir(parents=True, exist_ok=True)
+    dest = str(d / name)
+    bdata.backup(dest)
+    return FileResponse(dest, media_type="application/zip", filename=name,
+                        headers={"X-Saved-Path": dest})
 
 
 def _safe_unlink(path):

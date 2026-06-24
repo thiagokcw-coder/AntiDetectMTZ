@@ -2030,16 +2030,22 @@ async function saveLocalData() {
   try {
     const res = await fetch(API + '/local-data/backup');
     if (!res.ok) throw new Error('Falha ao gerar o backup');
-    const blob = await res.blob();
+    const saved = res.headers.get('X-Saved-Path') || '';
     const cd = res.headers.get('Content-Disposition') || '';
     const m = cd.match(/filename=([^;]+)/);
     const name = m ? m[1].trim().replace(/"/g, '') : 'profilemanager-backup.zip';
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url; a.download = name;
-    document.body.appendChild(a); a.click(); a.remove();
-    URL.revokeObjectURL(url);
-    st.textContent = 'pronto — ' + name + ' baixado ✓';
+    // No app (pywebview) o <a download> sequestra a janela; o .zip já foi salvo no
+    // disco (X-Saved-Path). Só baixa pelo navegador fora do app.
+    if (!window.pywebview) {
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = name;
+      document.body.appendChild(a); a.click(); a.remove();
+      URL.revokeObjectURL(url);
+    }
+    st.textContent = saved ? ('salvo em: ' + saved) : ('pronto — ' + name + ' ✓');
+    if (saved) toast('✓ Backup salvo em: ' + saved, 'success');
   } catch (e) {
     st.textContent = '';
     toast(e.message || 'Erro ao salvar backup', 'error');
@@ -3483,16 +3489,18 @@ async function exportAccountsCsv() {
   try {
     const res = await fetch(API + '/accounts/export');
     if (!res.ok) throw new Error('Falha ao exportar');
-    const blob = await res.blob();
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'contas_export.csv';
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
-    toast('CSV exportado');
+    const saved = res.headers.get('X-Saved-Path') || '';
+    // No app (pywebview) o <a download> sequestra a janela; o servidor já salvou no
+    // disco (X-Saved-Path). Só baixa pelo navegador fora do app.
+    if (!window.pywebview) {
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = 'contas_export.csv';
+      document.body.appendChild(a); a.click(); a.remove();
+      URL.revokeObjectURL(url);
+    }
+    toast(saved ? ('✓ CSV salvo em: ' + saved) : 'CSV exportado', 'success');
   } catch (e) { toast(e.message || 'Erro ao exportar', 'error'); }
 }
 
