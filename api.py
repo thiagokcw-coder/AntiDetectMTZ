@@ -1410,7 +1410,9 @@ def _launch_spider_job(*, method, account, profile, label, kind, target, limit, 
                  "target": target, "kind": kind,
                  "count": job.get("count", 0), "total": job.get("total"),
                  "status": job.get("status"),
-                 "error": job.get("error"), "rows_json": json.dumps(job.get("rows") or []),
+                 # rows_json NÃO vai mais pro banco (inchava o Supabase a GBs). As linhas
+                 # vivem no CSV de disco (data/<alvo>/) — o banco fica só com o status.
+                 "error": job.get("error"), "rows_json": None,
                  "started_at": started_at, "finished_at": job.get("finished_at"),
                  "blocked": job.get("blocked"), "stopped_by_user": job.get("stopped_by_user")}
             if status_extra:
@@ -1418,6 +1420,13 @@ def _launch_spider_job(*, method, account, profile, label, kind, target, limit, 
             db.spider_run_upsert(d)
         except Exception:
             logger.exception("falha ao salvar spider run")
+
+    def _persist_rows():
+        """Grava as linhas atuais no CSV de disco (substitui o rows_json do banco)."""
+        try:
+            _spider_persist_rows(job.get("rows") or [], target, kind)
+        except Exception:
+            logger.exception("falha ao persistir rows em disco")
 
     _save()   # registra início (running)
 
@@ -1447,16 +1456,13 @@ def _launch_spider_job(*, method, account, profile, label, kind, target, limit, 
             db.spider_run_update_progress(job_id, job["count"], cursor)
         except Exception:
             pass
-        # Snapshot completo de rows_json a cada ~2500 itens NOVOS (proteção contra
-        # crash sem matar o throughput). Conta itens desde o último save completo —
-        # robusto a páginas de tamanho variável (a dedup faz o count somar 48/49/50,
-        # então `count % 2500 == 0` quase nunca caía no múltiplo exato e o save
-        # completo não disparava → era a brecha que perdia dados num crash).
+        # Snapshot completo a cada ~2500 itens NOVOS (proteção contra crash sem matar
+        # o throughput). Agora grava no CSV de DISCO (não no rows_json do banco).
         try:
             job["_last_full_save"] = job.get("_last_full_save", job["count"])
             if job["count"] - job["_last_full_save"] >= 2500:
                 job["_last_full_save"] = job["count"]
-                _save()
+                _persist_rows()
         except Exception:
             pass
 
@@ -1538,7 +1544,7 @@ def _launch_spider_job(*, method, account, profile, label, kind, target, limit, 
                 u = _spider_mark_blocked(profile=prof)
                 if u:
                     _log(f"⚠ '{u}' marcada como 'em suspensão' (possível bloqueio/desafio)")
-            _save()   # persiste após CADA turno (resume-safe; soma no mesmo CSV)
+            _save(); _persist_rows()   # após CADA turno: status no banco + linhas no disco
             if not cursor:
                 _log(f"✓ rodízio concluído — {len(rows)} registro(s)")
                 break
@@ -1593,7 +1599,7 @@ def _launch_spider_job(*, method, account, profile, label, kind, target, limit, 
             job["rows"] = rows; job["count"] = len(rows); job["cursor"] = cursor
             if r.get("total") is not None:
                 job["total"] = r.get("total")
-            _save()   # resume-safe; soma no mesmo CSV
+            _save(); _persist_rows()   # status no banco + linhas no disco
             if not cursor:
                 _log(f"✓ alvo concluído — {len(rows)} registro(s)")
                 break
@@ -1651,6 +1657,7 @@ def _launch_spider_job(*, method, account, profile, label, kind, target, limit, 
         finally:
             job["finished_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
             _save()
+            _persist_rows()   # garante o CSV de disco com as linhas finais
 
     asyncio.create_task(_worker())
     return job_id
@@ -1763,10 +1770,14 @@ async def spider_resume(run_id: str, body: SpiderResumeRequest = SpiderResumeReq
         p = pool[0]
         profile_id = p.get("id")
         label = f"{len(pool)} contas (rodízio)" if len(pool) > 1 else p.get("name")
-    try:
-        seed_rows = json.loads(run.get("rows_json") or "[]")
-    except Exception:
-        seed_rows = []
+    # Linhas já coletadas: agora vêm do CSV de DISCO (rows_json saiu do banco).
+    # Fallback ao rows_json antigo p/ runs gravadas antes dessa mudança.
+    seed_rows = _spider_load_rows(run.get("target") or "", run.get("kind") or "followers")
+    if not seed_rows:
+        try:
+            seed_rows = json.loads(run.get("rows_json") or "[]")
+        except Exception:
+            seed_rows = []
     job_id = _launch_spider_job(
         method=method, account=a, profile=p, label=label, kind=run.get("kind") or "followers",
         target=run.get("target"), limit=int(run.get("limit_n") or 0),
@@ -2036,6 +2047,57 @@ def _save_spider_csv(content: str, target: str, fname: str) -> str:
     return str(path)
 
 
+_SPIDER_PREFIX = {"followers": "IGFollowers", "following": "IGFollowing", "posts": "IGPosts"}
+
+
+def _spider_rows_to_csv(rows: list, kind: str) -> str:
+    """Gera o conteúdo CSV (dedup por User Id / Shortcode) a partir das linhas."""
+    dkey = "Shortcode" if kind == "posts" else "User Id"
+    seen, deduped = set(), []
+    for r in rows or []:
+        k = str(r.get(dkey) or "")
+        if k and k in seen:
+            continue
+        if k:
+            seen.add(k)
+        deduped.append(r)
+    buf = _io.StringIO()
+    w = _csv.DictWriter(buf, fieldnames=spider.headers_for(kind), extrasaction="ignore")
+    w.writeheader()
+    for r in deduped:
+        w.writerow(r)
+    return buf.getvalue()
+
+
+def _spider_persist_rows(rows: list, target: str, kind: str) -> str:
+    """Persiste as linhas no CSV de disco (arquivo ESTÁVEL por alvo+tipo, sobrescrito).
+    Substitui o rows_json no banco — o Supabase fica só com count/cursor/status.
+    O dado bruto vive em data/<alvo>/ e é a base do resume e do download."""
+    prefix = _SPIDER_PREFIX.get(kind, "IGData")
+    fname = f"{prefix}_{spider.clean_username(target)}.csv"
+    return _save_spider_csv(_spider_rows_to_csv(rows, kind), target, fname)
+
+
+def _spider_load_rows(target: str, kind: str) -> list:
+    """Lê de volta as linhas do MAIOR CSV de data/<alvo>/ (resume/CSV do histórico).
+    Robusto ao nome do arquivo (pega o maior do tipo)."""
+    sub = spider.clean_username(target) or "sem_alvo"
+    folder = SPIDER_DATA_DIR / re.sub(r"[^A-Za-z0-9_.-]", "_", sub)
+    if not folder.exists():
+        return []
+    prefix = _SPIDER_PREFIX.get(kind, "IGData")
+    cands = [p for p in folder.glob("*.csv") if p.name.startswith(prefix)]
+    if not cands:
+        return []
+    biggest = max(cands, key=lambda p: p.stat().st_size)
+    try:
+        with biggest.open("r", encoding="utf-8-sig", newline="") as f:
+            return list(_csv.DictReader(f))
+    except Exception:
+        logger.exception("falha ao ler CSV de disco p/ resume")
+        return []
+
+
 @app.get("/spider/jobs/{job_id}/csv")
 def spider_job_csv(job_id: str):
     from fastapi.responses import Response
@@ -2045,16 +2107,18 @@ def spider_job_csv(job_id: str):
         target = j.get("target", "")
         kind = j.get("kind", "followers")
     else:
-        # Fallback: execução antiga do histórico (rows salvas no banco)
+        # Execução do histórico: lê as linhas do CSV de DISCO (rows_json saiu do banco).
         run = db.get_spider_run(job_id)
         if not run:
             raise HTTPException(404, "Job não encontrado")
-        try:
-            rows = json.loads(run.get("rows_json") or "[]")
-        except Exception:
-            rows = []
         target = run.get("target", "")
         kind = run.get("kind", "followers")
+        rows = _spider_load_rows(target, kind)
+        if not rows:   # fallback p/ runs gravadas antes da mudança (rows_json no banco)
+            try:
+                rows = json.loads(run.get("rows_json") or "[]")
+            except Exception:
+                rows = []
     # Dedup defensivo final (garante CSV sem duplicados, qualquer que seja a origem)
     dkey = "Shortcode" if kind == "posts" else "User Id"
     seen, deduped = set(), []
