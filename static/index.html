@@ -3875,18 +3875,23 @@ async function spiderFetchCsv(id) {
   const res = await fetch(API + `/spider/jobs/${id}/csv`);
   if (!res.ok) throw new Error('Falha ao gerar o CSV');
   const saved = res.headers.get('X-Saved-Path') || '';
-  // nome do arquivo vindo do servidor (Content-Disposition), com fallback
-  const cd = res.headers.get('Content-Disposition') || '';
-  const m = cd.match(/filename=([^;]+)/);
-  const fname = (m ? m[1].trim() : '') || 'spider.csv';
-  const blob = await res.blob();
-  try {
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url; a.download = fname;
-    document.body.appendChild(a); a.click(); a.remove();
-    URL.revokeObjectURL(url);
-  } catch (e) { /* webview pode bloquear o download — o arquivo já está salvo no disco */ }
+  // IMPORTANTE: dentro do app (pywebview/WKWebView) o <a download> NÃO baixa — ele
+  // NAVEGA a janela pro conteúdo do CSV (vira texto na tela). O servidor já salva o
+  // arquivo no disco (X-Saved-Path), então no app só avisamos onde ficou. O download
+  // do navegador só roda num browser DE VERDADE (sem window.pywebview).
+  if (!window.pywebview) {
+    try {
+      const cd = res.headers.get('Content-Disposition') || '';
+      const m = cd.match(/filename=([^;]+)/);
+      const fname = (m ? m[1].trim() : '') || 'spider.csv';
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = fname;
+      document.body.appendChild(a); a.click(); a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e) { /* sem problema — o arquivo já está salvo no disco */ }
+  }
   toast(saved ? ('✓ CSV salvo em: ' + saved) : '✓ CSV gerado', 'success');
 }
 
