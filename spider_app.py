@@ -55,6 +55,14 @@ def _max_pages_for(delay_ms) -> int:
 # reinício/crash não perde o progresso e a run pode CONTINUAR do cursor salvo.
 _CHECKPOINT_EVERY = 10
 
+# query_hash da GraphQL PÚBLICA (web) — os MESMOS do spider.py (Web), que puxam
+# milhões. As funções prontas da lib (user_*_gql_chunk) usam estes hashes mas
+# hardcodam `first:12`; chamamos a GraphQL na mão p/ usar `first:50` (4× menos
+# requisições por alvo — igual ao Web).
+_GQL = {"followers": "37479f2b8209594dde7facb0d904896a",
+        "following": "58712303d941c6855d4e888c5f0cd22f"}
+_GQL_PAGE = 50
+
 
 def _sleep_stop(secs, should_stop, step: float = 0.4) -> bool:
     """Sleep SÍNCRONO interrompível (roda no executor): dorme em passos curtos e sai
@@ -218,15 +226,24 @@ def _fetch_friendship_page(cl, edge, uid, cursor):
     """UMA requisição = UMA página (para conseguirmos inserir delays/checkpoints/
     cooldown entre páginas). Retorna (chunk de UserShort, end_cursor).
 
-    Usa a GraphQL PÚBLICA (web) — `user_followers_gql_chunk`/`user_following_gql_chunk`,
-    mesmo query_hash que o método Web usa pra puxar MILHÕES. Validado ao vivo: a API v1
-    `/friendships/followers/` E a GraphQL PRIVADA mobile (`*_private_gql_chunk`) capam em
-    ~48-50 pra quem não é DONO da lista; só a GraphQL pública pagina fundo (com a conta
-    SEGUINDO o alvo). `max_amount=1` força UMA requisição por chamada — senão a lib
-    acumularia tudo num loop interno, sem as nossas pausas/checkpoints entre páginas."""
-    if edge == "following":
-        return cl.user_following_gql_chunk(uid, max_amount=1, end_cursor=cursor or None)
-    return cl.user_followers_gql_chunk(uid, max_amount=1, end_cursor=cursor or None)
+    Chama a GraphQL PÚBLICA (web) NA MÃO — mesmo query_hash + `first:50` que o método
+    Web usa pra puxar MILHÕES (a v1 `/friendships/` E a GraphQL PRIVADA mobile capam em
+    ~48-50 pra quem não é DONO da lista; só a pública pagina fundo, com a conta SEGUINDO
+    o alvo). Usamos a chamada direta em vez de `user_*_gql_chunk` porque a lib hardcoda
+    `first:12` → na mão vamos de 50 em 50 (4× menos requisições por alvo grande)."""
+    from instagrapi.extractors import extract_user_short
+    qhash = _GQL["following"] if edge == "following" else _GQL["followers"]
+    edge_key = "edge_follow" if edge == "following" else "edge_followed_by"
+    variables = {"id": str(uid), "first": _GQL_PAGE}
+    if cursor:
+        variables["after"] = cursor
+    cl.inject_sessionid_to_public()
+    data = cl.public_graphql_request(variables, query_hash=qhash)
+    root = ((data or {}).get("user") or {}).get(edge_key) or {}
+    users = [extract_user_short(e["node"]) for e in (root.get("edges") or []) if e.get("node")]
+    pi = root.get("page_info") or {}
+    nxt = pi.get("end_cursor") if pi.get("has_next_page") else None
+    return users, nxt
 
 
 def _friendship_loop(cl, edge, uid, uname, limit, progress, should_stop, log, start_max_id,
