@@ -216,17 +216,17 @@ def _post_row_app(m) -> dict:
 
 def _fetch_friendship_page(cl, edge, uid, cursor):
     """UMA requisição = UMA página (para conseguirmos inserir delays/checkpoints/
-    cooldown entre páginas). Retorna (chunk, next_cursor).
+    cooldown entre páginas). Retorna (chunk de UserShort, end_cursor).
 
-    followers → GraphQL PRIVADA mobile (`user_followers_private_gql_chunk`): faz UMA
-      requisição por chamada e pagina por `next_max_id` SEM o cap de ~50 da v1
-      /friendships/followers (mesma lição do Web, que migrou v1→GraphQL).
-    following → GraphQL público (`user_following_gql_chunk`, mesmo query_hash do Web).
-      Passamos max_amount=1 só para forçar UMA requisição por chamada (ele acumularia
-      tudo num loop interno se max_amount=0); retorna a página inteira + end_cursor."""
+    Usa a GraphQL PÚBLICA (web) — `user_followers_gql_chunk`/`user_following_gql_chunk`,
+    mesmo query_hash que o método Web usa pra puxar MILHÕES. Validado ao vivo: a API v1
+    `/friendships/followers/` E a GraphQL PRIVADA mobile (`*_private_gql_chunk`) capam em
+    ~48-50 pra quem não é DONO da lista; só a GraphQL pública pagina fundo (com a conta
+    SEGUINDO o alvo). `max_amount=1` força UMA requisição por chamada — senão a lib
+    acumularia tudo num loop interno, sem as nossas pausas/checkpoints entre páginas."""
     if edge == "following":
         return cl.user_following_gql_chunk(uid, max_amount=1, end_cursor=cursor or None)
-    return cl.user_followers_private_gql_chunk(uid, max_amount=0, max_id=cursor or None)
+    return cl.user_followers_gql_chunk(uid, max_amount=1, end_cursor=cursor or None)
 
 
 def _friendship_loop(cl, edge, uid, uname, limit, progress, should_stop, log, start_max_id,
@@ -244,8 +244,7 @@ def _friendship_loop(cl, edge, uid, uname, limit, progress, should_stop, log, st
     if log:
         # Diagnóstico: deixa explícito qual paginador está em uso (e prova que o código
         # NOVO está carregado — se esta linha não aparece, a app não foi reiniciada).
-        _src = "GraphQL privada (mobile, sem cap)" if edge != "following" else "GraphQL (web)"
-        log(f"📄 paginando {edge} via {_src}")
+        log(f"📄 paginando {edge} via GraphQL pública (web, sem cap)")
     if seed_rows and log:
         log(f"retomando: {len(rows)} já coletado(s), seguindo do cursor salvo…")
     while True:
