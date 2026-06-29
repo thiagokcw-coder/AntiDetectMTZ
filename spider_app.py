@@ -267,6 +267,30 @@ def _posts_loop(cl, uid, uname, limit, progress, should_stop, log, start_max_id,
     return rows, cursor
 
 
+def _follow_app(cl, uid, uname, log=None) -> bool:
+    """Segue o alvo no método App/instagrapi (igual ao Web — libera o acesso à lista
+    profunda). No-op se já seguir. Best-effort: tolera falha (segue a extração)."""
+    try:
+        fr = cl.user_friendship_v1(uid)
+        already = bool(getattr(fr, "following", None)
+                       or (isinstance(fr, dict) and fr.get("following")))
+        if already:
+            if log:
+                log(f"✓ a conta já segue @{uname}")
+            return True
+    except Exception:
+        pass   # não deu pra checar → tenta seguir mesmo assim (user_follow é idempotente)
+    try:
+        cl.user_follow(uid)
+        if log:
+            log(f"➕ agora seguindo @{uname} (libera o acesso à lista)")
+        return True
+    except Exception as e:
+        if log:
+            log(f"⚠ não consegui seguir @{uname} ({str(e)[:50]}) — seguindo a extração")
+        return False
+
+
 def _extract_sync(account, kind, target, limit, progress, should_stop, code_provider, status,
                   use_local, log, start_max_id, seed_rows, delay_ms, on_total, checkpoint=None):
     """Loga uma vez e despacha por tipo. Retorna (rows, cursor, total)."""
@@ -292,6 +316,13 @@ def _extract_sync(account, kind, target, limit, progress, should_stop, code_prov
         total = None
     if on_total and total is not None:
         on_total(total)
+    # SEGUIR o alvo antes de coletar (igual ao Web — conta que segue acessa a lista
+    # profunda sem queimar). No-op se já seguir; best-effort.
+    try:
+        _follow_app(cl, uid, uname, log)
+        time.sleep(round(random.uniform(1.5, 3.0), 1))
+    except Exception:
+        pass
     if log:
         log((f"retomando: {len(seed_rows or [])} já coletado(s) — " if seed_rows else "")
             + f"alvo @{uname} (id {uid})"
