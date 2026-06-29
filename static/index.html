@@ -3796,7 +3796,7 @@ async function spiderPoll() {
     document.getElementById('sp-resume').style.display = (j.status === 'stopped' && j.cursor) ? '' : 'none';
     document.getElementById('sp-csv').style.display = j.count ? '' : 'none';
     if (j.status === 'done') {
-      document.getElementById('sp-detail').textContent = `${j.count} registro(s) de @${j.target}.`;
+      document.getElementById('sp-detail').textContent = `${j.count} registro(s) de @${(j.target || '').replace(/^@+/, '')}.`;
     } else if (j.status === 'stopped') {
       document.getElementById('sp-detail').textContent = `Parou com ${j.count} registro(s) — clique em "Continuar" para seguir de onde parou.`;
     } else {
