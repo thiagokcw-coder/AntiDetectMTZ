@@ -1714,6 +1714,7 @@ class SpiderResumeRequest(BaseModel):
     delay_ms: Optional[int] = None   # velocidade ATUAL do seletor; sobrepõe a salva na run
     profile_ids: Optional[list] = None  # web: CONTINUAR com OUTRA(s) conta(s) (handoff p/ conta fresca)
     use_local: Optional[bool] = None    # idem: modo de IP ATUAL ao trocar de conta
+    account_id: Optional[str] = None    # app (instagrapi): CONTINUAR com OUTRA conta
 
 
 @app.post("/spider/resume/{run_id}")
@@ -1733,9 +1734,13 @@ async def spider_resume(run_id: str, body: SpiderResumeRequest = SpiderResumeReq
     a = p = None
     profile_id = run.get("profile_id")
     if method == "app":
-        a = db.get_account(run.get("account_id")) if run.get("account_id") else None
+        # Override de conta: continua com a conta marcada (body.account_id); senão a da run.
+        aid = body.account_id or run.get("account_id")
+        a = db.get_account(aid) if aid else None
         if not a:
-            raise HTTPException(404, "Conta original não existe mais — não dá para continuar.")
+            raise HTTPException(404, "Conta não encontrada — marque a conta com que quer continuar.")
+        if not (a.get("username") and a.get("password")):
+            raise HTTPException(400, "A conta precisa de usuário e senha cadastrados (modo app/instagrapi).")
         label = a.get("username")
         pool = None
     else:
@@ -1760,7 +1765,7 @@ async def spider_resume(run_id: str, body: SpiderResumeRequest = SpiderResumeReq
         target=run.get("target"), limit=int(run.get("limit_n") or 0),
         use_local=(body.use_local if body.use_local is not None else bool(run.get("use_local"))),
         delay_ms=(body.delay_ms if body.delay_ms else int(run.get("delay_ms") or 2500)),
-        profile_id=profile_id, account_id=run.get("account_id"),
+        profile_id=profile_id, account_id=(a.get("id") if a else run.get("account_id")),
         profiles=(pool if method != "app" and pool and len(pool) > 1 else None),
         seed_rows=seed_rows, start_cursor=run.get("cursor"),
         job_id=run_id, started_at=run.get("started_at"))   # MESMO id → soma no mesmo CSV

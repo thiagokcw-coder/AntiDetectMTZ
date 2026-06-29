@@ -3954,6 +3954,13 @@ async function spiderResume(id) {
       body.profile_ids = ids;
       body.use_local = document.getElementById('sp-web-ipmode').value === 'local';
     }
+    // App (instagrapi): se o método App está selecionado, continua com a CONTA escolhida
+    // no seletor (troca de conta no resume do app). Sem isso, reusava a conta da run.
+    let appAcc = '';
+    if (document.getElementById('sp-method').value === 'app') {
+      appAcc = document.getElementById('sp-account').value || '';
+      if (appAcc) body.account_id = appAcc;
+    }
     const r = await api('POST', `/spider/resume/${id}`, body);
     _spiderJob = r.job_id;
     document.getElementById('sp-status').style.display = '';
@@ -3965,7 +3972,7 @@ async function spiderResume(id) {
     document.getElementById('sp-detail').textContent = 'Retomando de onde parou…';
     showPage('spider');
     spiderPoll();
-    toast(ids.length ? 'Continuando com a conta selecionada' : 'Continuando a extração');
+    toast((ids.length || appAcc) ? 'Continuando com a conta selecionada' : 'Continuando a extração');
   } catch (e) { toast(e.message || 'Erro ao continuar', 'error'); }
 }
 
