@@ -241,6 +241,11 @@ def _friendship_loop(cl, edge, uid, uname, limit, progress, should_stop, log, st
     max_pages = _max_pages_for(delay_ms)
     session_ref = [0]
     _tot = (lambda n: f"{n}/{total}" if total else str(n))
+    if log:
+        # Diagnóstico: deixa explícito qual paginador está em uso (e prova que o código
+        # NOVO está carregado — se esta linha não aparece, a app não foi reiniciada).
+        _src = "GraphQL privada (mobile, sem cap)" if edge != "following" else "GraphQL (web)"
+        log(f"📄 paginando {edge} via {_src}")
     if seed_rows and log:
         log(f"retomando: {len(rows)} já coletado(s), seguindo do cursor salvo…")
     while True:
