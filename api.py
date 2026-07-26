@@ -425,12 +425,25 @@ async def launch_profile(profile_id: str, body: LaunchRequest):
     p = get_profile(profile_id)
     if not p:
         raise HTTPException(404, "Perfil não encontrado")
+    # O launch DESTRAVA o perfil (fecha o anterior + mata processo órfão preso nele).
+    # Se o Spider está extraindo com ESTE perfil, destravar mataria a extração —
+    # então avisamos em vez de matar a run por acidente.
+    busy = [j for j in _spider_jobs.values()
+            if j.get("status") in ("running", "needs_code")
+            and profile_id in (j.get("profile_ids") or [])]
+    if busy:
+        raise HTTPException(409,
+                            "O Spider está extraindo com este perfil agora. Pare a extração "
+                            "na aba Spider antes de abrir o navegador (abrir agora encerraria "
+                            "a extração em andamento).")
     try:
         # A extensão ig-filler fica desligada por padrão: em alguns renders do IG ela
         # interfere na página. O fluxo automático usa filler interno via page.evaluate.
         auto_load_filler = False
+        # close_others=True: pedido do usuário — abrir um navegador FECHA o anterior
+        # (além de destravar este perfil de processos órfãos / parent.lock).
         result = await sm.launch(p, url=body.url, headless=body.headless, actions=body.actions, mode=body.mode,
-                                 load_ig_filler=auto_load_filler)
+                                 load_ig_filler=auto_load_filler, close_others=True)
         return result
     except RuntimeError as e:
         raise HTTPException(409, str(e))
@@ -1373,10 +1386,15 @@ def _launch_spider_job(*, method, account, profile, label, kind, target, limit, 
     job_id = job_id or uuid.uuid4().hex[:12]
     started_at = started_at or time.strftime("%Y-%m-%d %H:%M:%S")
     seed_rows = seed_rows or []
+    # Perfis que ESTE job está usando — para o "Abrir navegador" saber que não pode
+    # destravar/matar o processo deste perfil sem encerrar a extração.
+    _pids_used = [p.get("id") for p in (profiles or []) if p.get("id")] \
+        or ([profile_id] if profile_id else [])
     job = {"id": job_id, "status": "running", "kind": kind, "target": target,
            "count": len(seed_rows), "rows": list(seed_rows), "error": None, "stop": False,
            "profile": label, "method": method, "detail": "", "code": None,
            "code_method": None, "log": [], "started_at": started_at,
+           "profile_ids": _pids_used,
            "cursor": start_cursor}   # preserva o cursor ao CONTINUAR (senão o save inicial o zerava)
     _spider_jobs[job_id] = job
 

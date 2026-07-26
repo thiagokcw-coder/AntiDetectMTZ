@@ -249,11 +249,159 @@ def _stable_fingerprint(profile: dict, os_name: str, screen, window):
         return None
 
 
+# ── Destravar um perfil ("Firefox is already running, but is not responding") ──
+# O lock do APP (banco, TTL 90s) se recupera sozinho, mas o lock do FIREFOX
+# (parent.lock dentro do user_data_dir) só sai quando o PROCESSO morre. Tarefas
+# headless (Spider/aquecimento) rodam por run_profile_task e NÃO entram em
+# _sessions — se o processo morre sem fechar o browser, sobra um Camoufox órfão
+# segurando o perfil e o "Abrir" quebra com aquele diálogo do Firefox. Ao mandar
+# ABRIR, liberamos o perfil primeiro.
+_LOCK_FILES = ("parent.lock", ".parentlock", "lock")
+
+
+def _pids_holding(user_data, name_re: str = "camoufox|firefox") -> list[int]:
+    """PIDs cujo command line referencia ESTE user_data_dir. Alvo CIRÚRGICO: filtra
+    também pelo NOME do processo (só o navegador), então não toca em navegadores de
+    outros perfis, nem em extrações de outros perfis, nem em processos alheios.
+
+    O filtro por nome não é cosmético: sem ele o próprio PowerShell que faz a busca
+    aparecia no resultado (o caminho procurado está no command line DELE)."""
+    import os as _os
+    import re
+    import subprocess
+    import sys
+    path = str(user_data)
+    pids: list[int] = []
+    try:
+        if sys.platform.startswith("win"):
+            esc = path.replace("'", "''")
+            ps = ("Get-CimInstance Win32_Process | Where-Object { "
+                  f"$_.Name -match '{name_re}' -and $_.CommandLine -like '*{esc}*'"
+                  " } | Select-Object -ExpandProperty ProcessId")
+            r = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", ps],
+                               capture_output=True, text=True, timeout=30)
+            out = r.stdout or ""
+        else:
+            rx = re.compile(name_re, re.I)
+            r = subprocess.run(["ps", "-eo", "pid=,command="],
+                               capture_output=True, text=True, timeout=30)
+            out = "\n".join(ln.split(None, 1)[0]
+                            for ln in (r.stdout or "").splitlines()
+                            if path in ln and rx.search(ln))
+        for tok in out.split():
+            tok = tok.strip()
+            if tok.isdigit():
+                pids.append(int(tok))
+    except Exception as e:
+        _log(f"nao consegui listar processos do perfil: {e}")
+    me = _os.getpid()
+    return [p for p in pids if p != me]
+
+
+def _kill_pids(pids) -> int:
+    import subprocess
+    import sys
+    killed = 0
+    for p in pids:
+        try:
+            if sys.platform.startswith("win"):
+                # /T mata a árvore (o Camoufox costuma ter processos filhos)
+                r = subprocess.run(["taskkill", "/F", "/T", "/PID", str(p)],
+                                   capture_output=True, text=True, timeout=25)
+                if r.returncode == 0:
+                    killed += 1
+            else:
+                import os as _os
+                import signal
+                _os.kill(p, signal.SIGKILL)
+                killed += 1
+        except Exception:
+            pass
+    return killed
+
+
+def _clear_locks(user_data) -> int:
+    """Apaga os arquivos de lock do Firefox que sobraram (só faz sentido DEPOIS de
+    garantir que nenhum processo os detém)."""
+    n = 0
+    try:
+        d = Path(user_data)
+        for name in _LOCK_FILES:
+            f = d / name
+            try:
+                if f.exists() or f.is_symlink():
+                    f.unlink()
+                    n += 1
+            except Exception:
+                pass
+    except Exception:
+        pass
+    return n
+
+
+async def free_profile(profile: dict, close_others: bool = True,
+                       reason: str = "relaunch") -> dict:
+    """Garante que o perfil PODE abrir agora. Fecha a janela anterior deste perfil,
+    encerra processos órfãos presos no seu user_data_dir, apaga locks de arquivo
+    remanescentes e libera o lock do app.
+
+    close_others=True fecha também as OUTRAS janelas rastreadas (pedido do usuário:
+    abrir um navegador fecha o anterior). Só afeta o que foi aberto por launch() —
+    tarefas headless de OUTROS perfis (Spider/aquecimento) não entram em _sessions
+    e têm outro user_data_dir, então não são tocadas."""
+    pid = profile["id"]
+    out = {"closed": [], "killed": 0, "locks": 0}
+
+    # 1) Outras janelas abertas pelo app → fecha (mantém uma só de cada vez).
+    if close_others:
+        for other in [k for k, s in _sessions.items()
+                      if k != pid and s.get("status") in ("starting", "running")]:
+            try:
+                await stop(other, reason=f"{reason}: abrindo {pid}")
+                out["closed"].append(other)
+            except Exception as e:
+                _log(f"nao consegui fechar a sessao anterior {other}: {e}")
+
+    # 2) Sessão anterior DESTE perfil (fecha limpo: o finally de _run faz __aexit__).
+    s = _sessions.get(pid)
+    if s and s.get("status") in ("starting", "running"):
+        try:
+            await stop(pid, reason=reason)
+            out["closed"].append(pid)
+        except Exception as e:
+            _log(f"nao consegui fechar a sessao anterior {pid}: {e}")
+
+    # 3) Processos órfãos presos NESTE perfil + locks de arquivo remanescentes.
+    user_data = profile.get("user_data")
+    if user_data:
+        pids = _pids_holding(user_data)
+        if pids:
+            _log(f"profile={pid} encerrando {len(pids)} processo(s) preso(s) no perfil: {pids}")
+            out["killed"] = _kill_pids(pids)
+            await asyncio.sleep(1.2)      # dá tempo do SO liberar o arquivo de lock
+        out["locks"] = _clear_locks(user_data)
+
+    # 4) Libera o lock do app (senão o launch a seguir bateria no próprio lock).
+    try:
+        db.release_profile_lock(pid, TOKEN)
+    except Exception:
+        pass
+    return out
+
+
 async def launch(profile: dict, url: str = "about:blank", headless: bool = False,
                  actions=None, mode: str = "manual", load_extension: bool = True,
-                 load_ig_filler: bool = False):
+                 load_ig_filler: bool = False,
+                 free_first: bool = True, close_others: bool = False):
+    """free_first: destrava ESTE perfil antes de abrir (fecha a sessão anterior dele,
+    mata processo órfão preso no seu user_data_dir, limpa parent.lock). Antes isto
+    levantava "Profile already running" e não resolvia o lock do Firefox.
+    close_others: fecha também as janelas dos OUTROS perfis — só o botão "Abrir"
+    manda True (o bulk-launch abre vários de propósito e não deve fechá-los)."""
     pid = profile["id"]
-    if pid in _sessions and _sessions[pid]["status"] in ("running", "starting"):
+    if free_first:
+        await free_profile(profile, close_others=close_others, reason=f"abrir ({mode})")
+    elif pid in _sessions and _sessions[pid]["status"] in ("running", "starting"):
         raise RuntimeError(f"Profile {pid} already running")
     # Lock compartilhado: impede outra máquina de abrir o mesmo perfil ao mesmo tempo.
     _acquire_lock_or_raise(pid)
