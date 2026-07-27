@@ -37,9 +37,13 @@ async ([url, referer]) => {
       },
       referrer: referer,
     });
+    let text = '';
+    try { text = await r.text(); } catch (e) {}
     let body = null;
-    try { body = await r.json(); } catch (e) {}
-    return { ok: r.ok, status: r.status, json: body };
+    try { body = JSON.parse(text); } catch (e) {}
+    // Em falha, devolve um trecho do corpo (a mensagem do IG explica o 400/403).
+    return { ok: r.ok, status: r.status, json: body,
+             text: (r.ok || !text) ? '' : text.slice(0, 300) };
   } catch (e) {
     return { ok: false, status: -1, error: String(e) };
   }
@@ -66,9 +70,12 @@ async ([url, referer]) => {
       },
       referrer: referer,
     });
+    let text = '';
+    try { text = await r.text(); } catch (e) {}
     let body = null;
-    try { body = await r.json(); } catch (e) {}
-    return { ok: r.ok, status: r.status, json: body };
+    try { body = JSON.parse(text); } catch (e) {}
+    return { ok: r.ok, status: r.status, json: body,
+             text: (r.ok || !text) ? '' : text.slice(0, 300) };
   } catch (e) {
     return { ok: false, status: -1, error: String(e) };
   }
@@ -245,8 +252,15 @@ async def _resolve_user(page, username: str, log=None):
             if u:
                 return str(u.get("id")), u
         if log:
-            extra = "" if res.get("json") else " — sem JSON (provável HTML de login/bloqueio)"
-            log(f"⚠ web_profile_info tentativa {attempt}: status {st}{extra}")
+            # Mostra a MENSAGEM do IG (o corpo do 400/403 quase sempre diz o motivo).
+            msg = ""
+            j = res.get("json")
+            if isinstance(j, dict):
+                msg = str(j.get("message") or j.get("error_type") or j.get("require_login") or "")
+            if not msg and res.get("text"):
+                msg = res.get("text")
+            log(f"⚠ web_profile_info tentativa {attempt}: status {st}"
+                + (f" — {msg[:200]}" if msg else " — sem corpo"))
         if attempt == 1:
             try:
                 await page.goto(ref, wait_until="domcontentloaded")
