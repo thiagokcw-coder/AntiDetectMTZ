@@ -1230,6 +1230,42 @@ def accounts_create_profile(account_id: str, body: CreateProfileForAccountReques
     return acc.edit(account_id, {"profile_id": pid})
 
 
+class ImportSessionRequest(BaseModel):
+    cookies: str = ""   # texto colado: JSON do Cookie-Editor, header, ou só o sessionid
+
+
+@app.post("/accounts/{account_id}/import-session")
+async def accounts_import_session(account_id: str, body: ImportSessionRequest):
+    """Importa a SESSÃO do Instagram (cookies, incl. sessionid) no perfil da conta —
+    sem login novo. Uso: conta que só loga no app/celular → exporta os cookies de
+    instagram.com pelo Cookie-Editor (Firefox Android) e cola aqui. Confirma logando
+    de leve (1 requisição GraphQL). NÃO registra o valor do sessionid em log."""
+    import ig_session as igs
+    a = acc.get_account(account_id)
+    if not a:
+        raise HTTPException(404, "Conta não encontrada")
+    p = get_profile(a.get("profile_id")) if a.get("profile_id") else None
+    if not p:
+        raise HTTPException(400, "Esta conta não tem perfil vinculado. Crie um perfil "
+                                 "primeiro (botão '➕ Criar perfil').")
+    cookies = igs.parse_cookies_input(body.cookies)
+    if not any(c.get("name") == "sessionid" for c in cookies):
+        raise HTTPException(400, "Não achei o cookie 'sessionid' no que você colou. "
+                                 "Exporte os cookies de instagram.com pelo Cookie-Editor "
+                                 "(o sessionid é httpOnly — precisa da extensão, não dá "
+                                 "pra copiar do navegador).")
+    imported = await igs.import_cookies(p, cookies)
+    # Confirma o login: usa o proxy do perfil se houver (coerência), senão IP local.
+    probe = {"logged": None}
+    try:
+        probe = await igs.probe_login(p, target="instagram", use_local=not bool(p.get("proxy")))
+    except Exception as e:
+        probe = {"logged": None, "error": str(e)}
+    return {"imported": imported.get("imported"), "logged": probe.get("logged"),
+            "status": probe.get("status"), "error": probe.get("error"),
+            "ds_user_id": (probe.get("cookies") or {}).get("ds_user_id")}
+
+
 @app.get("/accounts/export")
 def accounts_export():
     """Exporta todas as contas em CSV (download)."""

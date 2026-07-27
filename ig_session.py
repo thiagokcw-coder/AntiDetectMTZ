@@ -61,6 +61,61 @@ def summarize(cookies: list) -> dict:
                                                    for c in cookies if is_ig_cookie(c))}
 
 
+# nomes de cookie do IG que são httpOnly (p/ quando o input não traz o flag)
+_HTTPONLY = {"sessionid", "ig_did", "mid", "datr", "rur", "ps_l", "ps_n"}
+_SAMESITE_MAP = {"no_restriction": "None", "none": "None", "unspecified": "Lax",
+                 "lax": "Lax", "strict": "Strict"}
+
+
+def _mk(name: str, value: str) -> dict:
+    return {"name": name, "value": value, "domain": ".instagram.com", "path": "/",
+            "secure": True, "httpOnly": name in _HTTPONLY, "sameSite": "Lax"}
+
+
+def _from_editor(c: dict) -> dict:
+    """Normaliza um cookie do Cookie-Editor/EditThisCookie p/ o formato do Playwright."""
+    out = {"name": c.get("name"), "value": c.get("value") or "",
+           "domain": c.get("domain") or ".instagram.com",
+           "path": c.get("path") or "/",
+           "secure": bool(c.get("secure", True)),
+           "httpOnly": bool(c.get("httpOnly", c.get("name") in _HTTPONLY))}
+    exp = c.get("expirationDate") or c.get("expires")
+    if isinstance(exp, (int, float)) and exp > 0:
+        out["expires"] = int(exp)
+    ss = str(c.get("sameSite") or "").strip().lower()
+    out["sameSite"] = _SAMESITE_MAP.get(ss, "Lax")
+    return out
+
+
+def parse_cookies_input(text: str) -> list:
+    """Aceita o que o usuário colar e devolve cookies normalizados de instagram.com:
+    (a) JSON array do Cookie-Editor/EditThisCookie; (b) JSON objeto {nome: valor};
+    (c) string de header 'a=b; c=d'; (d) só o valor do sessionid."""
+    import json as _json
+    text = (text or "").strip()
+    if not text:
+        return []
+    cookies = []
+    if text[:1] in "[{":
+        try:
+            parsed = _json.loads(text)
+        except Exception:
+            parsed = None
+        if isinstance(parsed, list):
+            cookies = [_from_editor(c) for c in parsed if isinstance(c, dict) and c.get("name")]
+        elif isinstance(parsed, dict):
+            cookies = [_mk(k, str(v)) for k, v in parsed.items() if k]
+    if not cookies:
+        if "=" in text:                      # header "a=b; c=d" (ou "a=b")
+            for part in text.split(";"):
+                k, sep, v = part.strip().partition("=")
+                if sep and k.strip():
+                    cookies.append(_mk(k.strip(), v.strip()))
+        else:                                # só o valor do sessionid
+            cookies = [_mk("sessionid", text)]
+    return [c for c in cookies if c.get("name") and c.get("value")]
+
+
 async def export_cookies(profile: dict, only_ig: bool = True) -> list:
     """Lê os cookies do perfil SEM navegar (zero requisição ao Instagram)."""
     async def _run(page):
