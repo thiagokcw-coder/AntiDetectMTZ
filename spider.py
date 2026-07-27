@@ -236,38 +236,92 @@ async def _api_get(page, url: str, referer: str) -> dict:
     return await page.evaluate(_FETCH_JS, [url, referer])
 
 
-async def _resolve_user(page, username: str, log=None):
-    """username -> (user_id, info) usando web_profile_info. Tenta 2×: se a 1ª falha,
-    VISITA a página do perfil (dá contexto/referer ao endpoint, que às vezes recusa uma
-    chamada 'fria') e tenta de novo. Loga o status real de cada tentativa p/ diagnóstico."""
-    username = clean_username(username)
+async def _resolve_via_web_profile_info(page, username, log=None):
+    """Resolvedor primário. Anda voltando 400 com erro de schema interno do IG
+    ('Asset asset://laser.provider/... has been deleted') — por isso os fallbacks."""
     url = f"{IG}/api/v1/users/web_profile_info/?username={username}"
-    ref = f"{IG}/{username}/"
-    res = {}
-    for attempt in (1, 2):
-        res = await _api_get(page, url, ref)
-        st = res.get("status")
-        if res.get("ok") and res.get("json"):
-            u = (res["json"].get("data") or {}).get("user")
-            if u:
-                return str(u.get("id")), u
-        if log:
-            # Mostra a MENSAGEM do IG (o corpo do 400/403 quase sempre diz o motivo).
-            msg = ""
-            j = res.get("json")
-            if isinstance(j, dict):
-                msg = str(j.get("message") or j.get("error_type") or j.get("require_login") or "")
-            if not msg and res.get("text"):
-                msg = res.get("text")
-            log(f"⚠ web_profile_info tentativa {attempt}: status {st}"
-                + (f" — {msg[:200]}" if msg else " — sem corpo"))
-        if attempt == 1:
-            try:
-                await page.goto(ref, wait_until="domcontentloaded")
-                await asyncio.sleep(2.0)
-            except Exception:
-                pass
+    res = await _api_get(page, url, f"{IG}/{username}/")
+    if res.get("ok") and res.get("json"):
+        u = (res["json"].get("data") or {}).get("user")
+        if u:
+            return str(u.get("id")), u
+    if log:
+        j = res.get("json")
+        msg = ""
+        if isinstance(j, dict):
+            msg = str(j.get("message") or j.get("error_type") or j.get("require_login") or "")
+        if not msg and res.get("text"):
+            msg = res.get("text")
+        log(f"⚠ web_profile_info: status {res.get('status')}"
+            + (f" — {msg[:180]}" if msg else " — sem corpo"))
     return None, res
+
+
+async def _resolve_via_topsearch(page, username, log=None):
+    """Resolve pelo endpoint de BUSCA (topsearch) — outro endpoint, não passa pelo
+    schema quebrado do web_profile_info. Devolve o id do resultado que bate exato."""
+    from urllib.parse import quote
+    url = f"{IG}/web/search/topsearch/?context=blended&query={quote(username)}"
+    res = await _api_get(page, url, f"{IG}/")
+    j = res.get("json") or {}
+    for item in (j.get("users") or []):
+        u = item.get("user") or {}
+        if (u.get("username") or "").lower() == username.lower() and u.get("pk"):
+            if log:
+                log(f"✓ alvo resolvido pela busca (topsearch, id {u.get('pk')})")
+            fs = u.get("friendship_status") or {}
+            return str(u.get("pk")), {
+                "id": str(u.get("pk")), "username": u.get("username"),
+                "full_name": u.get("full_name"), "is_private": u.get("is_private"),
+                "is_verified": u.get("is_verified"),
+                "followed_by_viewer": (fs.get("following") if isinstance(fs, dict) else None),
+            }
+    if log:
+        log(f"⚠ topsearch: status {res.get('status')} — alvo não encontrado na busca")
+    return None, res
+
+
+async def _resolve_via_page(page, username, log=None):
+    """Último recurso: lê o id da PRÓPRIA página do perfil (a navegação usa um caminho
+    diferente do web_profile_info). Best-effort por regex sobre o HTML embutido."""
+    import re as _re
+    try:
+        await page.goto(f"{IG}/{username}/", wait_until="domcontentloaded")
+        await asyncio.sleep(2.0)
+        html = await page.content()
+    except Exception:
+        return None, {}
+    u = _re.escape(username)
+    for pat in (r'"profilePage_(\d+)"',
+                r'"user_id":"(\d+)"',
+                r'"id":"(\d+)","username":"%s"' % u,
+                r'"username":"%s"[^}]{0,80}?"id":"(\d+)"' % u,
+                r'"owner":\{"id":"(\d+)"',
+                r'instagram://user\?username=[^"&]*&id=(\d+)'):
+        m = _re.search(pat, html or "")
+        if m:
+            if log:
+                log(f"✓ alvo resolvido pela página do perfil (id {m.group(1)})")
+            return m.group(1), {"id": m.group(1), "username": username}
+    if log:
+        log("⚠ não encontrei o id na página do perfil")
+    return None, {}
+
+
+async def _resolve_user(page, username: str, log=None):
+    """username -> (id, info) com FALLBACKS. O web_profile_info anda voltando 400 com
+    erro de schema interno do IG; então: web_profile_info → busca (topsearch) → página."""
+    username = clean_username(username)
+    uid, info = await _resolve_via_web_profile_info(page, username, log)
+    if uid:
+        return uid, info
+    uid2, info2 = await _resolve_via_topsearch(page, username, log)
+    if uid2:
+        return uid2, info2
+    uid3, info3 = await _resolve_via_page(page, username, log)
+    if uid3:
+        return uid3, info3
+    return None, info   # info do web_profile_info (carrega status/mensagem p/ o erro final)
 
 
 async def _friendship_list(page, user_id, username, edge, limit, progress, should_stop,
