@@ -2083,6 +2083,98 @@ def _save_spider_csv(content: str, target: str, fname: str) -> str:
     return str(path)
 
 
+def _run_outcome(r: dict) -> str:
+    """Desfecho DERIVADO de um run (mesma regra do histórico da UI). Sem cursor (ou
+    status 'done') = chegou ao FIM = completou. Falhou = bloqueio/erro OU parou no
+    meio (cursor salvo) sem ter sido o usuário."""
+    blocked = bool(r.get("blocked"))
+    by_user = bool(r.get("stopped_by_user"))
+    status = r.get("status")
+    cursor = r.get("cursor")
+    running = status in ("running", "needs_code")
+    done = status == "done" or (not cursor and not blocked and status != "error" and not running)
+    failed = blocked or status == "error" or (not by_user and not running and not done and bool(cursor))
+    if running:
+        return "rodando"
+    if failed:
+        return "falhou"
+    if done:
+        return "completou"
+    if by_user:
+        return "voce_parou"
+    return status or "?"
+
+
+def _run_account_name(r: dict) -> str:
+    """Nome da conta de um run: por account_id (app) ou via perfil (web)."""
+    aid = r.get("account_id")
+    if aid:
+        a = acc.get_account(aid)
+        if a and a.get("username"):
+            return a["username"]
+    pid = r.get("profile_id")
+    if pid:
+        a = db.get_account_by_profile(pid)
+        if a and a.get("username"):
+            return a["username"]
+    return r.get("profile") or ""
+
+
+def _duration_min(started: str, finished: str):
+    if not started or not finished:
+        return ""
+    try:
+        from datetime import datetime
+        fmt = "%Y-%m-%d %H:%M:%S"
+        d = (datetime.strptime(finished, fmt) - datetime.strptime(started, fmt)).total_seconds()
+        return round(d / 60.0, 1) if d >= 0 else ""
+    except Exception:
+        return ""
+
+
+@app.get("/spider/log-export")
+def spider_log_export():
+    """Exporta o LOG por extração (uma linha por run, com desfecho, req/h, conta, %,
+    duração) — a base determinística p/ analisar CADA extração e ban caso a caso (por
+    você ou por uma IA). Substitui a agregação cega das Métricas antigas. Salva em
+    data/_analise/spider_log.csv e devolve o CSV."""
+    from fastapi.responses import Response
+    runs = db.spider_runs_export()
+    buf = _io.StringIO()
+    w = _csv.writer(buf)
+    w.writerow(["quando", "conta", "perfil", "metodo", "conexao", "alvo", "tipo",
+                "req_h", "extraidos", "total", "pct", "desfecho", "bloqueio",
+                "voce_parou", "fim", "duracao_min", "tem_cursor", "erro"])
+    for r in runs:
+        delay = r.get("delay_ms") or 0
+        req_h = round(3600000 / delay) if delay else ""
+        total = r.get("total")
+        cnt = r.get("count") or 0
+        pct = (round(100 * cnt / total) if (total and total > 0) else "")
+        w.writerow([
+            r.get("started_at") or "", _run_account_name(r), r.get("profile") or "",
+            r.get("method") or "", ("local" if r.get("use_local") else "proxy"),
+            (r.get("target") or "").lstrip("@"), r.get("kind") or "", req_h, cnt,
+            (total if total is not None else ""), pct, _run_outcome(r),
+            (1 if r.get("blocked") else 0), (1 if r.get("stopped_by_user") else 0),
+            r.get("finished_at") or "", _duration_min(r.get("started_at"), r.get("finished_at")),
+            (1 if r.get("cursor") else 0), (r.get("error") or "")[:200],
+        ])
+    content = buf.getvalue()
+    saved = ""
+    try:
+        folder = SPIDER_DATA_DIR / "_analise"
+        folder.mkdir(parents=True, exist_ok=True)
+        path = folder / "spider_log.csv"
+        path.write_text(content, encoding="utf-8-sig", newline="")
+        saved = str(path)
+    except Exception:
+        pass
+    return Response(content=content, media_type="text/csv",
+                    headers={"Content-Disposition": "attachment; filename=spider_log.csv",
+                             "X-Saved-Path": saved})
+
+
 @app.get("/spider/jobs/{job_id}/csv")
 def spider_job_csv(job_id: str):
     from fastapi.responses import Response

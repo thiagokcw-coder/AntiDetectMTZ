@@ -1188,7 +1188,10 @@
       <div style="margin-top:22px;max-width:980px">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
           <div style="font-weight:600">📜 Histórico de execuções</div>
-          <button class="btn btn-ghost btn-sm" onclick="loadSpiderHistory()">↻ Atualizar</button>
+          <div style="display:flex;gap:6px">
+            <button class="btn btn-ghost btn-sm" onclick="spiderExportLog(this)" title="Baixa o log de TODAS as extrações (1 linha por run: conta, velocidade, extraídos, desfecho, ban) — pra você ou uma IA analisar caso a caso">⬇ Exportar log (análise)</button>
+            <button class="btn btn-ghost btn-sm" onclick="loadSpiderHistory()">↻ Atualizar</button>
+          </div>
         </div>
         <div class="table-wrap">
           <table>
@@ -3925,6 +3928,27 @@ async function spiderFetchCsv(id) {
 async function spiderHistoryCsv(id) {
   try { await spiderFetchCsv(id); }
   catch (e) { toast(e.message || 'Erro ao baixar', 'error'); }
+}
+
+// Exporta o log de TODAS as extrações (1 linha por run) p/ análise caso a caso.
+async function spiderExportLog(btn) {
+  const orig = btn ? btn.textContent : '';
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ gerando…'; }
+  try {
+    const res = await fetch(API + '/spider/log-export');
+    if (!res.ok) throw new Error('Falha ao gerar o log');
+    const saved = res.headers.get('X-Saved-Path') || '';
+    const blob = await res.blob();
+    try {
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = 'spider_log.csv';
+      document.body.appendChild(a); a.click(); a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e) { /* webview pode bloquear o download — já salvou no disco */ }
+    toast(saved ? ('✓ Log salvo em: ' + saved) : '✓ Log gerado', 'success');
+  } catch (e) { toast(e.message || 'Erro ao exportar', 'error'); }
+  finally { if (btn) { btn.disabled = false; btn.textContent = orig; } }
 }
 
 async function spiderHistoryDelete(id) {
