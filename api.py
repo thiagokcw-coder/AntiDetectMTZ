@@ -2105,19 +2105,20 @@ def _run_outcome(r: dict) -> str:
     return status or "?"
 
 
-def _run_account_name(r: dict) -> str:
-    """Nome da conta de um run: por account_id (app) ou via perfil (web)."""
+def _run_account(r: dict) -> dict:
+    """Conta de um run: por account_id (app) ou via perfil (web). Devolve o dict da
+    conta (ou {} com o nome do perfil como fallback)."""
     aid = r.get("account_id")
     if aid:
         a = acc.get_account(aid)
-        if a and a.get("username"):
-            return a["username"]
+        if a:
+            return a
     pid = r.get("profile_id")
     if pid:
         a = db.get_account_by_profile(pid)
-        if a and a.get("username"):
-            return a["username"]
-    return r.get("profile") or ""
+        if a:
+            return a
+    return {"username": r.get("profile") or ""}
 
 
 def _duration_min(started: str, finished: str):
@@ -2142,18 +2143,22 @@ def spider_log_export():
     runs = db.spider_runs_export()
     buf = _io.StringIO()
     w = _csv.writer(buf)
-    w.writerow(["quando", "conta", "perfil", "metodo", "conexao", "alvo", "tipo",
-                "req_h", "extraidos", "total", "pct", "desfecho", "bloqueio",
-                "voce_parou", "fim", "duracao_min", "tem_cursor", "erro"])
+    w.writerow(["quando", "conta", "conta_criada_em", "conta_suspensoes", "perfil",
+                "metodo", "conexao", "alvo", "tipo", "req_h", "extraidos", "total",
+                "pct", "desfecho", "bloqueio", "voce_parou", "fim", "duracao_min",
+                "tem_cursor", "erro"])
     for r in runs:
         delay = r.get("delay_ms") or 0
         req_h = round(3600000 / delay) if delay else ""
         total = r.get("total")
         cnt = r.get("count") or 0
         pct = (round(100 * cnt / total) if (total and total > 0) else "")
+        a = _run_account(r)
         w.writerow([
-            r.get("started_at") or "", _run_account_name(r), r.get("profile") or "",
-            r.get("method") or "", ("local" if r.get("use_local") else "proxy"),
+            r.get("started_at") or "", a.get("username") or "",
+            (a.get("created_at") or "")[:10], a.get("suspension_count") or 0,
+            r.get("profile") or "", r.get("method") or "",
+            ("local" if r.get("use_local") else "proxy"),
             (r.get("target") or "").lstrip("@"), r.get("kind") or "", req_h, cnt,
             (total if total is not None else ""), pct, _run_outcome(r),
             (1 if r.get("blocked") else 0), (1 if r.get("stopped_by_user") else 0),
