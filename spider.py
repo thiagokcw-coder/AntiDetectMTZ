@@ -229,15 +229,30 @@ async def _api_get(page, url: str, referer: str) -> dict:
     return await page.evaluate(_FETCH_JS, [url, referer])
 
 
-async def _resolve_user(page, username: str):
-    """username -> (user_id, info) usando web_profile_info."""
+async def _resolve_user(page, username: str, log=None):
+    """username -> (user_id, info) usando web_profile_info. Tenta 2×: se a 1ª falha,
+    VISITA a página do perfil (dá contexto/referer ao endpoint, que às vezes recusa uma
+    chamada 'fria') e tenta de novo. Loga o status real de cada tentativa p/ diagnóstico."""
     username = clean_username(username)
     url = f"{IG}/api/v1/users/web_profile_info/?username={username}"
-    res = await _api_get(page, url, f"{IG}/{username}/")
-    if res.get("ok") and res.get("json"):
-        u = (res["json"].get("data") or {}).get("user")
-        if u:
-            return str(u.get("id")), u
+    ref = f"{IG}/{username}/"
+    res = {}
+    for attempt in (1, 2):
+        res = await _api_get(page, url, ref)
+        st = res.get("status")
+        if res.get("ok") and res.get("json"):
+            u = (res["json"].get("data") or {}).get("user")
+            if u:
+                return str(u.get("id")), u
+        if log:
+            extra = "" if res.get("json") else " — sem JSON (provável HTML de login/bloqueio)"
+            log(f"⚠ web_profile_info tentativa {attempt}: status {st}{extra}")
+        if attempt == 1:
+            try:
+                await page.goto(ref, wait_until="domcontentloaded")
+                await asyncio.sleep(2.0)
+            except Exception:
+                pass
     return None, res
 
 
@@ -600,9 +615,25 @@ async def extract(profile: dict, kind: str, target: str, limit: int = 0,
         await asyncio.sleep(round(random.uniform(1.0, 2.5), 1))  # reduzido
         if log:
             log(f"resolvendo @{clean_username(target)}…")
-        uid, info = await _resolve_user(page, target)
+        uid, info = await _resolve_user(page, target, log=log)
         if not uid:
-            return {"error": "Perfil não encontrado/privado, ou a conta do perfil não está logada no Instagram."}
+            st = (info or {}).get("status")
+            if st in (401, 403):
+                msg = (f"A conta está logada no navegador, mas o Instagram BLOQUEOU a API de perfil "
+                       f"(status {st}). Isso é sinal de conta SINALIZADA/limitada — ela navega, mas o "
+                       f"IG barra a leitura de dados. Tente outra conta (mais saudável) ou espere.")
+            elif st == 429:
+                msg = ("Rate limit ao resolver o alvo (status 429). Espere alguns minutos e tente "
+                       "de novo, ou use uma velocidade mais lenta.")
+            elif st == 200:
+                msg = (f"O Instagram respondeu (200) mas sem dados do alvo @{clean_username(target)} — "
+                       f"perfil inexistente, privado, ou nome digitado errado.")
+            else:
+                msg = (f"Não consegui resolver o alvo (status {st}). Pode ser bloqueio de API na conta, "
+                       f"sessão expirada, ou instabilidade — veja as tentativas do web_profile_info acima.")
+            if log:
+                log(f"✖ {msg}")
+            return {"error": msg}
         uname = clean_username(target)
         total = _total_for(info, kind)
         if on_total and total is not None:
