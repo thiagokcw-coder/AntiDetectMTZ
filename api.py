@@ -1266,6 +1266,32 @@ async def accounts_import_session(account_id: str, body: ImportSessionRequest):
             "ds_user_id": (probe.get("cookies") or {}).get("ds_user_id")}
 
 
+class SetAccountProxyRequest(BaseModel):
+    proxy: Optional[str] = None   # "host:porta[:user:pass]" ou URL; vazio = conexão local
+
+
+@app.post("/accounts/{account_id}/set-proxy")
+def accounts_set_proxy(account_id: str, body: SetAccountProxyRequest = SetAccountProxyRequest()):
+    """Define/troca o proxy do PERFIL da conta — ex.: apontar pra um proxy MÓVEL 4G/LTE
+    (IP de operadora = trust alto, conta dura mais). Vazio = conexão local (sem proxy).
+    O Spider usa o proxy do perfil quando 'Proxy por conta' está ligado. Re-snapshota o
+    proxy na conta (exibição/métricas) reusando acc.edit(profile_id)."""
+    import json as _json
+    a = acc.get_account(account_id)
+    if not a:
+        raise HTTPException(404, "Conta não encontrada")
+    pid = a.get("profile_id")
+    if not (pid and get_profile(pid)):
+        raise HTTPException(400, "Esta conta não tem perfil vinculado. Crie um perfil primeiro.")
+    proxy_dict = None
+    if body.proxy and body.proxy.strip():
+        proxy_dict = pool.parse_proxy_line(body.proxy.strip())
+        if proxy_dict is None:
+            raise HTTPException(400, "Proxy inválido (use host:porta:usuário:senha ou URL http/socks5).")
+    db.update_profile(pid, proxy=(_json.dumps(proxy_dict) if proxy_dict else None))
+    return acc.edit(account_id, {"profile_id": pid})   # re-snapshota o proxy novo na conta
+
+
 @app.get("/accounts/export")
 def accounts_export():
     """Exporta todas as contas em CSV (download)."""

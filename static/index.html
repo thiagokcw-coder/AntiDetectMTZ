@@ -1153,6 +1153,7 @@
         <div class="form-group">
           <label>Velocidade — pela CONFIANÇA da conta que raspa</label>
           <select id="sp-speed" onchange="_spiderSpeedTouched = true">
+            <option value="360000">🐌 Sustentável — ~250 req/dia (conta dura SEMANAS · p/ proxy móvel 4G)</option>
             <option value="120000">🛡️ Ultra seguro — ~30 req/h (conta muito nova/descartável)</option>
             <option value="45000">🐢 Conta nova — ~80 req/h</option>
             <option value="14400">⚖ Conta média — ~250 req/h</option>
@@ -3363,6 +3364,15 @@ async function accountDetail(id) {
     detailRow('ID do perfil', a.profile_id, true) +
     (a.profile_exists ? `
       <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--border)">
+        <div style="font-weight:600;font-size:13px;margin-bottom:4px">🌐 Proxy do perfil (conexão de saída)</div>
+        <div class="form-hint" style="margin-bottom:6px">Atual: <b>${proxyStr === '—' ? 'conexão local (sem proxy)' : escapeHtml(proxyStr)}</b>. Para a conta <b>durar</b>, aponte para um <b>proxy móvel 4G/LTE</b> (IP de operadora = trust alto). Formato: <code>host:porta:usuário:senha</code> ou URL. Vazio = conexão local.</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <input id="ma-proxy" type="text" placeholder="host:porta:usuário:senha (vazio = local)" style="flex:1;min-width:220px;padding:7px 10px;background:var(--surface);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:12px;font-family:ui-monospace,Consolas,monospace">
+          <button class="btn btn-primary btn-sm" onclick="setAccountProxy('${a.id}', this)">Salvar proxy</button>
+        </div>
+        <div id="ma-proxy-result" style="font-size:12px;color:var(--muted);margin-top:6px"></div>
+      </div>
+      <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--border)">
         <div style="font-weight:600;font-size:13px;margin-bottom:4px">🔑 Importar sessão do celular</div>
         <div class="form-hint" style="margin-bottom:6px">Para conta que só loga no app/celular. No <b>Firefox Android</b> (no 4G), entre no <b>instagram.com</b>, exporte os cookies com o <b>Cookie-Editor</b> e cole o JSON aqui. O perfil fica logado <b>sem login novo</b>. O <b>sessionid</b> é httpOnly — só a extensão pega, copiar do navegador não.</div>
         <textarea id="ma-cookies" rows="3" placeholder='[{"name":"sessionid","value":"...","domain":".instagram.com"}, ...]' style="width:100%;box-sizing:border-box;padding:8px;background:var(--surface);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:12px;font-family:ui-monospace,Consolas,monospace;resize:vertical"></textarea>
@@ -3383,6 +3393,22 @@ async function accountDetail(id) {
     openBtn.style.display = 'none';
   }
   document.getElementById('modal-account').classList.add('open');
+}
+
+// Define/troca o proxy do perfil da conta (ex.: apontar p/ proxy móvel 4G).
+async function setAccountProxy(id, btn) {
+  const inp = document.getElementById('ma-proxy');
+  const out = document.getElementById('ma-proxy-result');
+  const val = (inp.value || '').trim();
+  if (btn) btn.disabled = true;
+  try {
+    await api('POST', `/accounts/${encodeURIComponent(id)}/set-proxy`, { proxy: val });
+    toast(val ? 'Proxy salvo' : 'Proxy removido (conexão local)', 'success');
+    if (out) out.innerHTML = '<span style="color:var(--green)">✓ salvo — reabra o navegador/extração p/ usar o novo IP</span>';
+    loadAccountsPage();
+    setTimeout(() => accountDetail(id), 600);   // recarrega o modal mostrando o proxy atual
+  } catch (e) { if (out) out.textContent = ''; toast(e.message || 'Erro ao salvar proxy', 'error'); }
+  finally { if (btn) btn.disabled = false; }
 }
 
 // Importa a sessão (cookies do celular) no perfil da conta. Abre o perfil headless
