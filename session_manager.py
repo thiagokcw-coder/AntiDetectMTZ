@@ -458,6 +458,16 @@ async def shutdown_all():
     _log("shutdown_all: navegadores encerrados")
 
 
+# Força a localização (timezone/idioma/geolocation/WebRTC) para o BRASIL —
+# Porto Alegre/RS — em vez de derivar do IP de saída (que variava conforme o proxy).
+# É uma busca OFFLINE na GeoLite2 (o IP nunca é contatado). 189.6.244.1 resolve p/
+# America/Sao_Paulo · -30.12,-51.17 · pt-BR. Trocar a cidade = outro IP BR;
+# None = volta a derivar do IP real (geoip=True).
+# ⚠ Só é COERENTE se o IP de saída também for BR (modem 4G BR / proxy BR). Com IP
+# de saída estrangeiro, isso vira BR-fingerprint-em-IP-estrangeiro = incoerente.
+_FORCE_GEOIP_IP = "189.6.244.1"
+
+
 def _camoufox_kwargs(profile: dict, headless: bool, load_extension: bool = False,
                      pin_screen: bool = True, geoip: bool = True,
                      constrain_screen: bool = True,
@@ -503,7 +513,9 @@ def _camoufox_kwargs(profile: dict, headless: bool, load_extension: bool = False
         i_know_what_im_doing=True,
     )
     if geoip:
-        kw["geoip"] = True
+        # Antes: True (derivava do IP de saída → timezone variava com o proxy).
+        # Agora: IP fixo BR (Porto Alegre) → timezone/idioma/geolocation sempre Brasil.
+        kw["geoip"] = _FORCE_GEOIP_IP or True
     elif proxy:
         # Anti-leak: SEM geoip (fallback da cascata) e COM proxy, o Camoufox não
         # spoofa o WebRTC → o STUN (UDP, ignora o proxy HTTP) vazaria o IP REAL
