@@ -281,6 +281,13 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4v16"/><path d="M4 4h12l-2 4 2 4H4"/></svg>
       Comece aqui
     </div>
+
+    <!-- Fluxo de criação, na ordem: perfil (dispositivo) → criar a conta IG → cadastrar -->
+    <div class="nav-section">Criação &amp; contas</div>
+    <div class="nav-item" data-page-link="profiles" onclick="showPage('profiles')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 9h6M9 13h4"/></svg>
+      Perfis
+    </div>
     <div class="nav-item" data-page-link="instagram" onclick="showPage('instagram')">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="20" rx="5"/><circle cx="12" cy="12" r="4"/><circle cx="17.5" cy="6.5" r="1" fill="currentColor" stroke="none"/></svg>
       Criar Contas (PC)
@@ -289,23 +296,8 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>
       Contas
     </div>
-    <div class="nav-item" data-page-link="profiles" onclick="showPage('profiles')">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 9h6M9 13h4"/></svg>
-      Perfis
-    </div>
-    <div class="nav-item" data-page-link="emails" onclick="showPage('emails')">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-10 5L2 7"/></svg>
-      Emails
-    </div>
-    <div class="nav-item" data-page-link="whatsapps" onclick="showPage('whatsapps')">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
-      WhatsApps
-    </div>
-    <!-- Métricas ocultada do menu (2026-07-27): a análise atual de ban/extração não
-         é confiável; página e endpoints ficam dormentes (não apagar). Reativar =
-         restaurar este nav-item. Ideia futura: uma IA analisar cada extração/ban. -->
 
-    <div class="nav-section">Utilitários</div>
+    <div class="nav-section">Extração</div>
     <div class="nav-item" data-page-link="spider" onclick="showPage('spider')">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 9V3M12 21v-6M9 12H3M21 12h-6M7 7 4 4M17 7l3-3M7 17l-3 3M17 17l3 3"/></svg>
       Spider
@@ -314,13 +306,27 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
       Monitorados
     </div>
-    <div class="nav-item" data-page-link="create" onclick="showPage('create')">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
-      Novo Perfil
+    <!-- Métricas ocultada do menu (2026-07-27): análise agregada não confiável; página
+         e endpoints ficam dormentes. Ideia futura: uma IA analisar cada extração/ban. -->
+
+    <div class="nav-section">Recursos</div>
+    <div class="nav-item" data-page-link="emails" onclick="showPage('emails')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-10 5L2 7"/></svg>
+      Emails
+    </div>
+    <div class="nav-item" data-page-link="whatsapps" onclick="showPage('whatsapps')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
+      WhatsApps
     </div>
     <div class="nav-item" data-page-link="proxies" onclick="showPage('proxies')">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M5 12a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2M5 12a2 2 0 0 0-2 2v4a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-4a2 2 0 0 0-2-2M8 7h.01M8 17h.01"/></svg>
       Proxies
+    </div>
+
+    <div class="nav-section">Sistema</div>
+    <div class="nav-item" data-page-link="create" onclick="showPage('create')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+      Novo Perfil
     </div>
     <div class="nav-item" data-page-link="localdata" onclick="showPage('localdata')">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/><path d="M3 12c0 1.66 4 3 9 3s9-1.34 9-3"/></svg>
@@ -334,7 +340,7 @@
       <div class="page-header">
         <div>
           <div class="page-title">Comece aqui</div>
-          <div class="page-subtitle">Crie as contas manualmente no Camoufox (PC) com proxy 4G/5G, amadureça no Android e gerencie tudo aqui</div>
+          <div class="page-subtitle">Perfil BR → crie a conta no Camoufox pelo seu 4G → cadastre com a sessão (cookie) → extraia devagar. Tudo aqui.</div>
         </div>
       </div>
 
@@ -351,31 +357,31 @@
         <div class="form-card" style="margin-bottom:18px;border:1px solid var(--border);border-radius:10px">
           <div style="font-weight:600;margin-bottom:6px">✅ Como funciona o fluxo</div>
           <div style="color:var(--muted);font-size:13px;line-height:1.65">
-            As contas são criadas <b>manualmente</b> no navegador antidetect <b>Camoufox (no PC)</b>, saindo por um <b>proxy móvel 4G/5G</b>. O app prepara o perfil (proxy + fingerprint coerente), <b>aquece o navegador e abre a janela</b> — <b>você cria a conta</b> usando um <b>e-mail comprado</b> (preenche e resolve captcha/telefone se aparecer). Depois, <b>amadureça a conta no app do Instagram no Android</b> antes de usar pra valer.<br><br>
+            A ideia central: <b>parar de queimar contas</b>. O que faz a conta durar é o <b>IP de saída</b> — um <b>4G/LTE de operadora</b> (modem/chip BR ou proxy móvel), que tem trust alto porque é compartilhado por milhares de usuários reais. Você <b>cria a conta no Camoufox pela sua conexão 4G</b>, com o fingerprint <b>já forçado pra Brasil</b> (Porto Alegre), e depois <b>extrai devagar</b> — conta saudável + IP móvel + ritmo lento = dura <b>semanas</b>, não dias.<br><br>
 
             <b>O que o app faz por você:</b><br>
-            • Gera o perfil Camoufox (proxy + fingerprint) e abre a janela pronta (aba <b>Criar Contas (PC)</b>)<br>
-            • Mantém <b>fingerprint coerente e estável por perfil</b> e sai pelo <b>proxy 4G/5G</b> do pool<br>
-            • <b>Monitora o status</b> das contas (ativa, em suspensão, banida) e a vida útil (aba <b>Contas</b>)<br>
-            • <b>Extrai dados</b> (seguidores/seguindo/posts) com o <b>Spider</b><br>
-            • Mostra <b>no topo</b> qual proxy/IP está em uso e se está <b>limpo ou queimado</b><br><br>
+            • Gera o perfil Camoufox com <b>fingerprint BR coerente e estável</b> (timezone/idioma/GPU/WebRTC por perfil)<br>
+            • Deixa você apontar cada conta pro <b>seu IP móvel</b> (Contas → Detalhes → Proxy do perfil)<br>
+            • <b>Importa a sessão</b> por cookie (sem login novo) ao cadastrar a conta<br>
+            • <b>Monitora o status</b> (ativa / em suspensão / banida) e mostra o IP em uso no topo<br>
+            • <b>Extrai</b> seguidores/seguindo/posts com o <b>Spider</b> (paralelo + ritmo sustentável) e gera o <b>log por extração</b> pra análise<br><br>
 
-            <b>⚠️ Importante:</b> criar conta no PC historicamente queima contas — por isso o <b>proxy 4G/5G dedicado</b> + <b>ritmo manual lento</b> são essenciais, e o <b>amadurecimento é no Android</b> (logar no PC numa conta recém-criada é "novo dispositivo").
+            <b>⚠️ O que importa:</b> o IP de saída tem que ser <b>4G/LTE (não 5G)</b> e coerente com o fingerprint BR. Rodar por um IP estrangeiro ou datacenter queima. Trate cada conta como <b>ativo durável</b>, não descartável.
           </div>
         </div>
 
-        <div style="margin-bottom:10px;font-weight:600;color:var(--text)">O que você precisa fazer (configuração inicial)</div>
+        <div style="margin-bottom:10px;font-weight:600;color:var(--text)">Configuração inicial</div>
 
         <div class="form-card" style="margin-bottom:18px">
           <div style="color:var(--muted);font-size:13px;line-height:1.6">
-            • <b>Proxy móvel 4G/5G dedicado</b> (fator nº 1 contra detecção) na pasta <code>proxys/</code> ou pela aba Proxies — <b>1 IP limpo por conta</b>, de preferência sticky. Defina o <b>País-alvo</b> (Contas → Limites) pra casar com a persona. <button class="btn btn-ghost btn-sm" style="padding:1px 8px" onclick="showPage('proxies')">ver guia →</button><br>
-            • <b>E-mails comprados de terceiros</b> (com acesso/senha do provedor). Cadastre-os na aba <b>Emails</b>. O código de verificação você pega no <b>provedor do e-mail</b> e digita na janela.<br>
-            • Um <b>celular Android</b> com o app do Instagram para amadurecer a conta depois de criada.
+            • <b>IP móvel 4G/LTE</b> (fator nº 1) — seu <b>modem/chip BR</b> (conexão local) ou um <b>proxy móvel 4G</b> torre-rotativo. <b>1 IP por conta</b> é o ideal; um IP móvel bom aguenta poucas contas. ❌ Evite datacenter/ISP-estático.<br>
+            • <b>E-mails</b> pra criar as contas — cadastre na aba <b>Emails</b>. O código de verificação vem no provedor do e-mail.<br>
+            • O <b>fingerprint já sai Brasil (Porto Alegre)</b> automaticamente — não precisa configurar.
           </div>
           <div style="margin-top:10px">
-            <button class="btn btn-primary btn-sm" onclick="showPage('instagram')">Ir para Criar Contas →</button>
+            <button class="btn btn-primary btn-sm" onclick="showPage('create')">Criar 1º Perfil →</button>
+            <button class="btn btn-ghost btn-sm" onclick="showPage('emails')">Cadastrar Emails →</button>
             <button class="btn btn-ghost btn-sm" onclick="showPage('proxies')">Ver Proxies →</button>
-            <button class="btn btn-ghost btn-sm" onclick="showPage('emails')">Configurar Emails →</button>
           </div>
         </div>
 
@@ -385,11 +391,11 @@
           <div class="flow-step">
             <div class="flow-left"><div class="flow-num">1</div><div class="flow-line"></div></div>
             <div class="flow-card">
-              <div class="flow-title">🌐 Configurar proxy + emails</div>
-              <div class="flow-desc">Adicione seu <b>proxy 4G/5G</b> na aba Proxies e defina o <b>País-alvo</b> (Contas → Limites). Cadastre os <b>e-mails comprados</b> na aba Emails. Confira no <b>topo</b> se o proxy está limpo.</div>
+              <div class="flow-title">🖥️ Criar e aquecer o perfil</div>
+              <div class="flow-desc">Em <b>Novo Perfil</b>, crie o perfil (já nasce com fingerprint BR). Em <b>Perfis</b>, clique <b>🔥 Aquecer navegador</b> (navega sites comuns → parece humano). Se for usar proxy móvel, aponte em Contas → Detalhes depois.</div>
               <div class="flow-actions">
-                <button class="btn btn-primary btn-sm" onclick="showPage('proxies')">Proxies →</button>
-                <button class="btn btn-ghost btn-sm" onclick="showPage('emails')">Emails →</button>
+                <button class="btn btn-primary btn-sm" onclick="showPage('create')">Novo Perfil →</button>
+                <button class="btn btn-ghost btn-sm" onclick="showPage('profiles')">Perfis →</button>
               </div>
             </div>
           </div>
@@ -397,45 +403,43 @@
           <div class="flow-step">
             <div class="flow-left"><div class="flow-num">2</div><div class="flow-line"></div></div>
             <div class="flow-card">
-              <div class="flow-title">✍️ Criar a conta (manual no Camoufox)</div>
-              <div class="flow-desc">Na aba <b>Criar Contas (PC)</b>, escolha a conexão (proxy 4G/5G) e clique em <b>"Criar conta (abrir Camoufox)"</b>. O app gera os dados, aquece o navegador e <b>abre a janela</b> — você preenche e cria a conta. Resolva captcha/telefone se aparecer.</div>
-              <div class="flow-actions"><button class="btn btn-primary btn-sm" onclick="showPage('instagram')">Criar Contas →</button></div>
+              <div class="flow-title">✍️ Criar a conta no Camoufox (pelo 4G)</div>
+              <div class="flow-desc">Abra o perfil (<b>Perfis → Abrir</b>), certifique-se de estar no <b>4G BR</b>, vá em <b>instagram.com</b> e cadastre a conta usando um <b>e-mail da lista</b>. Resolva o captcha se aparecer. A conta nasce logada nesse perfil.</div>
+              <div class="flow-actions"><button class="btn btn-primary btn-sm" onclick="showPage('profiles')">Perfis →</button></div>
             </div>
           </div>
 
           <div class="flow-step">
             <div class="flow-left"><div class="flow-num">3</div><div class="flow-line"></div></div>
             <div class="flow-card">
-              <div class="flow-title">📱 Amadurecer no Android</div>
-              <div class="flow-desc">Logue a conta recém-criada no <b>app do Instagram no celular</b> e use alguns dias (poste, navegue) antes de operar pra valer. Cadastre usuário/senha na aba <b>Contas</b> pra acompanhar.</div>
-              <div class="flow-actions">
-                <button class="btn btn-primary btn-sm" onclick="showPage('accounts')">Ir para Contas →</button>
-              </div>
+              <div class="flow-title">🔑 Cadastrar a conta (+ sessão)</div>
+              <div class="flow-desc">Em <b>Contas → + Adicionar conta</b>, escolha <b>o perfil que você usou</b>, preencha usuário/senha/e-mail. Se a sessão vier de fora (ex.: do celular), cole o <b>cookie</b> (Cookie-Editor) no campo — o perfil fica logado sem login novo.</div>
+              <div class="flow-actions"><button class="btn btn-primary btn-sm" onclick="showPage('accounts')">Contas →</button></div>
             </div>
           </div>
 
           <div class="flow-step">
             <div class="flow-left"><div class="flow-num">4</div></div>
             <div class="flow-card">
-              <div class="flow-title">📊 Monitorar e extrair</div>
-              <div class="flow-desc">Acompanhe status (ativa / em suspensão / banida) e vida útil na aba <b>Contas</b>. Quando precisar, extraia seguidores/seguindo/posts com o <b>Spider</b>.</div>
+              <div class="flow-title">🕷️ Extrair devagar + monitorar</div>
+              <div class="flow-desc">No <b>Spider</b>, escolha a(s) conta(s), conexão <b>"Proxy por conta"</b> (ou IP local do modem) e velocidade <b>🐌 Sustentável</b>. Cadastre os alvos em <b>Monitorados</b>. Acompanhe status/vida útil em <b>Contas</b>.</div>
               <div class="flow-actions">
-                <button class="btn btn-primary btn-sm" onclick="showPage('accounts')">Contas →</button>
-                <button class="btn btn-ghost btn-sm" onclick="showPage('spider')">Spider →</button>
+                <button class="btn btn-primary btn-sm" onclick="showPage('spider')">Spider →</button>
+                <button class="btn btn-ghost btn-sm" onclick="showPage('monitored')">Monitorados →</button>
               </div>
             </div>
           </div>
         </div>
 
         <div style="margin-top:8px;padding:12px 14px;background:var(--surface2);border-radius:8px;font-size:12px;color:var(--muted);line-height:1.7">
-          <b style="color:var(--text)">Boas práticas para não queimar a conta</b>:<br>
-          • <b>Proxy móvel 4G/5G dedicado</b> (não ISP-estático compartilhado, ❌ não datacenter), <b>1 IP limpo por conta</b>, de preferência sticky. Marque proxy ruim como <b>queimado</b> na caixa do topo.<br>
-          • <b>Fingerprint desktop coerente</b> (o app já fixa geoip + GPU/navigator/WebRTC por perfil). <b>Não</b> force "cara de celular" no Camoufox — fica incoerente.<br>
-          • <b>Ritmo manual lento</b>: poucas contas por IP/dia, com calma.<br>
-          • Defina o <b>País-alvo</b> (Contas → Limites) pra casar persona ↔ IP.<br>
-          • <b>Amadureça no Android</b> antes de operar — logar no PC numa conta nova é "novo dispositivo".
+          <b style="color:var(--text)">Boas práticas para a conta durar</b>:<br>
+          • <b>IP móvel 4G/LTE</b> (não 5G — pool pequeno; ❌ não datacenter), <b>1 IP por conta</b> quando der. Um IP móvel bom aguenta poucas contas.<br>
+          • <b>Fingerprint BR coerente</b> — já forçado (Porto Alegre). <b>Só</b> use IP de saída também BR (o modem/chip ou proxy BR), senão fica incoerente.<br>
+          • <b>Ritmo sustentável</b> (~200-300 req/dia): a conta dura semanas; o volume vem de <b>várias contas em paralelo</b>, não de blastar uma.<br>
+          • Trate cada conta como <b>ativo durável</b> — pare de tratar como descartável.<br>
+          • <b>Extração = método Web</b> (o App/instagrapi loga de novo = queima mais rápido).
           <div style="margin-top:10px">
-            <button class="btn btn-ghost btn-sm" onclick="showPage('proxies')">📖 Ver guia completo de proxies →</button>
+            <button class="btn btn-ghost btn-sm" onclick="showPage('proxies')">📖 Ver proxies →</button>
           </div>
         </div>
       </div>
