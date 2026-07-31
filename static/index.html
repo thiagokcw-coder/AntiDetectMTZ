@@ -549,7 +549,7 @@
       <div class="page-header">
         <div>
           <div class="page-title">Criar Contas (PC)</div>
-          <div class="page-subtitle">Instagram • criação manual no Camoufox (o app gera os dados e abre a janela; você preenche)</div>
+          <div class="page-subtitle">Instagram • criação manual no Camoufox pela sua conexão 4G BR (o app prepara o perfil; você preenche)</div>
         </div>
         <div class="ig-page-actions">
           <button class="btn btn-ghost btn-sm" onclick="igLoadProfiles && igLoadProfiles()">Atualizar</button>
@@ -559,10 +559,10 @@
       <div class="form-card" style="max-width:720px;margin-bottom:18px;border:1px solid var(--border)">
         <div style="font-weight:600;margin-bottom:6px">Como funciona o fluxo</div>
         <div style="color:var(--muted);font-size:13px;line-height:1.75">
-          1. Escolha a conexão: <b>proxy 4G/5G do pool</b> (defina o País-alvo em Contas → Limites) ou conexão local.<br>
-          2. O app gera o perfil (proxy + fingerprint), <b>aquece o navegador</b> e abre o <b>Camoufox</b>.<br>
-          3. <b>Você cria a conta na janela</b> com um <b>e-mail comprado</b> — preenche e resolve captcha/telefone se aparecer.<br>
-          4. Depois, <b>logue no app do Instagram no Android</b> para amadurecer a conta antes de usar.
+          1. Escolha a conexão: <b>conexão local (seu modem/chip 4G BR)</b> — recomendado — ou um proxy móvel 4G do pool.<br>
+          2. O app prepara o perfil (fingerprint <b>já BR</b>), <b>aquece o navegador</b> e abre o <b>Camoufox</b>.<br>
+          3. <b>Você cria a conta na janela</b> com um <b>e-mail da lista</b> — preenche e resolve captcha se aparecer.<br>
+          4. A conta nasce <b>logada nesse perfil</b>. Cadastre em <b>Contas</b> (pode colar o cookie da sessão) e extraia devagar no <b>Spider</b>.
         </div>
       </div>
 
@@ -580,17 +580,17 @@
         <div style="font-size:12px;color:var(--muted);margin:0 0 8px 2px;font-weight:600">Conexão de saída</div>
         <div class="ig-method-grid">
           <label class="ig-method-card" style="border-left:3px solid var(--accent)">
-            <input type="radio" name="proxy-method" value="inteligente" checked onchange="onProxyMethodChange()">
+            <input type="radio" id="ig-local-conn" name="proxy-method" value="local" checked onchange="onProxyMethodChange()">
             <span>
-              <span class="ig-method-name">🌐 Proxy do pool (4G/5G)</span>
-              <span class="ig-method-copy">Usa o melhor proxy do pool. Defina o <b>País-alvo</b> em Contas → Limites pra casar com a persona. Veja o proxy e a saúde na caixa do topo.</span>
+              <span class="ig-method-name">💻 Conexão local (seu 4G BR) — recomendado</span>
+              <span class="ig-method-copy">Usa a internet atual do PC. <b>Ideal se você está no modem/chip 4G BR</b> — IP de operadora coerente com o fingerprint BR.</span>
             </span>
           </label>
           <label class="ig-method-card">
-            <input type="radio" id="ig-local-conn" name="proxy-method" value="local" onchange="onProxyMethodChange()">
+            <input type="radio" name="proxy-method" value="inteligente" onchange="onProxyMethodChange()">
             <span>
-              <span class="ig-method-name">💻 Conexão local (sem proxy)</span>
-              <span class="ig-method-copy">Usa a internet atual do PC. Só vale se o PC já estiver num IP coerente.</span>
+              <span class="ig-method-name">🌐 Proxy móvel do pool (4G/LTE)</span>
+              <span class="ig-method-copy">Usa o melhor proxy do pool. Só se for um <b>4G/LTE de verdade</b> (não 5G, ❌ não datacenter). Veja o proxy e a saúde na caixa do topo.</span>
             </span>
           </label>
         </div>
