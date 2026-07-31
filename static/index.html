@@ -1328,9 +1328,14 @@
       <label>Senha</label>
       <input id="aa-password" type="text" placeholder="senha da conta">
     </div>
+    <div class="form-group">
+      <label>🔑 Cookie da sessão <span style="color:var(--muted);font-weight:400">(opcional — do Cookie-Editor)</span></label>
+      <textarea id="aa-cookies" rows="2" placeholder='Cole o JSON de cookies de instagram.com (Cookie-Editor)' style="width:100%;box-sizing:border-box;padding:8px;background:var(--surface);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:12px;font-family:ui-monospace,Consolas,monospace;resize:vertical"></textarea>
+      <div class="form-hint">Se já pegou o cookie no navegador do perfil (Cookie-Editor): ao adicionar, a sessão é <b>importada no perfil</b> (sem login novo, ~50s). O <b>sessionid</b> é httpOnly — precisa vir da extensão. Vazio = pode importar depois em Detalhes.</div>
+    </div>
     <div class="modal-actions">
       <button class="btn btn-ghost" onclick="closeModal('modal-add-account')">Cancelar</button>
-      <button class="btn btn-primary" onclick="submitAddAccount()">Adicionar</button>
+      <button class="btn btn-primary" onclick="submitAddAccount(this)">Adicionar</button>
     </div>
   </div>
 </div>
@@ -4223,7 +4228,7 @@ async function openAddAccount() {
   _editingAccountId = null;
   document.getElementById('aa-title').textContent = 'Adicionar conta';
   document.getElementById('aa-profile-warn').style.display = 'none';
-  ['aa-username','aa-email','aa-password','aa-whatsapp','aa-proxy'].forEach(id => document.getElementById(id).value = '');
+  ['aa-username','aa-email','aa-password','aa-whatsapp','aa-proxy','aa-cookies'].forEach(id => document.getElementById(id).value = '');
   document.getElementById('aa-platform').value = 'instagram';
   document.getElementById('aa-status').value = 'active';
   document.getElementById('modal-add-account').classList.add('open');
@@ -4236,6 +4241,7 @@ async function editAccount(id) {
   catch (e) { toast(e.message, 'error'); return; }
   _editingAccountId = id;
   document.getElementById('aa-title').textContent = 'Editar conta';
+  document.getElementById('aa-cookies').value    = '';
   document.getElementById('aa-username').value  = a.username || '';
   document.getElementById('aa-email').value     = a.email || '';
   document.getElementById('aa-password').value  = a.password || '';
@@ -4262,7 +4268,7 @@ function checkAddProfileWarn() {
   if (pg) pg.style.display = (sel.value === '__new__') ? 'block' : 'none';
 }
 
-async function submitAddAccount() {
+async function submitAddAccount(btn) {
   const profVal = document.getElementById('aa-profile').value;
   const body = {
     profile_id: profVal === '' ? null : profVal,   // "__new__" sobe literal (backend cria o perfil)
@@ -4278,19 +4284,38 @@ async function submitAddAccount() {
     toast('Informe pelo menos username ou email', 'error');
     return;
   }
+  const cookies = (document.getElementById('aa-cookies').value || '').trim();
+  const origLabel = btn ? btn.textContent : '';
+  if (btn) btn.disabled = true;
   try {
+    let acctId = _editingAccountId;
     if (_editingAccountId) {
       await api('PATCH', '/accounts/' + _editingAccountId, body);
       toast('Conta atualizada');
     } else {
-      await api('POST', '/accounts', body);
+      const created = await api('POST', '/accounts', body);
+      acctId = created && created.id;
       toast('Conta adicionada');
+    }
+    // Importa a sessão (cookie) se fornecida — abre o perfil headless (~50s).
+    if (cookies && acctId) {
+      if (btn) btn.textContent = '⏳ importando sessão…';
+      try {
+        const r = await api('POST', `/accounts/${encodeURIComponent(acctId)}/import-session`, { cookies });
+        if (r.logged === true) toast(`✓ Sessão importada — perfil LOGADO (status ${r.status})`, 'success');
+        else if (r.logged === false) toast(`Conta salva; importou cookies mas NÃO logou (status ${r.status}) — veja Detalhes`, 'error');
+        else toast('Conta salva; sessão importada (login não confirmado)', 'success');
+      } catch (e) {
+        toast('Conta salva, mas falhou ao importar a sessão: ' + (e.message || ''), 'error');
+      }
     }
     closeModal('modal-add-account');
     _editingAccountId = null;
     loadAccountsPage();
   } catch (e) {
     toast(e.message || 'Erro ao salvar', 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = origLabel || 'Adicionar'; }
   }
 }
 
