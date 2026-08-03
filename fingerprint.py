@@ -57,7 +57,11 @@ def generate(os: str = "windows") -> dict:
         "userAgent": fp.navigator.userAgent,
         "hardwareConcurrency": hw,
         "deviceMemory": None,            # Firefox NÃO expõe navigator.deviceMemory
-        "language": random.choice(LOCALES),     # geoip define o real em runtime
-        "timezone": random.choice(TIMEZONES),   # geoip define o real em runtime
+        # Idioma/fuso de EXIBIÇÃO fixados em BR para casar com o geoip forçado
+        # (session_manager._FORCE_GEOIP_IP = Porto Alegre). São só p/ o card; o
+        # Camoufox aplica pt-BR/America-Sao_Paulo no runtime via geoip de qualquer jeito.
+        # Trocar a cidade/país = trocar aqui E no _FORCE_GEOIP_IP.
+        "language": "pt-BR",
+        "timezone": "America/Sao_Paulo",
         "doNotTrack": random.choice(["1", None]),
     }

@@ -157,7 +157,7 @@
   /* Modal */
   .modal-backdrop { position: fixed; inset: 0; background: #0009; display: none; align-items: center; justify-content: center; z-index: 100; }
   .modal-backdrop.open { display: flex; }
-  .modal { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 24px; width: 480px; max-width: 95vw; }
+  .modal { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 24px; width: 480px; max-width: 95vw; max-height: 90vh; overflow-y: auto; overscroll-behavior: contain; }
   .modal h2 { font-size: 16px; margin-bottom: 16px; }
   .modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 20px; }
 
@@ -281,6 +281,13 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4v16"/><path d="M4 4h12l-2 4 2 4H4"/></svg>
       Comece aqui
     </div>
+
+    <!-- Fluxo de criação, na ordem: perfil (dispositivo) → criar a conta IG → cadastrar -->
+    <div class="nav-section">Criação &amp; contas</div>
+    <div class="nav-item" data-page-link="profiles" onclick="showPage('profiles')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 9h6M9 13h4"/></svg>
+      Perfis
+    </div>
     <div class="nav-item" data-page-link="instagram" onclick="showPage('instagram')">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="20" rx="5"/><circle cx="12" cy="12" r="4"/><circle cx="17.5" cy="6.5" r="1" fill="currentColor" stroke="none"/></svg>
       Criar Contas (PC)
@@ -289,24 +296,8 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>
       Contas
     </div>
-    <div class="nav-item" data-page-link="profiles" onclick="showPage('profiles')">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 9h6M9 13h4"/></svg>
-      Perfis
-    </div>
-    <div class="nav-item" data-page-link="emails" onclick="showPage('emails')">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-10 5L2 7"/></svg>
-      Emails
-    </div>
-    <div class="nav-item" data-page-link="whatsapps" onclick="showPage('whatsapps')">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
-      WhatsApps
-    </div>
-    <div class="nav-item" data-page-link="analytics" onclick="showPage('analytics')">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/></svg>
-      Métricas
-    </div>
 
-    <div class="nav-section">Utilitários</div>
+    <div class="nav-section">Extração</div>
     <div class="nav-item" data-page-link="spider" onclick="showPage('spider')">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 9V3M12 21v-6M9 12H3M21 12h-6M7 7 4 4M17 7l3-3M7 17l-3 3M17 17l3 3"/></svg>
       Spider
@@ -315,13 +306,27 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
       Monitorados
     </div>
-    <div class="nav-item" data-page-link="create" onclick="showPage('create')">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
-      Novo Perfil
+    <!-- Métricas ocultada do menu (2026-07-27): análise agregada não confiável; página
+         e endpoints ficam dormentes. Ideia futura: uma IA analisar cada extração/ban. -->
+
+    <div class="nav-section">Recursos</div>
+    <div class="nav-item" data-page-link="emails" onclick="showPage('emails')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-10 5L2 7"/></svg>
+      Emails
+    </div>
+    <div class="nav-item" data-page-link="whatsapps" onclick="showPage('whatsapps')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
+      WhatsApps
     </div>
     <div class="nav-item" data-page-link="proxies" onclick="showPage('proxies')">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M5 12a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2M5 12a2 2 0 0 0-2 2v4a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-4a2 2 0 0 0-2-2M8 7h.01M8 17h.01"/></svg>
       Proxies
+    </div>
+
+    <div class="nav-section">Sistema</div>
+    <div class="nav-item" data-page-link="create" onclick="showPage('create')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+      Novo Perfil
     </div>
     <div class="nav-item" data-page-link="localdata" onclick="showPage('localdata')">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/><path d="M3 12c0 1.66 4 3 9 3s9-1.34 9-3"/></svg>
@@ -335,7 +340,7 @@
       <div class="page-header">
         <div>
           <div class="page-title">Comece aqui</div>
-          <div class="page-subtitle">Crie as contas manualmente no Camoufox (PC) com proxy 4G/5G, amadureça no Android e gerencie tudo aqui</div>
+          <div class="page-subtitle">Perfil BR → crie a conta no Camoufox pelo seu 4G → cadastre com a sessão (cookie) → extraia devagar. Tudo aqui.</div>
         </div>
       </div>
 
@@ -352,31 +357,31 @@
         <div class="form-card" style="margin-bottom:18px;border:1px solid var(--border);border-radius:10px">
           <div style="font-weight:600;margin-bottom:6px">✅ Como funciona o fluxo</div>
           <div style="color:var(--muted);font-size:13px;line-height:1.65">
-            As contas são criadas <b>manualmente</b> no navegador antidetect <b>Camoufox (no PC)</b>, saindo por um <b>proxy móvel 4G/5G</b>. O app prepara o perfil (proxy + fingerprint coerente), <b>aquece o navegador e abre a janela</b> — <b>você cria a conta</b> usando um <b>e-mail comprado</b> (preenche e resolve captcha/telefone se aparecer). Depois, <b>amadureça a conta no app do Instagram no Android</b> antes de usar pra valer.<br><br>
+            A ideia central: <b>parar de queimar contas</b>. O que faz a conta durar é o <b>IP de saída</b> — um <b>4G/LTE de operadora</b> (modem/chip BR ou proxy móvel), que tem trust alto porque é compartilhado por milhares de usuários reais. Você <b>cria a conta no Camoufox pela sua conexão 4G</b>, com o fingerprint <b>já forçado pra Brasil</b> (Porto Alegre), e depois <b>extrai devagar</b> — conta saudável + IP móvel + ritmo lento = dura <b>semanas</b>, não dias.<br><br>
 
             <b>O que o app faz por você:</b><br>
-            • Gera o perfil Camoufox (proxy + fingerprint) e abre a janela pronta (aba <b>Criar Contas (PC)</b>)<br>
-            • Mantém <b>fingerprint coerente e estável por perfil</b> e sai pelo <b>proxy 4G/5G</b> do pool<br>
-            • <b>Monitora o status</b> das contas (ativa, em suspensão, banida) e a vida útil (aba <b>Contas</b>)<br>
-            • <b>Extrai dados</b> (seguidores/seguindo/posts) com o <b>Spider</b><br>
-            • Mostra <b>no topo</b> qual proxy/IP está em uso e se está <b>limpo ou queimado</b><br><br>
+            • Gera o perfil Camoufox com <b>fingerprint BR coerente e estável</b> (timezone/idioma/GPU/WebRTC por perfil)<br>
+            • Deixa você apontar cada conta pro <b>seu IP móvel</b> (Contas → Detalhes → Proxy do perfil)<br>
+            • <b>Importa a sessão</b> por cookie (sem login novo) ao cadastrar a conta<br>
+            • <b>Monitora o status</b> (ativa / em suspensão / banida) e mostra o IP em uso no topo<br>
+            • <b>Extrai</b> seguidores/seguindo/posts com o <b>Spider</b> (paralelo + ritmo sustentável) e gera o <b>log por extração</b> pra análise<br><br>
 
-            <b>⚠️ Importante:</b> criar conta no PC historicamente queima contas — por isso o <b>proxy 4G/5G dedicado</b> + <b>ritmo manual lento</b> são essenciais, e o <b>amadurecimento é no Android</b> (logar no PC numa conta recém-criada é "novo dispositivo").
+            <b>⚠️ O que importa:</b> o IP de saída tem que ser <b>4G/LTE (não 5G)</b> e coerente com o fingerprint BR. Rodar por um IP estrangeiro ou datacenter queima. Trate cada conta como <b>ativo durável</b>, não descartável.
           </div>
         </div>
 
-        <div style="margin-bottom:10px;font-weight:600;color:var(--text)">O que você precisa fazer (configuração inicial)</div>
+        <div style="margin-bottom:10px;font-weight:600;color:var(--text)">Configuração inicial</div>
 
         <div class="form-card" style="margin-bottom:18px">
           <div style="color:var(--muted);font-size:13px;line-height:1.6">
-            • <b>Proxy móvel 4G/5G dedicado</b> (fator nº 1 contra detecção) na pasta <code>proxys/</code> ou pela aba Proxies — <b>1 IP limpo por conta</b>, de preferência sticky. Defina o <b>País-alvo</b> (Contas → Limites) pra casar com a persona. <button class="btn btn-ghost btn-sm" style="padding:1px 8px" onclick="showPage('proxies')">ver guia →</button><br>
-            • <b>E-mails comprados de terceiros</b> (com acesso/senha do provedor). Cadastre-os na aba <b>Emails</b>. O código de verificação você pega no <b>provedor do e-mail</b> e digita na janela.<br>
-            • Um <b>celular Android</b> com o app do Instagram para amadurecer a conta depois de criada.
+            • <b>IP móvel 4G/LTE</b> (fator nº 1) — seu <b>modem/chip BR</b> (conexão local) ou um <b>proxy móvel 4G</b> torre-rotativo. <b>1 IP por conta</b> é o ideal; um IP móvel bom aguenta poucas contas. ❌ Evite datacenter/ISP-estático.<br>
+            • <b>E-mails</b> pra criar as contas — cadastre na aba <b>Emails</b>. O código de verificação vem no provedor do e-mail.<br>
+            • O <b>fingerprint já sai Brasil (Porto Alegre)</b> automaticamente — não precisa configurar.
           </div>
           <div style="margin-top:10px">
-            <button class="btn btn-primary btn-sm" onclick="showPage('instagram')">Ir para Criar Contas →</button>
+            <button class="btn btn-primary btn-sm" onclick="showPage('create')">Criar 1º Perfil →</button>
+            <button class="btn btn-ghost btn-sm" onclick="showPage('emails')">Cadastrar Emails →</button>
             <button class="btn btn-ghost btn-sm" onclick="showPage('proxies')">Ver Proxies →</button>
-            <button class="btn btn-ghost btn-sm" onclick="showPage('emails')">Configurar Emails →</button>
           </div>
         </div>
 
@@ -386,11 +391,11 @@
           <div class="flow-step">
             <div class="flow-left"><div class="flow-num">1</div><div class="flow-line"></div></div>
             <div class="flow-card">
-              <div class="flow-title">🌐 Configurar proxy + emails</div>
-              <div class="flow-desc">Adicione seu <b>proxy 4G/5G</b> na aba Proxies e defina o <b>País-alvo</b> (Contas → Limites). Cadastre os <b>e-mails comprados</b> na aba Emails. Confira no <b>topo</b> se o proxy está limpo.</div>
+              <div class="flow-title">🖥️ Criar e aquecer o perfil</div>
+              <div class="flow-desc">Em <b>Novo Perfil</b>, crie o perfil (já nasce com fingerprint BR). Em <b>Perfis</b>, clique <b>🔥 Aquecer navegador</b> (navega sites comuns → parece humano). Se for usar proxy móvel, aponte em Contas → Detalhes depois.</div>
               <div class="flow-actions">
-                <button class="btn btn-primary btn-sm" onclick="showPage('proxies')">Proxies →</button>
-                <button class="btn btn-ghost btn-sm" onclick="showPage('emails')">Emails →</button>
+                <button class="btn btn-primary btn-sm" onclick="showPage('create')">Novo Perfil →</button>
+                <button class="btn btn-ghost btn-sm" onclick="showPage('profiles')">Perfis →</button>
               </div>
             </div>
           </div>
@@ -398,45 +403,43 @@
           <div class="flow-step">
             <div class="flow-left"><div class="flow-num">2</div><div class="flow-line"></div></div>
             <div class="flow-card">
-              <div class="flow-title">✍️ Criar a conta (manual no Camoufox)</div>
-              <div class="flow-desc">Na aba <b>Criar Contas (PC)</b>, escolha a conexão (proxy 4G/5G) e clique em <b>"Criar conta (abrir Camoufox)"</b>. O app gera os dados, aquece o navegador e <b>abre a janela</b> — você preenche e cria a conta. Resolva captcha/telefone se aparecer.</div>
-              <div class="flow-actions"><button class="btn btn-primary btn-sm" onclick="showPage('instagram')">Criar Contas →</button></div>
+              <div class="flow-title">✍️ Criar a conta no Camoufox (pelo 4G)</div>
+              <div class="flow-desc">Abra o perfil (<b>Perfis → Abrir</b>), certifique-se de estar no <b>4G BR</b>, vá em <b>instagram.com</b> e cadastre a conta usando um <b>e-mail da lista</b>. Resolva o captcha se aparecer. A conta nasce logada nesse perfil.</div>
+              <div class="flow-actions"><button class="btn btn-primary btn-sm" onclick="showPage('profiles')">Perfis →</button></div>
             </div>
           </div>
 
           <div class="flow-step">
             <div class="flow-left"><div class="flow-num">3</div><div class="flow-line"></div></div>
             <div class="flow-card">
-              <div class="flow-title">📱 Amadurecer no Android</div>
-              <div class="flow-desc">Logue a conta recém-criada no <b>app do Instagram no celular</b> e use alguns dias (poste, navegue) antes de operar pra valer. Cadastre usuário/senha na aba <b>Contas</b> pra acompanhar.</div>
-              <div class="flow-actions">
-                <button class="btn btn-primary btn-sm" onclick="showPage('accounts')">Ir para Contas →</button>
-              </div>
+              <div class="flow-title">🔑 Cadastrar a conta (+ sessão)</div>
+              <div class="flow-desc">Em <b>Contas → + Adicionar conta</b>, escolha <b>o perfil que você usou</b>, preencha usuário/senha/e-mail. Se a sessão vier de fora (ex.: do celular), cole o <b>cookie</b> (Cookie-Editor) no campo — o perfil fica logado sem login novo.</div>
+              <div class="flow-actions"><button class="btn btn-primary btn-sm" onclick="showPage('accounts')">Contas →</button></div>
             </div>
           </div>
 
           <div class="flow-step">
             <div class="flow-left"><div class="flow-num">4</div></div>
             <div class="flow-card">
-              <div class="flow-title">📊 Monitorar e extrair</div>
-              <div class="flow-desc">Acompanhe status (ativa / em suspensão / banida) e vida útil na aba <b>Contas</b>. Quando precisar, extraia seguidores/seguindo/posts com o <b>Spider</b>.</div>
+              <div class="flow-title">🕷️ Extrair devagar + monitorar</div>
+              <div class="flow-desc">No <b>Spider</b>, escolha a(s) conta(s), conexão <b>"Proxy por conta"</b> (ou IP local do modem) e velocidade <b>🐌 Sustentável</b>. Cadastre os alvos em <b>Monitorados</b>. Acompanhe status/vida útil em <b>Contas</b>.</div>
               <div class="flow-actions">
-                <button class="btn btn-primary btn-sm" onclick="showPage('accounts')">Contas →</button>
-                <button class="btn btn-ghost btn-sm" onclick="showPage('spider')">Spider →</button>
+                <button class="btn btn-primary btn-sm" onclick="showPage('spider')">Spider →</button>
+                <button class="btn btn-ghost btn-sm" onclick="showPage('monitored')">Monitorados →</button>
               </div>
             </div>
           </div>
         </div>
 
         <div style="margin-top:8px;padding:12px 14px;background:var(--surface2);border-radius:8px;font-size:12px;color:var(--muted);line-height:1.7">
-          <b style="color:var(--text)">Boas práticas para não queimar a conta</b>:<br>
-          • <b>Proxy móvel 4G/5G dedicado</b> (não ISP-estático compartilhado, ❌ não datacenter), <b>1 IP limpo por conta</b>, de preferência sticky. Marque proxy ruim como <b>queimado</b> na caixa do topo.<br>
-          • <b>Fingerprint desktop coerente</b> (o app já fixa geoip + GPU/navigator/WebRTC por perfil). <b>Não</b> force "cara de celular" no Camoufox — fica incoerente.<br>
-          • <b>Ritmo manual lento</b>: poucas contas por IP/dia, com calma.<br>
-          • Defina o <b>País-alvo</b> (Contas → Limites) pra casar persona ↔ IP.<br>
-          • <b>Amadureça no Android</b> antes de operar — logar no PC numa conta nova é "novo dispositivo".
+          <b style="color:var(--text)">Boas práticas para a conta durar</b>:<br>
+          • <b>IP móvel 4G/LTE</b> (não 5G — pool pequeno; ❌ não datacenter), <b>1 IP por conta</b> quando der. Um IP móvel bom aguenta poucas contas.<br>
+          • <b>Fingerprint BR coerente</b> — já forçado (Porto Alegre). <b>Só</b> use IP de saída também BR (o modem/chip ou proxy BR), senão fica incoerente.<br>
+          • <b>Ritmo sustentável</b> (~200-300 req/dia): a conta dura semanas; o volume vem de <b>várias contas em paralelo</b>, não de blastar uma.<br>
+          • Trate cada conta como <b>ativo durável</b> — pare de tratar como descartável.<br>
+          • <b>Extração = método Web</b> (o App/instagrapi loga de novo = queima mais rápido).
           <div style="margin-top:10px">
-            <button class="btn btn-ghost btn-sm" onclick="showPage('proxies')">📖 Ver guia completo de proxies →</button>
+            <button class="btn btn-ghost btn-sm" onclick="showPage('proxies')">📖 Ver proxies →</button>
           </div>
         </div>
       </div>
@@ -546,7 +549,7 @@
       <div class="page-header">
         <div>
           <div class="page-title">Criar Contas (PC)</div>
-          <div class="page-subtitle">Instagram • criação manual no Camoufox (o app gera os dados e abre a janela; você preenche)</div>
+          <div class="page-subtitle">Instagram • criação manual no Camoufox pela sua conexão 4G BR (o app prepara o perfil; você preenche)</div>
         </div>
         <div class="ig-page-actions">
           <button class="btn btn-ghost btn-sm" onclick="igLoadProfiles && igLoadProfiles()">Atualizar</button>
@@ -556,10 +559,10 @@
       <div class="form-card" style="max-width:720px;margin-bottom:18px;border:1px solid var(--border)">
         <div style="font-weight:600;margin-bottom:6px">Como funciona o fluxo</div>
         <div style="color:var(--muted);font-size:13px;line-height:1.75">
-          1. Escolha a conexão: <b>proxy 4G/5G do pool</b> (defina o País-alvo em Contas → Limites) ou conexão local.<br>
-          2. O app gera o perfil (proxy + fingerprint), <b>aquece o navegador</b> e abre o <b>Camoufox</b>.<br>
-          3. <b>Você cria a conta na janela</b> com um <b>e-mail comprado</b> — preenche e resolve captcha/telefone se aparecer.<br>
-          4. Depois, <b>logue no app do Instagram no Android</b> para amadurecer a conta antes de usar.
+          1. Escolha a conexão: <b>conexão local (seu modem/chip 4G BR)</b> — recomendado — ou um proxy móvel 4G do pool.<br>
+          2. O app prepara o perfil (fingerprint <b>já BR</b>), <b>aquece o navegador</b> e abre o <b>Camoufox</b>.<br>
+          3. <b>Você cria a conta na janela</b> com um <b>e-mail da lista</b> — preenche e resolve captcha se aparecer.<br>
+          4. A conta nasce <b>logada nesse perfil</b>. Cadastre em <b>Contas</b> (pode colar o cookie da sessão) e extraia devagar no <b>Spider</b>.
         </div>
       </div>
 
@@ -577,17 +580,17 @@
         <div style="font-size:12px;color:var(--muted);margin:0 0 8px 2px;font-weight:600">Conexão de saída</div>
         <div class="ig-method-grid">
           <label class="ig-method-card" style="border-left:3px solid var(--accent)">
-            <input type="radio" name="proxy-method" value="inteligente" checked onchange="onProxyMethodChange()">
+            <input type="radio" id="ig-local-conn" name="proxy-method" value="local" checked onchange="onProxyMethodChange()">
             <span>
-              <span class="ig-method-name">🌐 Proxy do pool (4G/5G)</span>
-              <span class="ig-method-copy">Usa o melhor proxy do pool. Defina o <b>País-alvo</b> em Contas → Limites pra casar com a persona. Veja o proxy e a saúde na caixa do topo.</span>
+              <span class="ig-method-name">💻 Conexão local (seu 4G BR) — recomendado</span>
+              <span class="ig-method-copy">Usa a internet atual do PC. <b>Ideal se você está no modem/chip 4G BR</b> — IP de operadora coerente com o fingerprint BR.</span>
             </span>
           </label>
           <label class="ig-method-card">
-            <input type="radio" id="ig-local-conn" name="proxy-method" value="local" onchange="onProxyMethodChange()">
+            <input type="radio" name="proxy-method" value="inteligente" onchange="onProxyMethodChange()">
             <span>
-              <span class="ig-method-name">💻 Conexão local (sem proxy)</span>
-              <span class="ig-method-copy">Usa a internet atual do PC. Só vale se o PC já estiver num IP coerente.</span>
+              <span class="ig-method-name">🌐 Proxy móvel do pool (4G/LTE)</span>
+              <span class="ig-method-copy">Usa o melhor proxy do pool. Só se for um <b>4G/LTE de verdade</b> (não 5G, ❌ não datacenter). Veja o proxy e a saúde na caixa do topo.</span>
             </span>
           </label>
         </div>
@@ -602,7 +605,6 @@
         <div class="ig-bulk-actions">
           <button class="btn btn-primary" onclick="createManual()" title="O app gera os dados e abre a janela do Camoufox; VOCÊ preenche">✍️ Criar conta (abrir Camoufox)</button>
           <button class="btn btn-ghost btn-sm" onclick="showPage('emails')">Emails</button>
-          <button class="btn btn-ghost btn-sm" onclick="showPage('analytics')">Métricas</button>
         </div>
 
       </section>
@@ -1155,6 +1157,7 @@
         <div class="form-group">
           <label>Velocidade — pela CONFIANÇA da conta que raspa</label>
           <select id="sp-speed" onchange="_spiderSpeedTouched = true">
+            <option value="360000">🐌 Sustentável — ~250 req/dia (conta dura SEMANAS · p/ proxy móvel 4G)</option>
             <option value="120000">🛡️ Ultra seguro — ~30 req/h (conta muito nova/descartável)</option>
             <option value="45000">🐢 Conta nova — ~80 req/h</option>
             <option value="14400">⚖ Conta média — ~250 req/h</option>
@@ -1190,7 +1193,10 @@
       <div style="margin-top:22px;max-width:980px">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
           <div style="font-weight:600">📜 Histórico de execuções</div>
-          <button class="btn btn-ghost btn-sm" onclick="loadSpiderHistory()">↻ Atualizar</button>
+          <div style="display:flex;gap:6px">
+            <button class="btn btn-ghost btn-sm" onclick="spiderExportLog(this)" title="Baixa o log de TODAS as extrações (1 linha por run: conta, velocidade, extraídos, desfecho, ban) — pra você ou uma IA analisar caso a caso">⬇ Exportar log (análise)</button>
+            <button class="btn btn-ghost btn-sm" onclick="loadSpiderHistory()">↻ Atualizar</button>
+          </div>
         </div>
         <div class="table-wrap">
           <table>
@@ -1326,9 +1332,14 @@
       <label>Senha</label>
       <input id="aa-password" type="text" placeholder="senha da conta">
     </div>
+    <div class="form-group">
+      <label>🔑 Cookie da sessão <span style="color:var(--muted);font-weight:400">(opcional — do Cookie-Editor)</span></label>
+      <textarea id="aa-cookies" rows="2" placeholder='Cole o JSON de cookies de instagram.com (Cookie-Editor)' style="width:100%;box-sizing:border-box;padding:8px;background:var(--surface);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:12px;font-family:ui-monospace,Consolas,monospace;resize:vertical"></textarea>
+      <div class="form-hint">Se já pegou o cookie no navegador do perfil (Cookie-Editor): ao adicionar, a sessão é <b>importada no perfil</b> (sem login novo, ~50s). O <b>sessionid</b> é httpOnly — precisa vir da extensão. Vazio = pode importar depois em Detalhes.</div>
+    </div>
     <div class="modal-actions">
       <button class="btn btn-ghost" onclick="closeModal('modal-add-account')">Cancelar</button>
-      <button class="btn btn-primary" onclick="submitAddAccount()">Adicionar</button>
+      <button class="btn btn-primary" onclick="submitAddAccount(this)">Adicionar</button>
     </div>
   </div>
 </div>
@@ -3261,8 +3272,18 @@ function renderAccounts(list) {
       Nenhuma conta ainda. Crie a conta no celular e clique em "+ Adicionar conta".</td></tr>`;
     return;
   }
-  body.innerHTML = list.map(a => {
+  // Ordena: ATIVAS no topo, contas com PROBLEMA separadas embaixo (divisor no meio).
+  // rank 0 = ativa · 1 = neutra (sem perfil/desconhecida) · 2 = problema (suspensa/banida).
+  const _rank = a => a.status === 'active' ? 0 : (_PROBLEM_STATUSES.includes(a.status) ? 2 : 1);
+  const _sorted = list.slice().sort((x, y) => _rank(x) - _rank(y));
+  let _dividerDone = false;
+  body.innerHTML = _sorted.map(a => {
     const isProblem = _PROBLEM_STATUSES.includes(a.status);
+    let divider = '';
+    if (!_dividerDone && isProblem) {
+      _dividerDone = true;
+      divider = `<tr><td colspan="8" style="padding:7px 12px;background:rgba(239,68,68,0.12);color:var(--red);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em">⚠ Contas com problema (em suspensão / banidas)</td></tr>`;
+    }
     const rowStyle = isProblem ? ' style="background:rgba(239,68,68,0.07)"' : '';
     const ls = a.lifespan?.label || '—';
     const px = a.proxy_usage;
@@ -3288,7 +3309,7 @@ function renderAccounts(list) {
           ? '<span style="color:var(--red);font-size:12px">perfil removido</span>'
           : `<span style="color:var(--yellow);font-size:12px">sem perfil — não abre no PC</span>
              <div style="margin-top:4px"><button class="btn btn-ghost btn-sm" onclick="createProfileForAccount('${a.id}', this)">➕ Criar perfil</button></div>`);
-    return `<tr${rowStyle}>
+    return divider + `<tr${rowStyle}>
       <td>
         <div style="font-weight:600">${escapeHtml(a.username || '(sem username)')}</div>
         <div style="font-size:11px;color:var(--muted)">${escapeHtml(a.email || '')}</div>
@@ -3355,7 +3376,26 @@ async function accountDetail(id) {
           ? `Sim (${a.profile_warmup_count}×` + (a.profile_last_warmup ? `, último ${a.profile_last_warmup.replace('T',' ')}` : '') + ')'
           : 'Não — aqueça o perfil antes de usar')
       : '—') +
-    detailRow('ID do perfil', a.profile_id, true);
+    detailRow('ID do perfil', a.profile_id, true) +
+    (a.profile_exists ? `
+      <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--border)">
+        <div style="font-weight:600;font-size:13px;margin-bottom:4px">🌐 Proxy do perfil (conexão de saída)</div>
+        <div class="form-hint" style="margin-bottom:6px">Atual: <b>${proxyStr === '—' ? 'conexão local (sem proxy)' : escapeHtml(proxyStr)}</b>. Para a conta <b>durar</b>, aponte para um <b>proxy móvel 4G/LTE</b> (IP de operadora = trust alto). Formato: <code>host:porta:usuário:senha</code> ou URL. Vazio = conexão local.</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <input id="ma-proxy" type="text" placeholder="host:porta:usuário:senha (vazio = local)" style="flex:1;min-width:220px;padding:7px 10px;background:var(--surface);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:12px;font-family:ui-monospace,Consolas,monospace">
+          <button class="btn btn-primary btn-sm" onclick="setAccountProxy('${a.id}', this)">Salvar proxy</button>
+        </div>
+        <div id="ma-proxy-result" style="font-size:12px;color:var(--muted);margin-top:6px"></div>
+      </div>
+      <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--border)">
+        <div style="font-weight:600;font-size:13px;margin-bottom:4px">🔑 Importar sessão do celular</div>
+        <div class="form-hint" style="margin-bottom:6px">Para conta que só loga no app/celular. No <b>Firefox Android</b> (no 4G), entre no <b>instagram.com</b>, exporte os cookies com o <b>Cookie-Editor</b> e cole o JSON aqui. O perfil fica logado <b>sem login novo</b>. O <b>sessionid</b> é httpOnly — só a extensão pega, copiar do navegador não.</div>
+        <textarea id="ma-cookies" rows="3" placeholder='[{"name":"sessionid","value":"...","domain":".instagram.com"}, ...]' style="width:100%;box-sizing:border-box;padding:8px;background:var(--surface);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:12px;font-family:ui-monospace,Consolas,monospace;resize:vertical"></textarea>
+        <div style="margin-top:6px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <button class="btn btn-primary btn-sm" onclick="importAccountSession('${a.id}', this)">Importar sessão</button>
+          <span id="ma-cookies-result" style="font-size:12px;color:var(--muted)"></span>
+        </div>
+      </div>` : '');
 
   document.getElementById('ma-check').onclick = (e) => checkAccount(id, e.currentTarget);
   document.getElementById('ma-delete').onclick = () => deleteAccount(id);
@@ -3368,6 +3408,46 @@ async function accountDetail(id) {
     openBtn.style.display = 'none';
   }
   document.getElementById('modal-account').classList.add('open');
+}
+
+// Define/troca o proxy do perfil da conta (ex.: apontar p/ proxy móvel 4G).
+async function setAccountProxy(id, btn) {
+  const inp = document.getElementById('ma-proxy');
+  const out = document.getElementById('ma-proxy-result');
+  const val = (inp.value || '').trim();
+  if (btn) btn.disabled = true;
+  try {
+    await api('POST', `/accounts/${encodeURIComponent(id)}/set-proxy`, { proxy: val });
+    toast(val ? 'Proxy salvo' : 'Proxy removido (conexão local)', 'success');
+    if (out) out.innerHTML = '<span style="color:var(--green)">✓ salvo — reabra o navegador/extração p/ usar o novo IP</span>';
+    loadAccountsPage();
+    setTimeout(() => accountDetail(id), 600);   // recarrega o modal mostrando o proxy atual
+  } catch (e) { if (out) out.textContent = ''; toast(e.message || 'Erro ao salvar proxy', 'error'); }
+  finally { if (btn) btn.disabled = false; }
+}
+
+// Importa a sessão (cookies do celular) no perfil da conta. Abre o perfil headless
+// 2x (importa + confirma login), então demora ~50s.
+async function importAccountSession(id, btn) {
+  const ta = document.getElementById('ma-cookies');
+  const out = document.getElementById('ma-cookies-result');
+  const raw = (ta.value || '').trim();
+  if (!raw) { toast('Cole o JSON de cookies primeiro', 'error'); return; }
+  const stop = runBtnCountdown(btn, 50);
+  out.textContent = '';
+  try {
+    const r = await api('POST', `/accounts/${encodeURIComponent(id)}/import-session`, { cookies: raw });
+    stop();
+    if (r.logged === true) {
+      out.innerHTML = `<span style="color:var(--green)">✓ sessão importada e LOGADA (status ${r.status}${r.ds_user_id ? ', id ' + escapeHtml(String(r.ds_user_id)) : ''}) — já dá pra extrair no Spider</span>`;
+      toast('Sessão importada — perfil logado', 'success');
+    } else if (r.logged === false) {
+      out.innerHTML = `<span style="color:var(--red)">importou ${r.imported} cookie(s), mas o teste deu NÃO logado (status ${r.status}). Cookie expirado ou IP incoerente — tente proxy do mesmo país.</span>`;
+      toast('Importou, mas não logou', 'error');
+    } else {
+      out.innerHTML = `<span style="color:var(--yellow)">importou ${r.imported} cookie(s); não deu pra confirmar o login (${escapeHtml(r.error || '?')})</span>`;
+    }
+  } catch (e) { stop(); toast(e.message || 'Erro ao importar', 'error'); out.textContent = ''; }
 }
 
 // Countdown num botão enquanto uma ação demorada roda. Conta de `estSeconds`
@@ -3804,7 +3884,7 @@ async function spiderPoll() {
     document.getElementById('sp-resume').style.display = (j.status === 'stopped' && j.cursor) ? '' : 'none';
     document.getElementById('sp-csv').style.display = j.count ? '' : 'none';
     if (j.status === 'done') {
-      document.getElementById('sp-detail').textContent = `${j.count} registro(s) de @${j.target}.`;
+      document.getElementById('sp-detail').textContent = `${j.count} registro(s) de @${(j.target || '').replace(/^@+/, '')}.`;
     } else if (j.status === 'stopped') {
       document.getElementById('sp-detail').textContent = `Parou com ${j.count} registro(s) — clique em "Continuar" para seguir de onde parou.`;
     } else {
@@ -3908,6 +3988,27 @@ async function spiderHistoryCsv(id) {
   catch (e) { toast(e.message || 'Erro ao baixar', 'error'); }
 }
 
+// Exporta o log de TODAS as extrações (1 linha por run) p/ análise caso a caso.
+async function spiderExportLog(btn) {
+  const orig = btn ? btn.textContent : '';
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ gerando…'; }
+  try {
+    const res = await fetch(API + '/spider/log-export');
+    if (!res.ok) throw new Error('Falha ao gerar o log');
+    const saved = res.headers.get('X-Saved-Path') || '';
+    const blob = await res.blob();
+    try {
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = 'spider_log.csv';
+      document.body.appendChild(a); a.click(); a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e) { /* webview pode bloquear o download — já salvou no disco */ }
+    toast(saved ? ('✓ Log salvo em: ' + saved) : '✓ Log gerado', 'success');
+  } catch (e) { toast(e.message || 'Erro ao exportar', 'error'); }
+  finally { if (btn) { btn.disabled = false; btn.textContent = orig; } }
+}
+
 async function spiderHistoryDelete(id) {
   if (!confirm('Remover esta execução do histórico?')) return;
   try {
@@ -3967,6 +4068,13 @@ async function spiderResume(id) {
       body.profile_ids = ids;
       body.use_local = document.getElementById('sp-web-ipmode').value === 'local';
     }
+    // App (instagrapi): se o método App está selecionado, continua com a CONTA escolhida
+    // no seletor (troca de conta no resume do app). Sem isso, reusava a conta da run.
+    let appAcc = '';
+    if (document.getElementById('sp-method').value === 'app') {
+      appAcc = document.getElementById('sp-account').value || '';
+      if (appAcc) body.account_id = appAcc;
+    }
     const r = await api('POST', `/spider/resume/${id}`, body);
     _spiderJob = r.job_id;
     document.getElementById('sp-status').style.display = '';
@@ -3978,7 +4086,7 @@ async function spiderResume(id) {
     document.getElementById('sp-detail').textContent = 'Retomando de onde parou…';
     showPage('spider');
     spiderPoll();
-    toast(ids.length ? 'Continuando com a conta selecionada' : 'Continuando a extração');
+    toast((ids.length || appAcc) ? 'Continuando com a conta selecionada' : 'Continuando a extração');
   } catch (e) { toast(e.message || 'Erro ao continuar', 'error'); }
 }
 
@@ -4137,7 +4245,7 @@ async function openAddAccount() {
   _editingAccountId = null;
   document.getElementById('aa-title').textContent = 'Adicionar conta';
   document.getElementById('aa-profile-warn').style.display = 'none';
-  ['aa-username','aa-email','aa-password','aa-whatsapp','aa-proxy'].forEach(id => document.getElementById(id).value = '');
+  ['aa-username','aa-email','aa-password','aa-whatsapp','aa-proxy','aa-cookies'].forEach(id => document.getElementById(id).value = '');
   document.getElementById('aa-platform').value = 'instagram';
   document.getElementById('aa-status').value = 'active';
   document.getElementById('modal-add-account').classList.add('open');
@@ -4150,6 +4258,7 @@ async function editAccount(id) {
   catch (e) { toast(e.message, 'error'); return; }
   _editingAccountId = id;
   document.getElementById('aa-title').textContent = 'Editar conta';
+  document.getElementById('aa-cookies').value    = '';
   document.getElementById('aa-username').value  = a.username || '';
   document.getElementById('aa-email').value     = a.email || '';
   document.getElementById('aa-password').value  = a.password || '';
@@ -4176,7 +4285,7 @@ function checkAddProfileWarn() {
   if (pg) pg.style.display = (sel.value === '__new__') ? 'block' : 'none';
 }
 
-async function submitAddAccount() {
+async function submitAddAccount(btn) {
   const profVal = document.getElementById('aa-profile').value;
   const body = {
     profile_id: profVal === '' ? null : profVal,   // "__new__" sobe literal (backend cria o perfil)
@@ -4192,19 +4301,38 @@ async function submitAddAccount() {
     toast('Informe pelo menos username ou email', 'error');
     return;
   }
+  const cookies = (document.getElementById('aa-cookies').value || '').trim();
+  const origLabel = btn ? btn.textContent : '';
+  if (btn) btn.disabled = true;
   try {
+    let acctId = _editingAccountId;
     if (_editingAccountId) {
       await api('PATCH', '/accounts/' + _editingAccountId, body);
       toast('Conta atualizada');
     } else {
-      await api('POST', '/accounts', body);
+      const created = await api('POST', '/accounts', body);
+      acctId = created && created.id;
       toast('Conta adicionada');
+    }
+    // Importa a sessão (cookie) se fornecida — abre o perfil headless (~50s).
+    if (cookies && acctId) {
+      if (btn) btn.textContent = '⏳ importando sessão…';
+      try {
+        const r = await api('POST', `/accounts/${encodeURIComponent(acctId)}/import-session`, { cookies });
+        if (r.logged === true) toast(`✓ Sessão importada — perfil LOGADO (status ${r.status})`, 'success');
+        else if (r.logged === false) toast(`Conta salva; importou cookies mas NÃO logou (status ${r.status}) — veja Detalhes`, 'error');
+        else toast('Conta salva; sessão importada (login não confirmado)', 'success');
+      } catch (e) {
+        toast('Conta salva, mas falhou ao importar a sessão: ' + (e.message || ''), 'error');
+      }
     }
     closeModal('modal-add-account');
     _editingAccountId = null;
     loadAccountsPage();
   } catch (e) {
     toast(e.message || 'Erro ao salvar', 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = origLabel || 'Adicionar'; }
   }
 }
 

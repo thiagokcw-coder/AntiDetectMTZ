@@ -425,12 +425,25 @@ async def launch_profile(profile_id: str, body: LaunchRequest):
     p = get_profile(profile_id)
     if not p:
         raise HTTPException(404, "Perfil não encontrado")
+    # O launch DESTRAVA o perfil (fecha o anterior + mata processo órfão preso nele).
+    # Se o Spider está extraindo com ESTE perfil, destravar mataria a extração —
+    # então avisamos em vez de matar a run por acidente.
+    busy = [j for j in _spider_jobs.values()
+            if j.get("status") in ("running", "needs_code")
+            and profile_id in (j.get("profile_ids") or [])]
+    if busy:
+        raise HTTPException(409,
+                            "O Spider está extraindo com este perfil agora. Pare a extração "
+                            "na aba Spider antes de abrir o navegador (abrir agora encerraria "
+                            "a extração em andamento).")
     try:
         # A extensão ig-filler fica desligada por padrão: em alguns renders do IG ela
         # interfere na página. O fluxo automático usa filler interno via page.evaluate.
         auto_load_filler = False
+        # close_others=True: pedido do usuário — abrir um navegador FECHA o anterior
+        # (além de destravar este perfil de processos órfãos / parent.lock).
         result = await sm.launch(p, url=body.url, headless=body.headless, actions=body.actions, mode=body.mode,
-                                 load_ig_filler=auto_load_filler)
+                                 load_ig_filler=auto_load_filler, close_others=True)
         return result
     except RuntimeError as e:
         raise HTTPException(409, str(e))
@@ -1217,6 +1230,68 @@ def accounts_create_profile(account_id: str, body: CreateProfileForAccountReques
     return acc.edit(account_id, {"profile_id": pid})
 
 
+class ImportSessionRequest(BaseModel):
+    cookies: str = ""   # texto colado: JSON do Cookie-Editor, header, ou só o sessionid
+
+
+@app.post("/accounts/{account_id}/import-session")
+async def accounts_import_session(account_id: str, body: ImportSessionRequest):
+    """Importa a SESSÃO do Instagram (cookies, incl. sessionid) no perfil da conta —
+    sem login novo. Uso: conta que só loga no app/celular → exporta os cookies de
+    instagram.com pelo Cookie-Editor (Firefox Android) e cola aqui. Confirma logando
+    de leve (1 requisição GraphQL). NÃO registra o valor do sessionid em log."""
+    import ig_session as igs
+    a = acc.get_account(account_id)
+    if not a:
+        raise HTTPException(404, "Conta não encontrada")
+    p = get_profile(a.get("profile_id")) if a.get("profile_id") else None
+    if not p:
+        raise HTTPException(400, "Esta conta não tem perfil vinculado. Crie um perfil "
+                                 "primeiro (botão '➕ Criar perfil').")
+    cookies = igs.parse_cookies_input(body.cookies)
+    if not any(c.get("name") == "sessionid" for c in cookies):
+        raise HTTPException(400, "Não achei o cookie 'sessionid' no que você colou. "
+                                 "Exporte os cookies de instagram.com pelo Cookie-Editor "
+                                 "(o sessionid é httpOnly — precisa da extensão, não dá "
+                                 "pra copiar do navegador).")
+    imported = await igs.import_cookies(p, cookies)
+    # Confirma o login: usa o proxy do perfil se houver (coerência), senão IP local.
+    probe = {"logged": None}
+    try:
+        probe = await igs.probe_login(p, target="instagram", use_local=not bool(p.get("proxy")))
+    except Exception as e:
+        probe = {"logged": None, "error": str(e)}
+    return {"imported": imported.get("imported"), "logged": probe.get("logged"),
+            "status": probe.get("status"), "error": probe.get("error"),
+            "ds_user_id": (probe.get("cookies") or {}).get("ds_user_id")}
+
+
+class SetAccountProxyRequest(BaseModel):
+    proxy: Optional[str] = None   # "host:porta[:user:pass]" ou URL; vazio = conexão local
+
+
+@app.post("/accounts/{account_id}/set-proxy")
+def accounts_set_proxy(account_id: str, body: SetAccountProxyRequest = SetAccountProxyRequest()):
+    """Define/troca o proxy do PERFIL da conta — ex.: apontar pra um proxy MÓVEL 4G/LTE
+    (IP de operadora = trust alto, conta dura mais). Vazio = conexão local (sem proxy).
+    O Spider usa o proxy do perfil quando 'Proxy por conta' está ligado. Re-snapshota o
+    proxy na conta (exibição/métricas) reusando acc.edit(profile_id)."""
+    import json as _json
+    a = acc.get_account(account_id)
+    if not a:
+        raise HTTPException(404, "Conta não encontrada")
+    pid = a.get("profile_id")
+    if not (pid and get_profile(pid)):
+        raise HTTPException(400, "Esta conta não tem perfil vinculado. Crie um perfil primeiro.")
+    proxy_dict = None
+    if body.proxy and body.proxy.strip():
+        proxy_dict = pool.parse_proxy_line(body.proxy.strip())
+        if proxy_dict is None:
+            raise HTTPException(400, "Proxy inválido (use host:porta:usuário:senha ou URL http/socks5).")
+    db.update_profile(pid, proxy=(_json.dumps(proxy_dict) if proxy_dict else None))
+    return acc.edit(account_id, {"profile_id": pid})   # re-snapshota o proxy novo na conta
+
+
 @app.get("/accounts/export")
 def accounts_export():
     """Exporta todas as contas em CSV. Salva SEMPRE no disco (data/) e devolve o
@@ -1385,10 +1460,15 @@ def _launch_spider_job(*, method, account, profile, label, kind, target, limit, 
     job_id = job_id or uuid.uuid4().hex[:12]
     started_at = started_at or time.strftime("%Y-%m-%d %H:%M:%S")
     seed_rows = seed_rows or []
+    # Perfis que ESTE job está usando — para o "Abrir navegador" saber que não pode
+    # destravar/matar o processo deste perfil sem encerrar a extração.
+    _pids_used = [p.get("id") for p in (profiles or []) if p.get("id")] \
+        or ([profile_id] if profile_id else [])
     job = {"id": job_id, "status": "running", "kind": kind, "target": target,
            "count": len(seed_rows), "rows": list(seed_rows), "error": None, "stop": False,
            "profile": label, "method": method, "detail": "", "code": None,
            "code_method": None, "log": [], "started_at": started_at,
+           "profile_ids": _pids_used,
            "cursor": start_cursor}   # preserva o cursor ao CONTINUAR (senão o save inicial o zerava)
     _spider_jobs[job_id] = job
 
@@ -1733,6 +1813,7 @@ class SpiderResumeRequest(BaseModel):
     delay_ms: Optional[int] = None   # velocidade ATUAL do seletor; sobrepõe a salva na run
     profile_ids: Optional[list] = None  # web: CONTINUAR com OUTRA(s) conta(s) (handoff p/ conta fresca)
     use_local: Optional[bool] = None    # idem: modo de IP ATUAL ao trocar de conta
+    account_id: Optional[str] = None    # app (instagrapi): CONTINUAR com OUTRA conta
 
 
 @app.post("/spider/resume/{run_id}")
@@ -1752,9 +1833,13 @@ async def spider_resume(run_id: str, body: SpiderResumeRequest = SpiderResumeReq
     a = p = None
     profile_id = run.get("profile_id")
     if method == "app":
-        a = db.get_account(run.get("account_id")) if run.get("account_id") else None
+        # Override de conta: continua com a conta marcada (body.account_id); senão a da run.
+        aid = body.account_id or run.get("account_id")
+        a = db.get_account(aid) if aid else None
         if not a:
-            raise HTTPException(404, "Conta original não existe mais — não dá para continuar.")
+            raise HTTPException(404, "Conta não encontrada — marque a conta com que quer continuar.")
+        if not (a.get("username") and a.get("password")):
+            raise HTTPException(400, "A conta precisa de usuário e senha cadastrados (modo app/instagrapi).")
         label = a.get("username")
         pool = None
     else:
@@ -1783,7 +1868,7 @@ async def spider_resume(run_id: str, body: SpiderResumeRequest = SpiderResumeReq
         target=run.get("target"), limit=int(run.get("limit_n") or 0),
         use_local=(body.use_local if body.use_local is not None else bool(run.get("use_local"))),
         delay_ms=(body.delay_ms if body.delay_ms else int(run.get("delay_ms") or 2500)),
-        profile_id=profile_id, account_id=run.get("account_id"),
+        profile_id=profile_id, account_id=(a.get("id") if a else run.get("account_id")),
         profiles=(pool if method != "app" and pool and len(pool) > 1 else None),
         seed_rows=seed_rows, start_cursor=run.get("cursor"),
         job_id=run_id, started_at=run.get("started_at"))   # MESMO id → soma no mesmo CSV
@@ -2096,6 +2181,103 @@ def _spider_load_rows(target: str, kind: str) -> list:
     except Exception:
         logger.exception("falha ao ler CSV de disco p/ resume")
         return []
+
+
+def _run_outcome(r: dict) -> str:
+    """Desfecho DERIVADO de um run (mesma regra do histórico da UI). Sem cursor (ou
+    status 'done') = chegou ao FIM = completou. Falhou = bloqueio/erro OU parou no
+    meio (cursor salvo) sem ter sido o usuário."""
+    blocked = bool(r.get("blocked"))
+    by_user = bool(r.get("stopped_by_user"))
+    status = r.get("status")
+    cursor = r.get("cursor")
+    running = status in ("running", "needs_code")
+    done = status == "done" or (not cursor and not blocked and status != "error" and not running)
+    failed = blocked or status == "error" or (not by_user and not running and not done and bool(cursor))
+    if running:
+        return "rodando"
+    if failed:
+        return "falhou"
+    if done:
+        return "completou"
+    if by_user:
+        return "voce_parou"
+    return status or "?"
+
+
+def _run_account(r: dict) -> dict:
+    """Conta de um run: por account_id (app) ou via perfil (web). Devolve o dict da
+    conta (ou {} com o nome do perfil como fallback)."""
+    aid = r.get("account_id")
+    if aid:
+        a = acc.get_account(aid)
+        if a:
+            return a
+    pid = r.get("profile_id")
+    if pid:
+        a = db.get_account_by_profile(pid)
+        if a:
+            return a
+    return {"username": r.get("profile") or ""}
+
+
+def _duration_min(started: str, finished: str):
+    if not started or not finished:
+        return ""
+    try:
+        from datetime import datetime
+        fmt = "%Y-%m-%d %H:%M:%S"
+        d = (datetime.strptime(finished, fmt) - datetime.strptime(started, fmt)).total_seconds()
+        return round(d / 60.0, 1) if d >= 0 else ""
+    except Exception:
+        return ""
+
+
+@app.get("/spider/log-export")
+def spider_log_export():
+    """Exporta o LOG por extração (uma linha por run, com desfecho, req/h, conta, %,
+    duração) — a base determinística p/ analisar CADA extração e ban caso a caso (por
+    você ou por uma IA). Substitui a agregação cega das Métricas antigas. Salva em
+    data/_analise/spider_log.csv e devolve o CSV."""
+    from fastapi.responses import Response
+    runs = db.spider_runs_export()
+    buf = _io.StringIO()
+    w = _csv.writer(buf)
+    w.writerow(["quando", "conta", "conta_criada_em", "conta_suspensoes", "perfil",
+                "metodo", "conexao", "alvo", "tipo", "req_h", "extraidos", "total",
+                "pct", "desfecho", "bloqueio", "voce_parou", "fim", "duracao_min",
+                "tem_cursor", "erro"])
+    for r in runs:
+        delay = r.get("delay_ms") or 0
+        req_h = round(3600000 / delay) if delay else ""
+        total = r.get("total")
+        cnt = r.get("count") or 0
+        pct = (round(100 * cnt / total) if (total and total > 0) else "")
+        a = _run_account(r)
+        w.writerow([
+            r.get("started_at") or "", a.get("username") or "",
+            (a.get("created_at") or "")[:10], a.get("suspension_count") or 0,
+            r.get("profile") or "", r.get("method") or "",
+            ("local" if r.get("use_local") else "proxy"),
+            (r.get("target") or "").lstrip("@"), r.get("kind") or "", req_h, cnt,
+            (total if total is not None else ""), pct, _run_outcome(r),
+            (1 if r.get("blocked") else 0), (1 if r.get("stopped_by_user") else 0),
+            r.get("finished_at") or "", _duration_min(r.get("started_at"), r.get("finished_at")),
+            (1 if r.get("cursor") else 0), (r.get("error") or "")[:200],
+        ])
+    content = buf.getvalue()
+    saved = ""
+    try:
+        folder = SPIDER_DATA_DIR / "_analise"
+        folder.mkdir(parents=True, exist_ok=True)
+        path = folder / "spider_log.csv"
+        path.write_text(content, encoding="utf-8-sig", newline="")
+        saved = str(path)
+    except Exception:
+        pass
+    return Response(content=content, media_type="text/csv",
+                    headers={"Content-Disposition": "attachment; filename=spider_log.csv",
+                             "X-Saved-Path": saved})
 
 
 @app.get("/spider/jobs/{job_id}/csv")

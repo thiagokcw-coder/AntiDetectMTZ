@@ -833,6 +833,18 @@ def spider_runs_stats() -> list:
     return [dict(r) for r in rows]
 
 
+def spider_runs_export() -> list:
+    """Todos os runs com o contexto analítico (SEM rows_json), cronológico — base p/
+    o log de eventos por extração/conta (análise caso a caso, incl. por uma IA)."""
+    with get_conn() as conn:
+        rows = _ex(conn,
+            "SELECT id, method, profile, profile_id, account_id, use_local, delay_ms, "
+            "limit_n, target, kind, count, total, status, error, cursor, blocked, "
+            "stopped_by_user, started_at, finished_at FROM spider_runs "
+            "ORDER BY started_at ASC").fetchall()
+    return [dict(r) for r in rows]
+
+
 def get_spider_run(run_id: str) -> dict:
     with get_conn() as conn:
         row = _ex(conn, "SELECT * FROM spider_runs WHERE id = ?", (run_id,)).fetchone()
