@@ -528,20 +528,58 @@ async def _unfollow_one(page, user_id, username) -> dict:
             "payload": j or fj}
 
 
-async def _session_ok(page, user_id) -> dict:
-    """Sessão viva? UMA requisição GraphQL de seguidores (first:1) — o mesmo teste do
-    ig_session.probe_login: só responde 200 autenticado, 401 quando a sessão caiu.
-    Não segue ninguém, não pagina. Serve para NÃO queimar itens da fila descobrindo
-    na marra que o perfil está deslogado."""
+# Estado de login lido da PRÓPRIA PÁGINA — zero requisição HTTP e nenhuma rota para
+# adivinhar. Duas evidências que o Instagram publica sobre si mesmo:
+#   1) a classe do <html>: a shell logada NÃO tem `not-logged-in` (a deslogada tem);
+#   2) o cookie `ds_user_id`, escrito no login e legível pelo JS (não é httpOnly).
+# Só NOMES/ids de cookie são lidos — o valor do sessionid nunca é exposto (e ele é
+# httpOnly, invisível aqui de qualquer forma).
+_CTX_JS = r"""
+() => {
+  const nomes = document.cookie.split(';')
+      .map(s => s.split('=')[0].trim()).filter(Boolean);
+  const m = document.cookie.match(/(?:^|;\s*)ds_user_id=([^;]+)/);
+  const cls = String(document.documentElement.className || '');
+  return {
+    href: location.href,
+    origem: location.origin,
+    classe_html: cls.slice(0, 120),
+    marcado_deslogado: /not-logged-in/.test(cls),
+    csrftoken: nomes.includes('csrftoken'),
+    ds_user_id: m ? m[1] : null,
+    cookies: nomes.length,
+  };
+}
+"""
+
+
+async def _session_ok(page, user_id=None) -> dict:
+    """O perfil está logado? Lê o estado da PÁGINA, sem gastar requisição.
+
+    Antes isto usava o GraphQL `query_hash` de seguidores (first:1). Esse é o GraphQL
+    PÚBLICO legado e responde para perfil público mesmo DESLOGADO — então dava
+    "✓ sessão confirmada" num perfil sem sessão: **falso positivo** que sustentou por
+    dias o diagnóstico errado de "a leitura funciona, só a escrita dá 404".
+
+    Deliberadamente NÃO usa um endpoint de identidade (ex.: `/api/v1/accounts/
+    current_user/`): não há certeza de que essa rota exista no `www`, e um 404 de rota
+    inexistente seria indistinguível de deslogado — o mesmo erro, de novo. A classe do
+    <html> e o cookie `ds_user_id` são afirmações do próprio Instagram e custam zero.
+
+    Retorna {ok, quem, ctx, motivo} — `quem` é o ds_user_id (pk) da conta logada."""
     try:
-        res = await spider._graphql(page, spider._GQL["followers"],
-                                    {"id": str(user_id), "first": 1}, f"{IG}/")
-        st = res.get("status")
-        tem_dados = bool((((res.get("json") or {}).get("data") or {})
-                          .get("user") or {}).get("edge_followed_by"))
-        return {"ok": bool(res.get("ok")) and tem_dados, "status": st}
+        ctx = await page.evaluate(_CTX_JS) or {}
     except Exception as e:
-        return {"ok": False, "status": -1, "error": str(e)}
+        return {"ok": False, "status": -1, "error": str(e), "quem": None,
+                "ctx": {}, "motivo": None}
+    quem = ctx.get("ds_user_id")
+    if ctx.get("marcado_deslogado"):
+        return {"ok": False, "status": 200, "quem": quem, "ctx": ctx,
+                "motivo": "a página do Instagram se declara deslogada (not-logged-in)"}
+    if not quem:
+        return {"ok": False, "status": 200, "quem": None, "ctx": ctx,
+                "motivo": "não há cookie ds_user_id (nenhuma conta nesta sessão)"}
+    return {"ok": True, "status": 200, "quem": quem, "ctx": ctx, "motivo": None}
 
 
 async def _friendship_show(page, user_id) -> dict:
@@ -1112,25 +1150,37 @@ async def run(profile: dict, queue: list, settings: dict, filters: dict, *,
         # ── sonda de sessão (1 requisição, antes de agir) ──
         # Sem isto, perfil deslogado só era descoberto queimando itens da fila.
         if not dry:
-            primeiro = next((a for a in queue if a.get("status") == "pending"), None)
-            if primeiro and primeiro.get("id"):
-                sonda = await _session_ok(page, primeiro["id"])
-                # Só aborta em falha CLARA de autenticação. Um piscar de rede (-1/5xx)
-                # ou rate limit não pode derrubar a execução inteira — para isso já
-                # existe o tratamento de erro do laço.
-                if not sonda["ok"] and sonda.get("status") in (401, 403):
-                    meta["error"] = (f"a sessão deste perfil não está autenticada "
-                                     f"(status {sonda['status']}) — abra o perfil e confirme "
-                                     f"que o Instagram está logado antes de disparar.")
-                    meta["aborted"] = True
-                    meta["blocked"] = True
-                    if log:
-                        log(f"✖ {meta['error']}")
-                        log("   (nenhum item da fila foi tocado)")
-                    return
+            sonda = await _session_ok(page)
+            ctx = sonda.get("ctx") or {}
+            # Aborta em falha CLARA de autenticação: 401/403, OU 200/404 sem identidade
+            # (deslogado), OU sem o cookie ds_user_id — que é o que marca "há uma conta
+            # nesta sessão". Um piscar de rede (-1/5xx) segue sendo inconclusivo e NÃO
+            # derruba a execução; para isso já existe o tratamento de erro do laço.
+            # Aborta só com evidência DEFINITIVA de deslogado (o Instagram se declarando
+            # deslogado, ou ausência do cookie da conta). Se a leitura do contexto falhar
+            # (status -1), fica inconclusivo e NÃO derruba a execução — o tratamento de
+            # erro do laço cobre o resto.
+            if not sonda["ok"] and sonda.get("motivo"):
+                meta["error"] = (f"este perfil NÃO está logado no Instagram "
+                                 f"({sonda['motivo']}) — o 404 no follow é consequência "
+                                 f"disso, não bloqueio de ação da conta. Abra o perfil e "
+                                 f"faça login, ou importe a sessão em Contas → Detalhes.")
+                meta["aborted"] = True
+                meta["blocked"] = True
                 if log:
-                    log("✓ sessão do perfil confirmada" if sonda["ok"] else
-                        f"⚠ sonda de sessão inconclusiva (status {sonda.get('status')}) — "
+                    log(f"✖ {meta['error']}")
+                    log(f"   ↳ contexto: origem={ctx.get('origem')} · "
+                        f"csrftoken={'sim' if ctx.get('csrftoken') else 'NÃO'} · "
+                        f"ds_user_id={ctx.get('ds_user_id') or 'AUSENTE'} · "
+                        f"{ctx.get('cookies')} cookie(s) visíveis ao JS · "
+                        f"classe do html={ctx.get('classe_html')!r}")
+                    log("   (nenhum item da fila foi tocado)")
+                return
+            if log:
+                if sonda["ok"]:
+                    log(f"✓ perfil logado (ds_user_id {sonda.get('quem')})")
+                else:
+                    log(f"⚠ sonda de sessão inconclusiva (status {sonda.get('status')}) — "
                         f"seguindo mesmo assim")
 
         consecutive = 0
@@ -1241,8 +1291,20 @@ async def run(profile: dict, queue: list, settings: dict, filters: dict, *,
                 acct["id_resolvido"] = True
                 try:
                     pk, _info = await spider._resolve_user(page, acct["username"], log=None)
-                except Exception:
-                    pk = None
+                except Exception as e:
+                    pk, erro_pk = None, str(e)
+                else:
+                    erro_pk = None
+                # Sem esta linha o log ficava MUDO quando o resolve falhava (foi o que
+                # aconteceu em 2026-08-18: nenhuma das duas linhas de id apareceu, e a
+                # ausência era a pista — resolver perfil também estava falhando, ou seja
+                # o problema não era só a escrita).
+                if not pk and log:
+                    log(f"   ↳ não consegui resolver o pk de @{acct['username']}"
+                        + (f" ({erro_pk})" if erro_pk else
+                           " (web_profile_info + topsearch + página todos falharam)")
+                        + " — isso indica que a LEITURA de perfil também não funciona"
+                          " nesta sessão, não só a escrita")
                 if pk and str(pk) != str(acct.get("id")):
                     if log:
                         log(f"   ↳ id da fila {acct.get('id')} ≠ id resolvido {pk} — "

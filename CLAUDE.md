@@ -9,35 +9,32 @@
 devolve **404 em tudo**.
 
 **Estado do diagnóstico do 404 (a coisa mais importante em aberto):**
-1. `✓ sessão do perfil confirmada` — a sonda autenticada passa, então **leitura funciona**.
-2. **A conta segue normalmente na MÃO** (usuário testou clicando no Instagram) → **não é
-   bloqueio de ação da conta**.
-3. Cookie jar do perfil **saudável** (medido no `cookies.sqlite` real: `sessionid`,
-   `csrftoken` com `httpOnly=False`, `ds_user_id`) → **não é dado corrompido**; limpar
-   dados NÃO é recomendado (implicaria login novo, que é o evento de risco).
-4. Corpos das respostas: `v1 404: (vazio)` e `/web/ 404: <html class="not-logged-in">`
-   (este último é só a shell estática de rota desconhecida, **não** prova deslogado).
-5. **Hipótese viva:** o **ID** da fila. O `_follow_one` usa o id vindo do `node.id` do
-   GraphQL da coleta; o caminho que comprovadamente funciona (auto-follow do `spider.py`,
-   validado ao vivo em 2026-06-21) usa o **pk do `web_profile_info`**. Já implementado:
-   em 404 o motor **resolve o pk real e tenta de novo**, logando
-   `id da fila X ≠ id resolvido Y` ou `id resolvido é o MESMO`.
+1. **Suspeito nº1 AGORA: o perfil está DESLOGADO.** A sonda que dizia
+   "✓ sessão confirmada" era **falso positivo** (usava o GraphQL PÚBLICO legado, que
+   responde sem sessão válida). Isso explica o conjunto todo de uma vez: coleta de 1000
+   funcionou (mesmo GraphQL público) · escrita 404 em tudo · `_resolve_user` falhou nos 3
+   caminhos · o corpo do `/web/` diz literalmente `class="no-js not-logged-in"` · as 3
+   contas caíram juntas. Ver a seção "🚨 404 do follow: o body NÃO era".
+2. **Descartado — não é conta específica:** o ródízio testou as 3, todas deram 404.
+3. **Descartado — não é header nem body:** medido campo a campo, o POST do follower agora
+   é idêntico ao do `spider._follow`, que seguiu ao vivo em 2026-06-21.
+4. **Descartado — não é dado corrompido:** cookie jar medido no `cookies.sqlite` real
+   (`sessionid`, `csrftoken` com httpOnly=False, `ds_user_id` presentes). Limpar dados
+   **não** é recomendado (implicaria login novo, que é o evento de risco).
+5. **Em aberto — o id da fila:** instrumentação pronta (em 404 resolve o pk e re-tenta),
+   mas na última run ela ficou MUDA porque o resolve falhou. Já corrigido para logar isso.
+6. **⚠ Tensão honesta:** o usuário **seguiu na mão** num perfil aberto, e o registro de
+   2026-07-26 mediu 401 nesse GraphQL num perfil vazio. Nenhuma das duas mata a hipótese
+   (podem ser outra conta / "sem cookie" ≠ "sessão morta"), mas nenhuma foi resolvida.
 
-6. **Confound ELIMINADO (2026-08-18):** o `_follow_one` mandava `container_module=profile`
-   no body do POST v1, enquanto a chamada comprovada ao vivo (`spider._follow`) manda body
-   **vazio**. Era a **única** diferença restante entre os dois (headers, URL e referer já
-   eram idênticos — medido). O `container_module` veio da extensão, cuja camada de follow
-   **nunca rodou contra a API real** (HANDOFF §11). Agora o POST do follower é
-   byte-idêntico ao do spider, travado por teste de paridade.
-
-**→ PRÓXIMO PASSO CONCRETO:** rodar o InstaFollow com simulação DESLIGADA num lote
-pequeno e ler o terminal. Três desfechos, todos já instrumentados:
-- **Seguiu normalmente** → era o `container_module` no body. Fechado.
-- **`id da fila X ≠ id resolvido Y`** → o conserto definitivo é na COLETA (guardar o campo
-  certo do GraphQL, para não pagar 1 requisição extra por conta).
-- **`id resolvido é o MESMO`** → id e requisição estão certos; sobra comparar com o que a
-  interface manda (DevTools no perfil aberto, que já se sabe que consegue seguir). Candidato
-  não testado dessa via: o header `x-ig-www-claim`, que a UI web envia e nós não.
+**→ PRÓXIMO PASSO CONCRETO:** rodar o InstaFollow de novo (simulação DESLIGADA, lote
+pequeno). A sonda nova custa **zero requisição** e decide na primeira linha do terminal:
+- **`✗ este perfil NÃO está logado`** → causa achada. Conserto: abrir o perfil e logar, ou
+  importar a sessão em **Contas → Detalhes → Cookie da sessão**. Aborta sem tocar a fila.
+- **`✓ perfil logado (ds_user_id N)`** e o follow ainda 404 → a hipótese "deslogado" morre;
+  sobra rota/permissão de escrita. Próximo candidato: header `x-ig-www-claim` (a UI web
+  envia, nós não). Se aparecer `↓ não consegui resolver o pk de @X`, a leitura de perfil
+  também está quebrada — o que reabre "sessão" mesmo com a sonda passando.
 
 **Pendente, planejado e NÃO implementado (usuário pediu para esperar):** disparos de
 WhatsApp — ver a seção "DISPAROS WHATSAPP" abaixo. Decisões já travadas: **Evolution API
@@ -410,6 +407,63 @@ Sintoma: app abria, menu e cards renderizavam, mas **tudo** ficava em "Carregand
 - **Furo do meu próprio patch, corrigido:** a primeira versão colocou a re-tentativa DENTRO do bloco de tratamento de erro — quando ela dava certo, o código seguia marcando a conta como falha. Reestruturado: a re-tentativa acontece **antes** do bloco de erro, então sucesso simplesmente não entra nele.
 - Validado: **8 asserções** (id errado + resolve devolve o certo → **segue as 4, zero falhas, e o id corrigido fica salvo na fila**; resolve devolve o mesmo id → segue o fluxo de 404 e devolve a fila; `_resolve_user` explodindo não quebra o motor; resolve só uma vez por conta) + regressão dos **9 arquivos** do motor (9+11+8+8+11+13+12+16+74).
 - **Se o log da próxima execução mostrar "id resolvido é o MESMO"**, o id está certo e sobra investigar o corpo/headers do POST (comparar com o que a interface manda, via DevTools no perfil aberto). Se mostrar ids diferentes, a coleta é que está guardando o campo errado do GraphQL — e aí o fix definitivo é na coleta, não no follow.
+
+## 🚨 404 do follow: o body NÃO era — e a sonda de sessão era FALSO POSITIVO (2026-08-18)
+Teste ao vivo do usuário com o body já alinhado: **9 falhas, 0 seguidas, todas as 3 contas
+deram 404**. Então o `container_module` no body **não era a causa** (o alinhamento fica: ele
+remove um confound real e o POST agora é o comprovado). O log fechou duas coisas:
+- **Descartado "é uma conta específica":** o ródízio testou as 3 e todas deram 404 → o motor
+  concluiu sozinho "não é a conta: é a rota/permissão de escrita". Fila 100% intacta.
+- **A pista estava no que NÃO apareceu:** nenhuma das duas linhas do diagnóstico de id
+  (`id da fila X ≠ id resolvido Y` / `id resolvido é o MESMO`) foi impressa. Elas só saem
+  quando `pk` é verdadeiro — ou seja, **`spider._resolve_user` devolveu None**: os TRÊS
+  caminhos (web_profile_info + topsearch + regex da página) falharam em achar o pk. Isso
+  significa que **a LEITURA de perfil também não funciona** nesta sessão — derrubando a
+  premissa "a leitura funciona, só a escrita dá 404" que guiou o diagnóstico por dias.
+  **Furo meu, corrigido:** o `else` mudo virou log explícito ("não consegui resolver o pk
+  de @X — isso indica que a leitura de perfil também não funciona nesta sessão").
+
+**A SONDA DE SESSÃO ERA FALSO POSITIVO — causa provável de tudo.** O `_session_ok` usava o
+GraphQL `query_hash` de seguidores (`first:1`), que é o **GraphQL PÚBLICO legado**. Ele
+responde para perfil público mesmo com sessão inválida → o "✓ sessão do perfil confirmada"
+não provava nada. E isso explica o conjunto INTEIRO de uma vez: a **coleta de 1000 contas
+funcionou** (mesmo GraphQL público), a **escrita 404 em tudo**, o `_resolve_user` falhando,
+o corpo do `/web/` dizendo literalmente `class="no-js not-logged-in"` (que eu havia
+descartado como "shell estática" — era o dado mais direto do conjunto) e as 3 contas caindo
+juntas. Um perfil **deslogado** produz exatamente esse padrão.
+
+**Sonda nova: ZERO requisição, sem rota adivinhada.** Lê o estado da própria página (o
+`page.goto(IG)` já acontece): (1) a **classe do `<html>`** — a shell logada não tem
+`not-logged-in`; (2) o cookie **`ds_user_id`**, escrito no login e legível pelo JS (não é
+httpOnly). São afirmações do próprio Instagram e custam nada. Loga
+`✓ perfil logado (ds_user_id N)` ou aborta **sem tocar a fila** com o motivo + contexto
+(origem, csrftoken, ds_user_id, nº de cookies, classe do html).
+**Cheguei a implementar `/api/v1/accounts/current_user/` e RECUEI:** é rota da API mobile,
+sem certeza de existir no `www` — um 404 de rota inexistente seria indistinguível de
+deslogado, repetindo exatamente o erro que custou dias. Fail-safe mantido: falha ao LER o
+contexto (status -1) é inconclusiva e **não** derruba a execução.
+
+**⚠ TENSÃO HONESTA (não resolvida) — duas evidências contra o "deslogado":**
+1. O registro de 2026-07-26 mediu `probe_login` (o MESMO GraphQL) devolvendo **401** num
+   perfil novo e vazio. Ou seja o endpoint **exige** auth quando não há cookie NENHUM. A
+   ressalva que mantém a hipótese viva: "sem cookie" ≠ "cookie presente mas sessão morta" —
+   o IG pode responder 401 no primeiro caso e 200-com-dado-público no segundo.
+2. O usuário **seguiu na mão** num perfil aberto. Se estivesse deslogado, isso seria
+   impossível — mas pode ter sido **outra conta/perfil** (a run é da `cap.martim2026`), ou a
+   sessão pode ter morrido depois.
+Por isso a sonda nova é o instrumento certo: ela **não depende** de interpretar a semântica
+de auth de nenhum endpoint. **→ PRÓXIMO PASSO:** rodar de novo. Se logar
+`✗ este perfil NÃO está logado` → causa achada, conserto é relogar/importar sessão
+(Contas → Detalhes → Cookie da sessão). Se logar `✓ perfil logado (ds_user_id N)` e o
+follow AINDA der 404 → a hipótese "deslogado" morre e sobra a rota/permissão de escrita,
+com o próximo candidato sendo o header `x-ig-www-claim` (a UI web envia, nós não).
+
+**Validado:** py_compile + **16 asserções** da sonda nova (logado · `not-logged-in` REPROVA ·
+sem `ds_user_id` reprova · classe vence cookie residual · erro de leitura é inconclusivo e
+não aborta · **uma única avaliação de página, zero requisição** · integração: `run()` aborta
+com fila 100% intacta e sem tentar seguir) + **regressão dos 22 arquivos = 328 asserções**.
+Um dublé de teste (`test_404_rota`) foi migrado p/ o contrato novo (a sonda deixou de usar
+`_graphql`); os outros caíram sozinhos no fail-safe, o que confirma que ele funciona.
 
 ## 🧪 404 do follow: o body era a ÚNICA diferença com a chamada que FUNCIONA (2026-08-18)
 Comparação linha a linha entre o POST que **dá 404** (`follower._follow_one`) e o que
