@@ -32,6 +32,8 @@ import proxies as pool
 import warm_pool
 import spider
 import spider_app
+import follower
+import modem
 import backup_data as bdata
 import time
 
@@ -90,7 +92,13 @@ def lock_info(profile_id: str) -> dict:
 
 @app.get("/")
 def index():
-    return FileResponse(STATIC_DIR / "index.html")
+    """A UI inteira vive neste arquivo. Servido SEM CACHE de propósito: o webview
+    guardava a versão antiga e, depois de uma atualização, a tela continuava rodando
+    o JS velho — sintoma real (2026-08-16): o campo de alvos não salvava porque a
+    página em cache era anterior ao auto-save. Reabrir o app tem que trazer a UI atual."""
+    return FileResponse(STATIC_DIR / "index.html",
+                        headers={"Cache-Control": "no-store, no-cache, must-revalidate",
+                                 "Pragma": "no-cache", "Expires": "0"})
 
 
 @app.get("/health")
@@ -118,6 +126,14 @@ def on_startup():
             print(f"DEBUG: {n} extração(ões) do Spider órfã(s) marcada(s) como 'stopped'")
     except Exception:
         logger.exception("Falha ao recuperar runs órfãs do Spider")
+    try:
+        # Seguir: idem — execuções presas em 'running' viram 'stopped' (a fila está
+        # salva em queue_json, então dá para retomar de onde parou).
+        n = db.recover_orphan_follow_runs()
+        if n:
+            print(f"DEBUG: {n} execução(ões) de follow órfã(s) marcada(s) como 'stopped'")
+    except Exception:
+        logger.exception("Falha ao recuperar runs órfãs de Seguir")
 
 
 @app.on_event("startup")
@@ -436,6 +452,23 @@ async def launch_profile(profile_id: str, body: LaunchRequest):
                             "O Spider está extraindo com este perfil agora. Pare a extração "
                             "na aba Spider antes de abrir o navegador (abrir agora encerraria "
                             "a extração em andamento).")
+    # Mesma proteção para o InstaFollow: ele roda um Camoufox HEADLESS neste perfil,
+    # e o launch (close_others + kill de processos presos no user_data_dir) mataria
+    # a execução no meio. Faltava esta guarda — abrir um perfil derrubava o follow.
+    busy_fw = [j for j in _follow_jobs.values()
+               if j.get("status") in ("running", "harvesting")
+               and profile_id in (j.get("profile_ids") or [])]
+    if busy_fw:
+        raise HTTPException(409,
+                            "O InstaFollow está usando este perfil agora (seguir/coletar). "
+                            "Pare a operação na aba InstaFollow antes de abrir o navegador — "
+                            "abrir agora encerraria a execução em andamento.")
+    # IP novo ANTES de abrir: medido (2026-08-16) que o pool da operadora NÃO se
+    # renova sozinho — 3 min de amostragem devolveram exatamente os mesmos 4 IPs.
+    # Sem isto, abrir o perfil A e depois o B faria os dois saírem pelos MESMOS
+    # IPs (o sinal clássico de "várias contas no mesmo IP"). Como o launch já fecha
+    # o navegador anterior, os perfis são sequenciais e cada um ganha sua época.
+    rot = await _rotate_ip_for(p)
     try:
         # A extensão ig-filler fica desligada por padrão: em alguns renders do IG ela
         # interfere na página. O fluxo automático usa filler interno via page.evaluate.
@@ -444,6 +477,9 @@ async def launch_profile(profile_id: str, body: LaunchRequest):
         # (além de destravar este perfil de processos órfãos / parent.lock).
         result = await sm.launch(p, url=body.url, headless=body.headless, actions=body.actions, mode=body.mode,
                                  load_ig_filler=auto_load_filler, close_others=True)
+        if isinstance(result, dict) and not rot.get("skipped"):
+            result["ip_rotation"] = {"ok": rot.get("ok"), "mudou": rot.get("mudou"),
+                                     "ips": rot.get("ips_depois"), "segundos": rot.get("segundos")}
         return result
     except RuntimeError as e:
         raise HTTPException(409, str(e))
@@ -619,6 +655,11 @@ class BulkLaunchRequest(BaseModel):
 
 @app.post("/sessions/bulk-launch")
 async def bulk_launch(body: BulkLaunchRequest):
+    """DORMENTE (2026-08-16): o "Abrir Todos" foi removido da UI a pedido do usuário
+    e nenhuma tela chama mais este endpoint. Mantido só para não quebrar chamadas
+    externas/antigas. NÃO rotaciona o IP de propósito — perfis abertos ao mesmo tempo
+    saem pela MESMA época do modem, então rotacionar por perfil só somaria queda sem
+    separar nada (a rotação só faz sentido com perfis sequenciais)."""
     results = []
     tasks = []
     for pid in body.profile_ids:
@@ -1261,9 +1302,29 @@ async def accounts_import_session(account_id: str, body: ImportSessionRequest):
         probe = await igs.probe_login(p, target="instagram", use_local=not bool(p.get("proxy")))
     except Exception as e:
         probe = {"logged": None, "error": str(e)}
-    return {"imported": imported.get("imported"), "logged": probe.get("logged"),
+
+    # PERSISTE o resultado — sem isto o usuário recarregava a tela e não sabia se a
+    # importação tinha funcionado. Sessão confirmada = a conta está logada no perfil,
+    # que é exatamente o que o status 'active' significa aqui.
+    quando = time.strftime("%Y-%m-%d %H:%M:%S")
+    n = imported.get("imported")
+    try:
+        if probe.get("logged"):
+            acc.set_status(account_id, "active",
+                           f"sessão importada e confirmada em {quando} ({n} cookies)")
+        else:
+            # Não sobrescreve o status (pode ser suspensa etc.), só registra a tentativa.
+            db.update_account(account_id,
+                              last_checked_at=quando,
+                              last_check_result=f"sessão importada ({n} cookies), mas NÃO "
+                                                f"confirmou login (status {probe.get('status')})")
+    except Exception:
+        logger.exception("falha ao registrar a importação de sessão")
+
+    return {"imported": n, "logged": probe.get("logged"),
             "status": probe.get("status"), "error": probe.get("error"),
-            "ds_user_id": (probe.get("cookies") or {}).get("ds_user_id")}
+            "ds_user_id": (probe.get("cookies") or {}).get("ds_user_id"),
+            "registrado_em": quando}
 
 
 class SetAccountProxyRequest(BaseModel):
@@ -1434,6 +1495,30 @@ def spider_insights():
     return {"by_speed": by_speed,
             "recommended_delay_ms": _spider_recommended_delay(by_speed),
             "total_runs": sum(t["runs"] for t in tiers.values())}
+
+
+async def _rotate_ip_for(profile, log=None, use_local=None) -> dict:
+    """Rotaciona o IP do modem 4G antes de uma conta começar a trabalhar, para que
+    cada conta atue numa ÉPOCA de saída própria (o modem não tem IP fixo: a
+    operadora faz CGNAT e responde de vários IPs; o que a rotação garante é que o
+    CONJUNTO seja renovado).
+
+    Só faz sentido quando a conta sai PELO MODEM: se o perfil usa proxy próprio, o
+    IP dele não vem daqui e rotacionar só causaria queda à toa. No-op silencioso
+    quando a rotação está desligada nos ajustes."""
+    try:
+        if not modem.config()["enabled"]:
+            return {"skipped": True}
+        via_modem = bool(use_local) or not (profile or {}).get("proxy")
+        if not via_modem:
+            if log:
+                log("↷ rotação de IP pulada: este perfil sai pelo proxy dele, não pelo modem")
+            return {"skipped": True, "reason": "perfil com proxy próprio"}
+        return await modem.rotate(log=log)
+    except Exception as e:
+        if log:
+            log(f"⚠ rotação de IP falhou ({str(e)[:80]}) — seguindo com o IP atual")
+        return {"ok": False, "error": str(e)}
 
 
 def _launch_spider_job(*, method, account, profile, label, kind, target, limit, use_local,
@@ -1637,6 +1722,10 @@ def _launch_spider_job(*, method, account, profile, label, kind, target, limit, 
                 _log("⏹ parado pelo usuário")
                 break
             start_count = len(rows)
+            # Troca de conta = troca de IP: cada conta assume numa ÉPOCA de saída
+            # própria, pra não compartilhar IP exato com a anterior. No-op se a
+            # rotação estiver desligada nos ajustes.
+            await _rotate_ip_for(prof, _log, use_local)
             _log(f"▶ conta '{prof.get('name')}' assumindo (de {start_count} já coletados)")
             r = await spider.extract(
                 prof, kind, target, limit,
@@ -1688,6 +1777,7 @@ def _launch_spider_job(*, method, account, profile, label, kind, target, limit, 
             elif profiles and len(profiles) > 1:
                 res = await _failover()   # handoff seguro: ~1,5M por conta, passa pra próxima
             else:
+                await _rotate_ip_for(profile, _log, use_local)   # IP novo para esta conta
                 res = await spider.extract(
                     profile, kind, target, limit,
                     progress=_progress, should_stop=_should_stop, log=_log,
@@ -2375,6 +2465,783 @@ def auto_recheck_set(body: AutoRecheckRequest):
     if h > 0:                                   # ao ligar, conta a partir de agora
         db.set_setting("auto_recheck_last", str(int(time.time())))
     return {"hours": h}
+
+
+# ─── Seguir: motor de follow rodando DENTRO de um perfil logado ───────────────
+# Porte da extensão InstaFollow. Mesmo transporte do Spider (fetch autenticado no
+# perfil Camoufox), então não há gerência de cookies/sessão aqui: cada perfil já é
+# UMA conta com seu IP. Seguir é bem mais arriscado que ler — daí o modo simulação
+# ligado por padrão e o preset Conservador.
+
+_follow_jobs: dict[str, dict] = {}
+
+
+class FollowHarvestRequest(BaseModel):
+    profile_id: str
+    source_type: str = "followers"        # followers | following | likers
+    target: str = ""                      # compat: um alvo só
+    targets: Optional[list] = None        # VÁRIOS alvos — alterna entre eles
+    per_target: int = 50                  # fatia RASA de cada um (topo da lista)
+    limit: int = 200                      # teto total da coleta
+    use_local: bool = False
+    run_id: Optional[str] = None          # ACUMULA na fila existente (várias fontes)
+
+
+class FollowStartRequest(BaseModel):
+    profile_id: str                       # conta que começa (ou única)
+    profile_ids: Optional[list] = None    # VÁRIAS contas: dividem a mesma fila
+    run_id: Optional[str] = None          # retomar uma execução existente
+    use_local: bool = False
+    settings: Optional[dict] = None
+    filters: Optional[dict] = None
+
+
+class FollowConfigRequest(BaseModel):
+    settings: Optional[dict] = None
+    filters: Optional[dict] = None
+
+
+class FollowBlacklistRequest(BaseModel):
+    username: str = ""
+
+
+class UnfollowStartRequest(BaseModel):
+    profile_id: str
+    use_local: bool = False
+    limit: int = 200                      # quantos desfazer nesta execução
+    settings: Optional[dict] = None
+
+
+def _follow_config() -> dict:
+    """Ajustes + filtros salvos (settings do banco), sobre os defaults do módulo."""
+    try:
+        s = json.loads(db.get_setting("follow_settings", "") or "{}")
+    except Exception:
+        s = {}
+    try:
+        f = json.loads(db.get_setting("follow_filters", "") or "{}")
+    except Exception:
+        f = {}
+    return {"settings": {**follower.DEFAULT_SETTINGS, **s},
+            "filters": {**follower.DEFAULT_FILTERS, **f}}
+
+
+def _follow_account_key(profile: dict) -> str:
+    """Chave do limitador: a CONTA logada no perfil (o teto é por conta, que é o que
+    faz a rotação entre perfis valer a pena). Cai no id do perfil se não houver conta."""
+    try:
+        a = db.get_account_by_profile(profile.get("id")) if profile.get("id") else None
+        if a and a.get("username"):
+            return a["username"].lower()
+    except Exception:
+        pass
+    return f"profile:{profile.get('id')}"
+
+
+def _follow_save(job: dict):
+    try:
+        db.follow_run_upsert({
+            "id": job["id"], "profile": job.get("profile"), "profile_id": job.get("profile_id"),
+            "account_id": job.get("account_id"), "account_key": job.get("account_key"),
+            "use_local": job.get("use_local"), "dry_run": job.get("dry_run"),
+            "source_type": job.get("source_type"), "source_target": job.get("source_target"),
+            "status": job.get("status"), "error": job.get("error"),
+            "followed": job["stats"].get("followed"), "requested": job["stats"].get("requested"),
+            "skipped": job["stats"].get("skipped"), "failed": job["stats"].get("failed"),
+            "simulated": job["stats"].get("simulated"),
+            "mode": job.get("mode", "follow"), "unfollowed": job["stats"].get("unfollowed"),
+            "queue_json": json.dumps(job.get("queue") or []),
+            "settings_json": json.dumps(job.get("settings") or {}),
+            "filters_json": json.dumps(job.get("filters") or {}),
+            "blocked": job.get("blocked"), "stopped_by_user": job.get("stopped_by_user"),
+            "started_at": job.get("started_at"), "finished_at": job.get("finished_at")})
+    except Exception:
+        logger.exception("falha ao salvar follow run")
+
+
+def _follow_new_job(profile: dict, *, source_type="", source_target="", use_local=False,
+                    job_id=None, queue=None, started_at=None) -> dict:
+    job = {"id": job_id or uuid.uuid4().hex[:12],
+           "status": "idle", "profile": profile.get("name"), "profile_id": profile.get("id"),
+           "account_id": None, "account_key": _follow_account_key(profile),
+           "use_local": use_local, "dry_run": True, "mode": "follow",
+           "source_type": source_type, "source_target": source_target,
+           "queue": queue or [], "log": [], "error": None, "stop": False,
+           "stats": {"followed": 0, "requested": 0, "skipped": 0, "failed": 0, "simulated": 0},
+           "counts": {"hour": 0, "day": 0}, "blocked": False, "stopped_by_user": False,
+           "settings": {}, "filters": {},
+           "started_at": started_at or time.strftime("%Y-%m-%d %H:%M:%S"),
+           "finished_at": None, "profile_ids": [profile.get("id")]}
+    try:
+        a = db.get_account_by_profile(profile.get("id"))
+        job["account_id"] = a.get("id") if a else None
+    except Exception:
+        pass
+    _follow_jobs[job["id"]] = job
+    return job
+
+
+def _follow_log(job: dict):
+    def _log(msg):
+        job["log"].append(f"[{time.strftime('%H:%M:%S')}] {msg}")
+        if len(job["log"]) > 500:
+            del job["log"][:len(job["log"]) - 500]
+    return _log
+
+
+@app.post("/follow/harvest")
+async def follow_harvest(body: FollowHarvestRequest):
+    """Coleta contas de uma fonte para a fila. Só LÊ listas — nada é seguido aqui."""
+    prof = get_profile(body.profile_id)
+    if not prof:
+        raise HTTPException(404, "Perfil não encontrado")
+    # Vários alvos (um por linha na UI); `target` continua aceito p/ um alvo só.
+    alvos = [t.strip() for t in (body.targets or [body.target]) if t and t.strip()]
+    if not alvos:
+        raise HTTPException(400, "Informe ao menos um alvo (@usuário ou URL do post)")
+    rotulo = alvos[0] if len(alvos) == 1 else f"{len(alvos)} alvos"
+
+    cfg = _follow_config()
+    # Com run_id de uma fila parada, ACUMULA nela (a extensão junta várias fontes na
+    # mesma fila); sem ele, começa uma fila nova.
+    job = _follow_jobs.get(body.run_id) if body.run_id else None
+    if job is None and body.run_id:
+        # Fila salva no banco (app foi reiniciado): reidrata para ACUMULAR nela.
+        antigo = _follow_job_from_db(body.run_id)
+        if antigo:
+            job = _follow_new_job(prof, source_type=antigo.get("source_type") or "",
+                                  source_target=antigo.get("source_target") or "",
+                                  use_local=body.use_local, job_id=antigo["id"],
+                                  queue=antigo.get("queue") or [])
+    if job is not None and job.get("status") in ("running", "harvesting"):
+        raise HTTPException(409, "Esta fila está em uso agora. Pare a operação antes de coletar.")
+    if job is None:
+        job = _follow_new_job(prof, source_type=body.source_type,
+                              source_target=rotulo, use_local=body.use_local)
+    else:
+        job.update({"source_type": body.source_type, "source_target": rotulo,
+                    "use_local": body.use_local, "error": None})
+    job["status"] = "harvesting"
+    job["settings"], job["filters"] = cfg["settings"], cfg["filters"]
+    log = _follow_log(job)
+    _follow_save(job)
+
+    async def _worker():
+        try:
+            # per_target = fatia rasa por RODADA; quem divide o teto sem truncar (e
+            # volta nos alvos até fechar o total) é o próprio harvest.
+            por_alvo = max(1, int(body.per_target or 50))
+            # Quem já conhecemos vai JUNTO para a coleta: assim o filtro acontece
+            # durante e o total pedido é de gente NOVA (antes, pedir 1000 devolvia
+            # 1000 brutos que viravam ~500 depois do filtro).
+            hist = db.follow_history_map()
+            black = set(db.list_follow_blacklist())
+            conhecidos = set(black) | {a.get("username") for a in job["queue"] if a.get("username")}
+            if cfg["settings"].get("skipAlreadyAttempted"):
+                conhecidos |= set(hist)
+            res = await follower.harvest(
+                prof, body.source_type, alvos, por_alvo,
+                limit=body.limit, conhecidos=conhecidos, use_local=body.use_local,
+                page_delay_ms=cfg["settings"]["harvestPageDelayMs"],
+                jitter_percent=cfg["settings"]["jitterPercent"],
+                should_stop=lambda: job.get("stop", False), log=log)
+            if res.get("error"):
+                job["error"] = res["error"]
+                job["status"] = "error"
+            else:
+                # O filtro pesado já rodou DENTRO da coleta (conhecidos). Isto aqui é
+                # só a rede de segurança contra corrida (algo entrou no histórico
+                # enquanto coletávamos) — normalmente não descarta nada.
+                known = {a.get("id") for a in job["queue"]}
+                fresh = [a for a in res["items"]
+                         if a["id"] not in known and a["username"] not in conhecidos]
+                job["queue"].extend(fresh)
+                job["status"] = "idle"
+                pulados = res.get("ja_conhecidos") or 0
+                log(f"✓ {len(fresh)} conta(s) NOVA(S) na fila, de {len(alvos)} alvo(s)"
+                    + (f" · {pulados} já conhecida(s) puladas durante a coleta" if pulados else ""))
+                if len(alvos) > 1:
+                    log("   por alvo: " + " · ".join(f"{k}={v}" for k, v in (res.get("por_alvo") or {}).items()))
+        except Exception as e:
+            logger.exception("follow harvest")
+            job["error"] = str(e)
+            job["status"] = "error"
+            log(f"✖ erro: {e}")
+        finally:
+            _follow_save(job)
+
+    asyncio.create_task(_worker())
+    return {"job_id": job["id"]}
+
+
+@app.post("/follow/start")
+async def follow_start(body: FollowStartRequest):
+    """Inicia (ou retoma) o motor de follow sobre a fila do job/execução."""
+    prof = get_profile(body.profile_id)
+    if not prof:
+        raise HTTPException(404, "Perfil não encontrado")
+
+    busy = [j for j in _follow_jobs.values() if j.get("status") in ("running", "harvesting")]
+    if busy:
+        raise HTTPException(409, "Já existe uma operação de follow em andamento. "
+                                 "Pare a atual antes de iniciar outra.")
+
+    cfg = _follow_config()
+    settings = {**cfg["settings"], **(body.settings or {})}
+    filters = {**cfg["filters"], **(body.filters or {})}
+
+    job = _follow_jobs.get(body.run_id) if body.run_id else None
+    if job is None and body.run_id:
+        run = db.get_follow_run(body.run_id)
+        if not run:
+            raise HTTPException(404, "Execução não encontrada")
+        try:
+            queue = json.loads(run.get("queue_json") or "[]")
+        except Exception:
+            queue = []
+        job = _follow_new_job(prof, source_type=run.get("source_type") or "",
+                              source_target=run.get("source_target") or "",
+                              use_local=body.use_local, job_id=run["id"], queue=queue,
+                              started_at=run.get("started_at"))
+    if job is None:
+        raise HTTPException(400, "Nada na fila — colete contas de uma fonte primeiro.")
+
+    pending = [a for a in job["queue"] if a.get("status") == "pending"]
+    if not pending:
+        raise HTTPException(400, "A fila não tem contas pendentes.")
+
+    job.update({"status": "running", "stop": False, "error": None, "finished_at": None,
+                "use_local": body.use_local, "dry_run": settings.get("dryRun") is True,
+                "settings": settings, "filters": filters, "stopped_by_user": False})
+    log = _follow_log(job)
+
+    # Pool de contas que vão DIVIDIR esta fila. Com 1 conta é o comportamento de
+    # sempre; com várias, elas se revezam (ver _dividir abaixo).
+    pool = [p for p in (get_profile(i) for i in (body.profile_ids or [])) if p] or [prof]
+    if not any(p["id"] == prof["id"] for p in pool):
+        pool.insert(0, prof)
+    job["profile_ids"] = [p["id"] for p in pool]
+    if len(pool) > 1:
+        job["profile"] = f"{len(pool)} contas (revezando)"
+
+    history = db.follow_history_map()
+    blacklist = db.list_follow_blacklist()
+    job["counts"] = follower.limiter_counts(
+        db.list_follow_actions(job["account_key"], int((time.time() - 86400) * 1000)))
+
+    def _fazedor(key):
+        """on_action amarrado à conta que está agindo AGORA (o histórico precisa
+        registrar QUEM seguiu, senão o unfollow depois não encontra o dono)."""
+        def _on_action(acct, kind, ts):
+            job["stats"][kind] = job["stats"].get(kind, 0) + 1
+            if kind in ("followed", "requested"):
+                try:
+                    db.add_follow_history(acct["username"], ts, key, acct.get("id"),
+                                          acct.get("source"))
+                    db.add_follow_action(key, ts)
+                except Exception:
+                    logger.exception("follow: falha ao gravar histórico/ação")
+            _follow_save(job)
+        return _on_action
+
+    async def _dividir():
+        """Reveza as contas na MESMA fila, em BLOCOS: cada conta faz até
+        `followsPerAccount` follows e passa a vez para a próxima, em ciclo.
+
+        Com 3 contas e bloco de 100, uma fila de 300 sai 100/100/100. O teto por
+        hora/dia da conta continua valendo — vale o que vier primeiro. O histórico é
+        GLOBAL, então duas contas nunca seguem a mesma pessoa."""
+        por_conta = max(0, int(settings.get("followsPerAccount") or 0))
+        if len(pool) > 1:
+            log(f"👥 {len(pool)} contas revezando"
+                + (f", trocando a cada {por_conta} follow(s)" if por_conta else
+                   " (cada uma até o próprio teto)"))
+        idx, sem_progresso, turno, contas_404 = 0, 0, 0, 0
+        while not job.get("stop"):
+            if not any(a.get("status") == "pending" for a in job["queue"]):
+                log("✓ fila esvaziada")
+                break
+            if sem_progresso >= len(pool):
+                log("⏹ todas as contas estão no teto — nada a fazer agora")
+                break
+
+            p = pool[idx % len(pool)]
+            idx += 1
+            key = _follow_account_key(p)
+            job["account_key"] = key
+            job["profile_atual"] = p.get("name")
+
+            acoes = db.list_follow_actions(key, int((time.time() - 86400) * 1000))
+            cabe, motivo, _espera = follower.limiter_check(acoes, settings)
+            if not cabe:
+                log(f"⏭ conta {key} já está no teto {motivo} — passando para a próxima")
+                sem_progresso += 1
+                continue
+
+            turno += 1
+            if len(pool) > 1:
+                log(f"▶ turno {turno}: conta {key}"
+                    + (f" (até {por_conta} follows)" if por_conta else ""))
+            # Conta nova assumindo = IP novo (mesma regra do Spider: só rotaciona
+            # se esta conta sai pelo modem, e só se estiver ligado nos ajustes).
+            await _rotate_ip_for(p, log, body.use_local)
+
+            antes = job["stats"].get("followed", 0) + job["stats"].get("requested", 0)
+            res = await follower.run(
+                p, job["queue"], settings, filters,
+                history=history, blacklist=blacklist, actions=acoes,
+                use_local=body.use_local, max_actions=por_conta,
+                yield_on_cap=len(pool) > 1,   # com várias contas, teto = passa a vez
+                should_stop=lambda: job.get("stop", False), log=log,
+                on_action=_fazedor(key), on_counts=lambda c: job.update({"counts": c}))
+            feitos = (job["stats"].get("followed", 0) + job["stats"].get("requested", 0)) - antes
+            job["error"] = res.get("error")
+
+            if res.get("blocked"):
+                job["blocked"] = True
+                u = _spider_mark_blocked(
+                    profile=p, reason="InstaFollow: o Instagram bloqueou a ação (feedback_required)")
+                if u:
+                    log(f"⚠ conta @{u} marcada como 'Em suspensão'")
+                sem_progresso += 1
+                if len(pool) > 1:
+                    log("↪ passando para a próxima conta")
+                continue
+            # 404 em tudo NESTA conta: passa para a próxima em vez de encerrar a
+            # campanha. Se a próxima seguir normalmente, o problema era a conta; se
+            # todas derem 404, o resumo no fim diz que é sistêmico.
+            if res.get("conta_404"):
+                contas_404 += 1
+                log(f"↪ testando a próxima conta para saber se o 404 é desta conta ou geral")
+                if contas_404 >= len(pool):
+                    job["error"] = ("todas as contas deram 404 no follow (a leitura funciona) — "
+                                    "não é a conta: é a rota/permissão de escrita. "
+                                    "A fila está intacta.")
+                    log(f"✖ {job['error']}")
+                    break
+                continue
+            if res.get("aborted"):
+                break            # sessão caída / falhas seguidas: não insiste com outra
+            # Turno rendeu? Zera o contador de "ninguém consegue trabalhar".
+            sem_progresso = 0 if feitos else sem_progresso + 1
+            if len(pool) == 1 and not res.get("turno_cheio"):
+                break            # conta única já percorreu a fila inteira
+        return
+
+    async def _worker():
+        try:
+            await _dividir()
+            job["status"] = "stopped" if job.get("stop") else (
+                "error" if job.get("error") else "done")
+        except Exception as e:
+            logger.exception("follow run")
+            job["error"] = str(e)
+            job["status"] = "error"
+            log(f"✖ erro: {e}")
+        finally:
+            job["finished_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
+            _follow_save(job)
+
+    _follow_save(job)
+    asyncio.create_task(_worker())
+    return {"job_id": job["id"], "pending": len(pending), "dry_run": job["dry_run"],
+            "contas": [_follow_account_key(p) for p in pool]}
+
+
+@app.post("/follow/stop/{job_id}")
+def follow_stop(job_id: str):
+    j = _follow_jobs.get(job_id)
+    if not j:
+        raise HTTPException(404, "Job não encontrado")
+    j["stop"] = True
+    j["stopped_by_user"] = True
+    return {"ok": True}
+
+
+def _follow_job_from_db(run_id: str) -> dict:
+    """Reconstrói um job a partir do banco. Necessário porque `_follow_jobs` é
+    memória: ao fechar o app, a fila coletada existia em `queue_json` mas a tela
+    não tinha como buscá-la de volta — parecia que os dados tinham sumido."""
+    run = db.get_follow_run(run_id)
+    if not run:
+        return None
+    try:
+        fila = json.loads(run.get("queue_json") or "[]")
+    except Exception:
+        fila = []
+    try:
+        cfg_s = json.loads(run.get("settings_json") or "{}")
+    except Exception:
+        cfg_s = {}
+    return {"id": run["id"], "status": run.get("status") or "idle",
+            "error": run.get("error"), "dry_run": bool(run.get("dry_run")),
+            "profile": run.get("profile"), "account_key": run.get("account_key"),
+            "mode": run.get("mode") or "follow",
+            "source_type": run.get("source_type"), "source_target": run.get("source_target"),
+            "queue": fila, "log": [], "settings": cfg_s,
+            "stats": {"followed": run.get("followed") or 0,
+                      "requested": run.get("requested") or 0,
+                      "skipped": run.get("skipped") or 0,
+                      "failed": run.get("failed") or 0,
+                      "simulated": run.get("simulated") or 0,
+                      "unfollowed": run.get("unfollowed") or 0},
+            "counts": {"hour": 0, "day": 0}, "from_db": True}
+
+
+@app.get("/follow/jobs/{job_id}")
+def follow_job(job_id: str):
+    j = _follow_jobs.get(job_id) or _follow_job_from_db(job_id)
+    if not j:
+        raise HTTPException(404, "Job não encontrado")
+    q = j.get("queue") or []
+    return {"id": j["id"], "status": j["status"], "error": j.get("error"),
+            "dry_run": j.get("dry_run"), "profile": j.get("profile"),
+            "account_key": j.get("account_key"), "mode": j.get("mode", "follow"),
+            "seguindo_antes": j.get("seguindo_antes"), "seguindo_depois": j.get("seguindo_depois"),
+            "limite_ig": follower.IG_FOLLOWING_LIMIT,
+            "source_type": j.get("source_type"), "source_target": j.get("source_target"),
+            "stats": j.get("stats"), "counts": j.get("counts"),
+            "queue_total": len(q),
+            "queue_pending": sum(1 for a in q if a.get("status") == "pending"),
+            "queue": q[:200],                       # amostra p/ a tabela da UI
+            "log": j.get("log", [])[-300:]}
+
+
+@app.get("/follow/config")
+def follow_config_get():
+    cfg = _follow_config()
+    cfg["presets"] = follower.PRESETS
+    cfg["needs_enrichment"] = follower.needs_enrichment(cfg["filters"])
+    cfg["active_filters"] = follower.describe_filters(cfg["filters"])
+    cfg["history_count"] = db.follow_history_count()
+    cfg["blacklist"] = db.list_follow_blacklist()
+    return cfg
+
+
+@app.post("/follow/config")
+def follow_config_set(body: FollowConfigRequest):
+    if body.settings is not None:
+        db.set_setting("follow_settings", json.dumps(body.settings))
+    if body.filters is not None:
+        db.set_setting("follow_filters", json.dumps(body.filters))
+    return follow_config_get()
+
+
+@app.get("/follow/history")
+def follow_history(limit: int = 50):
+    """Histórico persistente das execuções de follow."""
+    return {"items": db.list_follow_runs(limit)}
+
+
+@app.delete("/follow/history/{run_id}")
+def follow_history_delete(run_id: str):
+    db.delete_follow_run(run_id)
+    _follow_jobs.pop(run_id, None)
+    return {"ok": True}
+
+
+def _unfollow_candidates(profile: dict, settings: dict, limit: int = 200) -> list:
+    """Fila do unfollow: quem ESTA conta seguiu há ≥ N dias e ainda não foi desfeito.
+    A whitelist já é aplicada no SQL; "só o que o app seguiu" é grátis (a fonte é o
+    nosso próprio histórico); "quem retribuiu" é checado no motor (custa 1 req)."""
+    dias = max(0, int(settings.get("unfollowAfterDays") or 0))
+    corte = int((time.time() - dias * 86400) * 1000)
+    key = _follow_account_key(profile)
+    return [{"username": r["username"], "user_id": r.get("user_id"),
+             "ts_ms": r.get("ts_ms"), "followed_at": r.get("followed_at"),
+             "status": "pending", "note": "", "actedAt": None}
+            for r in db.follow_unfollow_candidates(key, corte, limit)]
+
+
+@app.get("/follow/unfollow/candidates")
+def unfollow_candidates(profile_id: str, limit: int = 200):
+    """Prévia: quantos dá para desfazer agora, e como está o teto de 7.500 do IG."""
+    prof = get_profile(profile_id)
+    if not prof:
+        raise HTTPException(404, "Perfil não encontrado")
+    cfg = _follow_config()
+    key = _follow_account_key(prof)
+    itens = _unfollow_candidates(prof, cfg["settings"], limit)
+    stats = db.follow_following_stats(key)
+    return {"account_key": key, "candidatos": len(itens),
+            "amostra": itens[:50],
+            "limite_ig": follower.IG_FOLLOWING_LIMIT,
+            "unfollow_after_days": cfg["settings"].get("unfollowAfterDays"),
+            "protect_mutuals": cfg["settings"].get("protectMutuals"),
+            **stats}
+
+
+@app.post("/follow/unfollow/start")
+async def unfollow_start(body: UnfollowStartRequest):
+    """Desfaz follows antigos — o que mantém espaço abaixo do teto de 7.500 do IG."""
+    prof = get_profile(body.profile_id)
+    if not prof:
+        raise HTTPException(404, "Perfil não encontrado")
+    busy = [j for j in _follow_jobs.values() if j.get("status") in ("running", "harvesting")]
+    if busy:
+        raise HTTPException(409, "Já existe uma operação em andamento. Pare a atual antes.")
+
+    cfg = _follow_config()
+    settings = {**cfg["settings"], **(body.settings or {})}
+    itens = _unfollow_candidates(prof, settings, body.limit)
+    if not itens:
+        dias = settings.get("unfollowAfterDays")
+        raise HTTPException(400, f"Nenhum candidato: ninguém que esta conta seguiu pelo app "
+                                 f"completou {dias} dia(s) ainda (ou já foi desfeito).")
+
+    job = _follow_new_job(prof, source_type="unfollow", source_target="desfazer follows antigos",
+                          use_local=body.use_local, queue=itens)
+    job.update({"status": "running", "stop": False, "mode": "unfollow",
+                "dry_run": settings.get("dryRun") is True, "settings": settings})
+    job["stats"] = {"unfollowed": 0, "skipped": 0, "failed": 0, "simulated": 0}
+    log = _follow_log(job)
+
+    key = job["account_key"]
+    actions = db.list_follow_actions(key, int((time.time() - 86400) * 1000))
+    job["counts"] = follower.limiter_counts(actions)
+    viewer = key if not key.startswith("profile:") else ""
+
+    def _on_action(item, kind, ts):
+        job["stats"][kind] = job["stats"].get(kind, 0) + 1
+        if kind == "unfollowed":
+            try:
+                db.mark_follow_unfollowed(item["username"], ts)
+                db.add_follow_action(key, ts)     # gasta o mesmo orçamento do follow
+            except Exception:
+                logger.exception("unfollow: falha ao gravar histórico/ação")
+        _follow_save(job)
+
+    async def _worker():
+        try:
+            res = await follower.run_unfollow(
+                prof, job["queue"], settings, viewer=viewer, use_local=body.use_local,
+                actions=actions, should_stop=lambda: job.get("stop", False), log=log,
+                on_action=_on_action, on_counts=lambda c: job.update({"counts": c}))
+            job["error"] = res.get("error")
+            job["blocked"] = bool(res.get("blocked"))
+            job["seguindo_antes"] = res.get("seguindo_antes")
+            job["seguindo_depois"] = res.get("seguindo_depois")
+            job["status"] = "stopped" if job.get("stop") else (
+                "error" if res.get("error") else "done")
+            if job["blocked"]:
+                u = _spider_mark_blocked(profile=prof,
+                                         reason="InstaFollow: bloqueio de ação no unfollow")
+                if u:
+                    log(f"⚠ conta @{u} marcada como 'Em suspensão'")
+        except Exception as e:
+            logger.exception("unfollow run")
+            job["error"] = str(e)
+            job["status"] = "error"
+            log(f"✖ erro: {e}")
+        finally:
+            job["finished_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
+            _follow_save(job)
+
+    _follow_save(job)
+    asyncio.create_task(_worker())
+    return {"job_id": job["id"], "candidatos": len(itens), "dry_run": job["dry_run"]}
+
+
+class FollowDiscardRequest(BaseModel):
+    run_id: str = ""
+
+
+@app.post("/follow/queue/discard")
+def follow_queue_discard(body: FollowDiscardRequest):
+    """ZERA a fila atual SEM SALVAR: para o job, apaga a execução do banco (ela não
+    fica no histórico) e limpa a memória. Serve para descartar uma coleta que não
+    presta e começar do zero — diferente de 'Começar fila nova', que só solta a tela
+    e deixa o registro no histórico."""
+    rid = (body.run_id or "").strip()
+    j = _follow_jobs.get(rid)
+    if j:
+        j["stop"] = True                  # se estiver rodando, encerra
+        j["queue"] = []
+    apagado = False
+    if rid:
+        try:
+            apagado = bool(db.get_follow_run(rid))
+            db.delete_follow_run(rid)     # não deixa rastro no histórico
+        except Exception:
+            logger.exception("falha ao apagar a execução descartada")
+    _follow_jobs.pop(rid, None)
+    return {"ok": True, "apagado": apagado}
+
+
+@app.get("/follow/metrics")
+def follow_metrics():
+    """Métricas do InstaFollow: total seguido, quanto cada CONTA está segurando do
+    teto de 7.500, quanto já foi desfeito, e quais alvos renderam mais.
+
+    'ainda_seguindo' é o número que importa para o teto — seguidos menos desfeitos."""
+    agora = int(time.time() * 1000)
+    contas = []
+    for row in db.follow_metrics_by_account():
+        key = row.get("by_account") or "(sem conta)"
+        seg = int(row.get("ainda_seguindo") or 0)
+        contas.append({
+            "conta": key,
+            "seguidos": int(row.get("seguidos") or 0),
+            "ainda_seguindo": seg,
+            "desfeitos": int(row.get("desfeitos") or 0),
+            "vagas_ate_o_teto": max(0, follower.IG_FOLLOWING_LIMIT - seg),
+            "pct_do_teto": round(seg * 100.0 / follower.IG_FOLLOWING_LIMIT, 1),
+            "primeiro_ms": row.get("primeiro_ms"), "ultimo_ms": row.get("ultimo_ms"),
+            **db.follow_actions_counts(key, agora),
+        })
+    total_seg = sum(c["seguidos"] for c in contas)
+    total_ativo = sum(c["ainda_seguindo"] for c in contas)
+    return {
+        "limite_ig": follower.IG_FOLLOWING_LIMIT,
+        "total": {
+            "pessoas_seguidas": total_seg,          # histórico global (nunca repete)
+            "ainda_seguindo": total_ativo,
+            "desfeitos": sum(c["desfeitos"] for c in contas),
+            "contas": len(contas),
+            "capacidade_total": len(contas) * follower.IG_FOLLOWING_LIMIT,
+        },
+        "por_conta": contas,
+        "por_alvo": db.follow_metrics_by_source(20),
+        "blacklist": len(db.list_follow_blacklist()),
+        "whitelist": len(db.list_follow_whitelist()),
+    }
+
+
+@app.get("/follow/export-csv")
+def follow_export_csv():
+    """CSV do histórico completo — 1 linha por pessoa já seguida (nunca repetida).
+    Salva em data/_instafollow/ e devolve o arquivo (mesmo padrão do Spider)."""
+    from fastapi.responses import Response
+    linhas = db.follow_history_export()
+
+    def _dt(ms):
+        if not ms:
+            return ""
+        return time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(int(ms) / 1000))
+
+    headers = ["Username", "User Id", "Perfil URL", "Seguida por (conta)", "Origem",
+               "Seguida em", "Desfeita em", "Ainda seguindo"]
+    buf = _io.StringIO()
+    w = _csv.writer(buf)
+    w.writerow(headers)
+    for r in linhas:
+        u = r.get("username") or ""
+        w.writerow([u, r.get("user_id") or "",
+                    f"https://www.instagram.com/{u}/" if u else "",
+                    r.get("by_account") or "", r.get("source") or "",
+                    _dt(r.get("ts_ms")), _dt(r.get("unfollowed_ts_ms")),
+                    "não" if r.get("unfollowed_ts_ms") else "sim"])
+    conteudo = buf.getvalue()
+
+    nome = f"instafollow_historico_{time.strftime('%Y-%m-%d_%H%M')}.csv"
+    salvo = ""
+    try:
+        pasta = SPIDER_DATA_DIR / "_instafollow"
+        pasta.mkdir(parents=True, exist_ok=True)
+        destino = pasta / nome
+        # newline="" para o Windows não traduzir \r\n em \r\r\n (o mesmo bug que
+        # dobrava as linhas do CSV do Spider).
+        destino.write_text(conteudo, encoding="utf-8-sig", newline="")
+        salvo = str(destino)
+    except Exception:
+        logger.exception("falha ao salvar CSV do InstaFollow")
+
+    return Response(content=conteudo.encode("utf-8-sig"), media_type="text/csv",
+                    headers={"Content-Disposition": f'attachment; filename="{nome}"',
+                             "X-Saved-Path": salvo})
+
+
+@app.get("/follow/whitelist")
+def follow_whitelist_get():
+    return {"items": db.list_follow_whitelist()}
+
+
+@app.post("/follow/whitelist")
+def follow_whitelist_add(body: FollowBlacklistRequest):
+    """Nunca deixar de seguir estas contas (o oposto da blacklist)."""
+    u = spider.clean_username(body.username)
+    if not u:
+        raise HTTPException(400, "Informe um @usuário")
+    db.add_follow_whitelist(u)
+    return {"items": db.list_follow_whitelist()}
+
+
+@app.delete("/follow/whitelist/{username}")
+def follow_whitelist_del(username: str):
+    db.delete_follow_whitelist(spider.clean_username(username))
+    return {"items": db.list_follow_whitelist()}
+
+
+@app.post("/follow/blacklist")
+def follow_blacklist_add(body: FollowBlacklistRequest):
+    u = spider.clean_username(body.username)
+    if not u:
+        raise HTTPException(400, "Informe um @usuário")
+    db.add_follow_blacklist(u)
+    return {"items": db.list_follow_blacklist()}
+
+
+@app.delete("/follow/blacklist/{username}")
+def follow_blacklist_del(username: str):
+    db.delete_follow_blacklist(spider.clean_username(username))
+    return {"items": db.list_follow_blacklist()}
+
+
+# ─── Modem 4G: rotação do IP de saída ─────────────────────────────────────────
+# O modem é a conexão local do PC. Rotacionar troca o IP de saída de TODOS os
+# perfis que usam essa conexão — por isso é serializado (modem._lock) e usado nas
+# TROCAS DE CONTA (Spider e Seguir), para que cada conta atue num IP próprio.
+
+class ModemConfigRequest(BaseModel):
+    url: Optional[str] = None
+    user: Optional[str] = None
+    password: Optional[str] = None
+    enabled: Optional[bool] = None
+    method: Optional[str] = None          # 'mode' (troca de rede, ~5s) | 'reboot' (~60s)
+    wait_seconds: Optional[int] = None
+
+
+@app.get("/modem/status")
+async def modem_status():
+    """Estado do modem + IPs de saída atuais. Só leitura (não rotaciona)."""
+    st = await modem.status()
+    st["rotating"] = modem.is_rotating()
+    st["last_rotation"] = modem.last_rotation()
+    return st
+
+
+@app.get("/modem/config")
+def modem_config_get():
+    cfg = modem.config()
+    cfg.pop("password", None)             # não devolve a senha
+    return cfg
+
+
+@app.post("/modem/config")
+def modem_config_set(body: ModemConfigRequest):
+    if body.url is not None:
+        db.set_setting("modem_url", body.url.strip().rstrip("/"))
+    if body.user is not None:
+        db.set_setting("modem_user", body.user.strip())
+    if body.password:
+        db.set_setting("modem_pass", body.password)
+    if body.enabled is not None:
+        db.set_setting("modem_rotate_enabled", "1" if body.enabled else "0")
+    if body.method is not None:
+        # só os dois métodos medidos; qualquer outra coisa vira 'mode'
+        db.set_setting("modem_rotate_method", "reboot" if body.method == "reboot" else "mode")
+    if body.wait_seconds is not None:
+        db.set_setting("modem_rotate_wait", str(max(10, int(body.wait_seconds))))
+    return modem_config_get()
+
+
+@app.post("/modem/rotate")
+async def modem_rotate_now():
+    """Rotaciona AGORA (botão de teste). Roda mesmo com a rotação automática
+    desligada — é o jeito de conferir se o IP realmente muda nesta operadora."""
+    if modem.is_rotating():
+        raise HTTPException(409, "Já existe uma rotação em andamento")
+    return await modem.rotate(force=True)
 
 
 # ─── Informações locais: salvar/carregar todo o local data (migrar de máquina) ──

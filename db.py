@@ -255,6 +255,78 @@ def init_db():
         # união deduplicada de várias runs/CSVs). Usado quando o MAX(count) de uma run
         # isolada subestima (re-runs deixam dados espalhados). Migração aditiva.
         _ensure_column(conn, "monitored_profiles", "extracted_known", "INTEGER")
+        # ── Seguir (porte do InstaFollow) ──────────────────────────────────────
+        # Execuções do motor de follow. queue_json guarda a fila inteira (com o
+        # status de cada conta) → recarregar/reiniciar não perde progresso.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS follow_runs (
+                id            TEXT PRIMARY KEY,
+                profile       TEXT,
+                profile_id    TEXT,
+                account_id    TEXT,
+                account_key   TEXT,
+                use_local     INTEGER DEFAULT 0,
+                dry_run       INTEGER DEFAULT 1,
+                source_type   TEXT,
+                source_target TEXT,
+                status        TEXT,
+                error         TEXT,
+                followed      INTEGER DEFAULT 0,
+                requested     INTEGER DEFAULT 0,
+                skipped       INTEGER DEFAULT 0,
+                failed        INTEGER DEFAULT 0,
+                simulated     INTEGER DEFAULT 0,
+                queue_json    TEXT,
+                settings_json TEXT,
+                filters_json  TEXT,
+                blocked       INTEGER DEFAULT 0,
+                stopped_by_user INTEGER DEFAULT 0,
+                started_at    TEXT,
+                finished_at   TEXT
+            )
+        """)
+        # Histórico GLOBAL: uma conta já seguida (por qualquer conta nossa) nunca é
+        # seguida de novo — é o que faz cada conta pegar uma fatia distinta da fila.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS follow_history (
+                username    TEXT PRIMARY KEY,
+                ts_ms       BIGINT,
+                by_account  TEXT,
+                followed_at TEXT
+            )
+        """)
+        # Timestamps das ações POR CONTA — alimentam o limitador de janela deslizante.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS follow_actions (
+                account_key TEXT NOT NULL,
+                ts_ms       BIGINT NOT NULL,
+                PRIMARY KEY (account_key, ts_ms)
+            )
+        """)
+        # Nunca seguir, venha de onde vier.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS follow_blacklist (
+                username TEXT PRIMARY KEY,
+                added_at TEXT
+            )
+        """)
+        # Nunca DEIXAR de seguir (whitelist do unfollow) — o oposto da blacklist.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS follow_whitelist (
+                username TEXT PRIMARY KEY,
+                added_at TEXT
+            )
+        """)
+        # Quando desfizemos o follow (NULL = pelos nossos registros ainda seguimos).
+        # É o que permite "unfollow N dias depois" sem reprocessar quem já saiu.
+        _ensure_column(conn, "follow_history", "unfollowed_ts_ms", "BIGINT")
+        _ensure_column(conn, "follow_history", "user_id", "TEXT")
+        # De qual alvo/fonte a pessoa veio ("followers:@fulano") — permite medir qual
+        # alvo rende mais e exportar isso no CSV.
+        _ensure_column(conn, "follow_history", "source", "TEXT")
+        # Execuções de unfollow reusam follow_runs (mesmo motor/limitador).
+        _ensure_column(conn, "follow_runs", "mode", "TEXT DEFAULT 'follow'")
+        _ensure_column(conn, "follow_runs", "unfollowed", "INTEGER DEFAULT 0")
         # Defaults de limite (não sobrescreve se já existir)
         _ex(conn, "INSERT INTO settings (key, value) VALUES ('proxy_limit', '3') "
                   "ON CONFLICT (key) DO NOTHING")
@@ -868,6 +940,252 @@ def recover_orphan_spider_runs() -> int:
             return cur.rowcount if cur.rowcount is not None and cur.rowcount >= 0 else 0
         except Exception:
             return 0
+
+
+# ── Seguir (follow_runs / histórico / limitador / blacklist) ──────────────────
+
+def follow_run_upsert(d: dict):
+    """Insere/atualiza uma execução do motor de follow (PK=id). queue_json carrega a
+    fila inteira → dá para retomar depois de fechar o app."""
+    with get_conn() as conn:
+        _ex(conn,
+            "INSERT INTO follow_runs (id, profile, profile_id, account_id, account_key, "
+            "use_local, dry_run, source_type, source_target, status, error, followed, "
+            "requested, skipped, failed, simulated, queue_json, settings_json, filters_json, "
+            "blocked, stopped_by_user, started_at, finished_at, mode, unfollowed) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+            "ON CONFLICT (id) DO UPDATE SET profile=excluded.profile, "
+            "profile_id=excluded.profile_id, account_id=excluded.account_id, "
+            "account_key=excluded.account_key, use_local=excluded.use_local, "
+            "dry_run=excluded.dry_run, source_type=excluded.source_type, "
+            "source_target=excluded.source_target, status=excluded.status, "
+            "error=excluded.error, followed=excluded.followed, requested=excluded.requested, "
+            "skipped=excluded.skipped, failed=excluded.failed, simulated=excluded.simulated, "
+            "queue_json=excluded.queue_json, settings_json=excluded.settings_json, "
+            "filters_json=excluded.filters_json, blocked=excluded.blocked, "
+            "stopped_by_user=excluded.stopped_by_user, finished_at=excluded.finished_at, "
+            "mode=excluded.mode, unfollowed=excluded.unfollowed",
+            (d.get("id"), d.get("profile"), d.get("profile_id"), d.get("account_id"),
+             d.get("account_key"), 1 if d.get("use_local") else 0, 1 if d.get("dry_run") else 0,
+             d.get("source_type"), d.get("source_target"), d.get("status"), d.get("error"),
+             int(d.get("followed") or 0), int(d.get("requested") or 0),
+             int(d.get("skipped") or 0), int(d.get("failed") or 0), int(d.get("simulated") or 0),
+             d.get("queue_json"), d.get("settings_json"), d.get("filters_json"),
+             1 if d.get("blocked") else 0, 1 if d.get("stopped_by_user") else 0,
+             d.get("started_at"), d.get("finished_at"),
+             d.get("mode") or "follow", int(d.get("unfollowed") or 0)))
+
+
+def list_follow_runs(limit: int = 50) -> list:
+    """Histórico de execuções (SEM queue_json) — mais recentes primeiro."""
+    with get_conn() as conn:
+        rows = _ex(conn,
+            "SELECT id, profile, account_key, source_type, source_target, status, error, "
+            "dry_run, followed, requested, skipped, failed, simulated, blocked, "
+            "stopped_by_user, started_at, finished_at, mode, unfollowed FROM follow_runs "
+            "ORDER BY started_at DESC LIMIT ?", (limit,)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_follow_run(run_id: str) -> dict:
+    with get_conn() as conn:
+        row = _ex(conn, "SELECT * FROM follow_runs WHERE id = ?", (run_id,)).fetchone()
+    return dict(row) if row else None
+
+
+def delete_follow_run(run_id: str):
+    with get_conn() as conn:
+        _ex(conn, "DELETE FROM follow_runs WHERE id = ?", (run_id,))
+
+
+def recover_orphan_follow_runs() -> int:
+    """No boot, execuções presas em 'running' (o app morreu) viram 'stopped' — a fila
+    está salva em queue_json, então dá para retomar."""
+    with get_conn() as conn:
+        cur = _ex(conn, "UPDATE follow_runs SET status = 'stopped' WHERE status = 'running'")
+        try:
+            return cur.rowcount if cur.rowcount is not None and cur.rowcount >= 0 else 0
+        except Exception:
+            return 0
+
+
+def follow_history_map() -> dict:
+    """{username: ts_ms} de tudo que já foi seguido — histórico GLOBAL."""
+    with get_conn() as conn:
+        rows = _ex(conn, "SELECT username, ts_ms FROM follow_history").fetchall()
+    return {r["username"]: r["ts_ms"] for r in rows}
+
+
+def add_follow_history(username: str, ts_ms: int, by_account: str = None, user_id: str = None,
+                       source: str = None):
+    with get_conn() as conn:
+        _ex(conn,
+            "INSERT INTO follow_history (username, ts_ms, by_account, followed_at, user_id, "
+            "source, unfollowed_ts_ms) VALUES (?, ?, ?, ?, ?, ?, NULL) "
+            "ON CONFLICT (username) DO UPDATE SET "
+            "ts_ms=excluded.ts_ms, by_account=excluded.by_account, "
+            "followed_at=excluded.followed_at, user_id=excluded.user_id, "
+            "source=excluded.source, unfollowed_ts_ms=NULL",
+            (username, int(ts_ms or 0), by_account, _now_str(), user_id, source))
+
+
+def follow_history_export() -> list:
+    """Histórico completo (1 linha por pessoa seguida) — base do CSV e das métricas."""
+    with get_conn() as conn:
+        rows = _ex(conn,
+            "SELECT username, user_id, by_account, source, ts_ms, followed_at, "
+            "unfollowed_ts_ms FROM follow_history ORDER BY ts_ms").fetchall()
+    return [dict(r) for r in rows]
+
+
+def follow_metrics_by_account() -> list:
+    """Agregado POR CONTA: seguidos, ainda seguindo (= o que conta no teto de 7.500),
+    desfeitos, e quando foi a primeira/última ação."""
+    with get_conn() as conn:
+        rows = _ex(conn,
+            "SELECT by_account, COUNT(*) AS seguidos, "
+            "SUM(CASE WHEN unfollowed_ts_ms IS NULL THEN 1 ELSE 0 END) AS ainda_seguindo, "
+            "SUM(CASE WHEN unfollowed_ts_ms IS NOT NULL THEN 1 ELSE 0 END) AS desfeitos, "
+            "MIN(ts_ms) AS primeiro_ms, MAX(ts_ms) AS ultimo_ms "
+            "FROM follow_history GROUP BY by_account ORDER BY seguidos DESC").fetchall()
+    return [dict(r) for r in rows]
+
+
+def follow_metrics_by_source(limit: int = 20) -> list:
+    """Quanto cada alvo/fonte rendeu — qual alvo vale a pena repetir."""
+    with get_conn() as conn:
+        rows = _ex(conn,
+            "SELECT COALESCE(source, '(sem origem)') AS source, COUNT(*) AS seguidos, "
+            "SUM(CASE WHEN unfollowed_ts_ms IS NULL THEN 1 ELSE 0 END) AS ainda_seguindo "
+            "FROM follow_history GROUP BY source ORDER BY seguidos DESC LIMIT ?",
+            (int(limit or 20),)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def follow_actions_counts(account_key: str, now_ms: int) -> dict:
+    """Ações (follow+unfollow) desta conta na última hora e nas últimas 24h."""
+    with get_conn() as conn:
+        row = _ex(conn,
+            "SELECT SUM(CASE WHEN ts_ms > ? THEN 1 ELSE 0 END) AS hora, "
+            "COUNT(*) AS dia FROM follow_actions WHERE account_key = ? AND ts_ms > ?",
+            (int(now_ms - 3600000), account_key, int(now_ms - 86400000))).fetchone()
+    d = dict(row) if row else {}
+    return {"hora": int(d.get("hora") or 0), "dia": int(d.get("dia") or 0)}
+
+
+def follow_unfollow_candidates(by_account: str, older_than_ms: int, limit: int = 500) -> list:
+    """Quem ESTA conta seguiu há tempo suficiente e ainda não foi desfeito.
+
+    Filtra por `by_account` de propósito: quem segue X é a conta A, então só A pode
+    deixar de seguir X — pedir isso à conta B não faria sentido nenhum.
+    A whitelist ("nunca deixar de seguir") é aplicada aqui, no SQL."""
+    with get_conn() as conn:
+        rows = _ex(conn,
+            "SELECT username, user_id, ts_ms, followed_at FROM follow_history "
+            "WHERE by_account = ? AND unfollowed_ts_ms IS NULL AND ts_ms > 0 AND ts_ms <= ? "
+            "AND username NOT IN (SELECT username FROM follow_whitelist) "
+            "ORDER BY ts_ms LIMIT ?",                    # mais antigos primeiro
+            (by_account, int(older_than_ms or 0), int(limit or 500))).fetchall()
+    return [dict(r) for r in rows]
+
+
+def mark_follow_unfollowed(username: str, ts_ms: int):
+    with get_conn() as conn:
+        _ex(conn, "UPDATE follow_history SET unfollowed_ts_ms = ? WHERE username = ?",
+            (int(ts_ms or 0), username))
+
+
+def follow_following_stats(by_account: str) -> dict:
+    """Quantos esta conta seguiu pelo app e quantos ainda estão de pé."""
+    with get_conn() as conn:
+        row = _ex(conn,
+            "SELECT COUNT(*) AS total, "
+            "SUM(CASE WHEN unfollowed_ts_ms IS NULL THEN 1 ELSE 0 END) AS ativos "
+            "FROM follow_history WHERE by_account = ?", (by_account,)).fetchone()
+    d = dict(row) if row else {}
+    return {"seguidos_pelo_app": int(d.get("total") or 0),
+            "ainda_seguindo": int(d.get("ativos") or 0)}
+
+
+def list_follow_whitelist() -> list:
+    with get_conn() as conn:
+        rows = _ex(conn, "SELECT username FROM follow_whitelist ORDER BY username").fetchall()
+    return [r["username"] for r in rows]
+
+
+def add_follow_whitelist(username: str):
+    with get_conn() as conn:
+        _ex(conn,
+            "INSERT INTO follow_whitelist (username, added_at) VALUES (?, ?) "
+            "ON CONFLICT (username) DO NOTHING", (username, _now_str()))
+
+
+def delete_follow_whitelist(username: str):
+    with get_conn() as conn:
+        _ex(conn, "DELETE FROM follow_whitelist WHERE username = ?", (username,))
+
+
+def follow_history_count() -> int:
+    with get_conn() as conn:
+        row = _ex(conn, "SELECT COUNT(*) AS n FROM follow_history").fetchone()
+    return int(dict(row).get("n") or 0) if row else 0
+
+
+def list_follow_actions(account_key: str, since_ms: int = 0) -> list:
+    """Timestamps das ações da conta (para o limitador de janela deslizante)."""
+    with get_conn() as conn:
+        rows = _ex(conn,
+            "SELECT ts_ms FROM follow_actions WHERE account_key = ? AND ts_ms > ? "
+            "ORDER BY ts_ms", (account_key, int(since_ms or 0))).fetchall()
+    return [int(r["ts_ms"]) for r in rows]
+
+
+def add_follow_action(account_key: str, ts_ms: int):
+    """Registra UMA ação da conta (alimenta o limitador).
+
+    A PK é (account_key, ts_ms), então duas ações no MESMO milissegundo colidiriam e
+    a segunda sumiria — o limitador contaria a menos, justamente o contador que
+    protege a conta. Na prática o intervalo entre follows é de minutos, mas aqui o
+    empate é resolvido deslocando 1ms, para a contagem nunca ficar devendo."""
+    ts = int(ts_ms or 0)
+    with get_conn() as conn:
+        for _ in range(50):
+            cur = _ex(conn,
+                      "INSERT INTO follow_actions (account_key, ts_ms) VALUES (?, ?) "
+                      "ON CONFLICT (account_key, ts_ms) DO NOTHING",
+                      (account_key, ts))
+            try:
+                if cur.rowcount != 0:
+                    return
+            except Exception:
+                return
+            ts += 1
+
+
+def clear_follow_actions(account_key: str = None):
+    with get_conn() as conn:
+        if account_key:
+            _ex(conn, "DELETE FROM follow_actions WHERE account_key = ?", (account_key,))
+        else:
+            conn.execute("DELETE FROM follow_actions")
+
+
+def list_follow_blacklist() -> list:
+    with get_conn() as conn:
+        rows = _ex(conn, "SELECT username FROM follow_blacklist ORDER BY username").fetchall()
+    return [r["username"] for r in rows]
+
+
+def add_follow_blacklist(username: str):
+    with get_conn() as conn:
+        _ex(conn,
+            "INSERT INTO follow_blacklist (username, added_at) VALUES (?, ?) "
+            "ON CONFLICT (username) DO NOTHING", (username, _now_str()))
+
+
+def delete_follow_blacklist(username: str):
+    with get_conn() as conn:
+        _ex(conn, "DELETE FROM follow_blacklist WHERE username = ?", (username,))
 
 
 # ── Lock de perfil em uso (compartilhado) ──────────────────────────────────────

@@ -302,6 +302,10 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 9V3M12 21v-6M9 12H3M21 12h-6M7 7 4 4M17 7l3-3M7 17l-3 3M17 17l3 3"/></svg>
       Spider
     </div>
+    <div class="nav-item" data-page-link="follow" onclick="showPage('follow')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M19 8v6M22 11h-6"/></svg>
+      InstaFollow
+    </div>
     <div class="nav-item" data-page-link="monitored" onclick="showPage('monitored')">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
       Monitorados
@@ -536,7 +540,7 @@
           <button class="btn btn-ghost" onclick="showPage('profiles')">Cancelar</button>
         </div>
         <div class="form-group" style="margin-top:24px">
-          <label>Criacao em massa</label>
+          <label>Criação em massa</label>
           <textarea id="f-bulk" placeholder="Um por linha: Nome do perfil;http://user:senha@host:porta"></textarea>
           <div class="form-hint">O proxy e opcional. Exemplo: Conta 01;socks5://host:porta</div>
         </div>
@@ -949,6 +953,53 @@
         </div>
       </div>
 
+      <!-- MODEM 4G: rotação do IP de saída -->
+      <div class="form-card" style="max-width:720px;margin-bottom:18px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+          <div style="font-weight:600">📡 Modem 4G — rotação de IP</div>
+          <button class="btn btn-ghost btn-sm" onclick="loadModem()">↻ Atualizar</button>
+        </div>
+        <div id="modem-state" style="font-size:13px;color:var(--muted);margin-bottom:12px">carregando…</div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Endereço do painel</label>
+            <input id="modem-url" type="text" placeholder="http://192.168.100.1">
+          </div>
+          <div class="form-group">
+            <label>Usuário</label>
+            <input id="modem-user" type="text" placeholder="admin">
+          </div>
+          <div class="form-group">
+            <label>Senha (em branco = manter)</label>
+            <input id="modem-pass" type="password" placeholder="••••">
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Como rotacionar</label>
+          <select id="modem-method">
+            <option value="mode">📶 Trocar modo de rede — ~20s (recomendado)</option>
+            <option value="reboot">↻ Reiniciar o modem — ~60s</option>
+          </select>
+          <div class="form-hint">Os dois renovam o IP; a troca de modo é bem mais rápida e termina com o modem travado em <b>4G puro</b>.</div>
+        </div>
+        <label style="display:flex;align-items:flex-start;gap:8px;margin-top:6px;font-weight:400;cursor:pointer">
+          <input type="checkbox" id="modem-enabled" style="margin-top:3px">
+          <span style="font-size:12px;color:var(--muted)"><b>Rotacionar o IP ao trocar de conta</b> — no Spider (handoff entre contas e início de extração), no InstaFollow e <b>ao abrir um perfil</b> (botão Abrir). Cada perfil passa a agir numa <b>época de IP própria</b> — medido: sem rotacionar, o pool da operadora fica o MESMO e dois perfis abertos em sequência sairiam pelos mesmos IPs.</span>
+        </label>
+        <div class="form-hint" style="margin-top:10px;border-left:3px solid var(--accent);padding-left:10px">
+          🚨 <b>Feche WhatsApp Web / Instagram pessoal / Facebook antes de rodar.</b> São todos <b>Meta</b>: a rotação
+          troca o IP do PC inteiro, a sessão pessoal salta de IP no meio (já causou bloqueio aqui) e a Meta passa a ver
+          <b>sua conta real e as de automação no mesmo IP</b>. Para separar de verdade, proxy por perfil (aba Contas).<br>
+          ⚠️ A rotação derruba a saída de <b>todos</b> os perfis por alguns segundos (é a conexão do PC inteiro) — por isso ela é serializada: uma por vez.
+          E este modem <b>não tem um IP só</b>: a operadora faz CGNAT e responde de 3-4 IPs ao mesmo tempo. O que a rotação garante é que o <b>conjunto</b> seja renovado, não "1 conta = 1 IP".
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;margin-top:14px">
+          <button class="btn btn-ghost btn-sm" onclick="saveModem(this)">💾 Salvar</button>
+          <button id="modem-rotate" class="btn btn-primary btn-sm" onclick="rotateModem(this)">🔄 Rotacionar agora (teste)</button>
+        </div>
+        <div id="modem-rotate-result" style="display:none;margin-top:12px;font-size:12.5px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px 12px"></div>
+      </div>
+
       <div class="table-wrap">
         <table>
           <thead>
@@ -982,13 +1033,13 @@
           <li>❌ <b>Datacenter</b> — bloqueado quase sempre no signup. Não use para criar.</li>
           <li>⚠️ <b>ISP-estático compartilhado</b> (ex.: listas "20/100 proxies" da Webshare) — IPs fixos divididos entre vários clientes; queimam rápido. Servem só para <i>aquecer</i> conta já criada, não para nascer.</li>
           <li>✅ <b>Residencial rotativo</b> — IPs de provedores domésticos reais. Bom.</li>
-          <li>⭐ <b>Móvel (4G/5G)</b> — <b>padrão-ouro</b>. IPs de operadora sob CGNAT (compartilhados com milhares de usuários reais) → o IG não consegue punir o IP sem punir gente legítima.</li>
+          <li>⭐ <b>Móvel (4G/LTE)</b> — <b>padrão-ouro</b>. IPs de operadora sob CGNAT (compartilhados com milhares de usuários reais) → o IG não consegue punir o IP sem punir gente legítima. <b>4G, não 5G</b>: o pool 5G é pequeno e fácil de fingerprintar.</li>
         </ul>
 
         <div style="font-weight:600;color:var(--text);margin:12px 0 4px">Como conseguir proxy móvel</div>
         <ul style="margin:0 0 0 18px;padding:0">
           <li><b>DIY com chip BR (melhor custo-benefício):</b> app <code>iProxy.online</code> (ou <code>Proxidize</code>) num Android com chip Vivo/Claro/TIM. IP genuinamente brasileiro, barato, 1 IP por aparelho — ótimo para volume baixo.</li>
-          <li><b>Dedicado alugado:</b> modem 4G/5G só seu (~US$30–120/mês). Menos trabalho.</li>
+          <li><b>Dedicado alugado:</b> modem 4G/LTE só seu (~US$30–120/mês). Menos trabalho.</li>
           <li><b>Pools (Soax / IPRoyal / Smartproxy):</b> IPs móveis/residenciais por GB — cuidado, muitos já foram usados à exaustão no IG.</li>
         </ul>
 
@@ -1002,7 +1053,7 @@
         </ul>
 
         <div style="font-weight:600;color:var(--text);margin:12px 0 4px">Testar pela sua própria conexão (sem proxy)</div>
-        Em <b>Criar Contas</b>, marque <b>"Usar conexão local (sem proxy)"</b> para criar pela <b>conexão local do PC</b> (seu IP atual). O <code>geoip</code> ajusta idioma/fuso ao IP automaticamente. Útil só para testar — para valer, use um <b>proxy 4G/5G</b> (o IP de casa não serve para criar).
+        Em <b>Criar Contas (PC)</b>, escolha <b>"💻 Conexão local (seu 4G BR)"</b> para sair pelo <b>modem 4G ligado neste PC</b> — é o padrão e o recomendado hoje. O <code>geoip</code> está fixado em <b>Porto Alegre/pt-BR</b>, então isso só é coerente com um IP de saída <b>brasileiro</b> (o modem 4G daqui). O IP de casa (banda larga) <b>não serve</b> para criar.
       </div>
     </div>
 
@@ -1103,7 +1154,7 @@
         <div class="form-group" id="sp-profile-group">
           <label>Contas que vão raspar — marque <b>1</b> (conta única) ou <b>várias</b></label>
           <div id="sp-profile-list" style="max-height:168px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;padding:6px 8px;background:var(--surface)"></div>
-          <div class="form-hint">Use contas de scraping <b>descartáveis</b> já logadas — não use suas contas boas (raspar queima conta). Marcar <b>2+</b> abre a escolha: <b>alvos diferentes</b> (recomendado — cada conta no seu alvo, em paralelo) ou <b>rodízio</b> no mesmo alvo (arriscado).<br>↪ <b>Trocar de conta e continuar:</b> se uma run caiu, marque <b>1 conta nova</b> aqui e clique <b>Continuar de onde parou</b> — segue do mesmo ponto com a conta fresca (faça logo: o cursor expira com o tempo).</div>
+          <div class="form-hint">Use contas de scraping <b>descartáveis</b> já logadas — não use suas contas boas (raspar queima conta). Marcar <b>2+</b> abre a escolha: <b>alvos diferentes</b> (recomendado — cada conta no seu alvo, em paralelo) ou <b>mesmo alvo com handoff seguro</b> (cada conta vai até ~1,5M e passa pra próxima).<br>↪ <b>Trocar de conta e continuar:</b> se uma run caiu, marque <b>1 conta nova</b> aqui e clique <b>Continuar de onde parou</b> — segue do mesmo ponto com a conta fresca (faça logo: o cursor expira com o tempo).</div>
           <label style="margin-top:10px">Conexão de saída</label>
           <select id="sp-web-ipmode" onchange="spiderIpModeHint()">
             <option value="local" selected>IP local — todas saem pelo MESMO IP do PC (sem proxy)</option>
@@ -1204,6 +1255,238 @@
             <tbody id="sp-history"></tbody>
           </table>
         </div>
+      </div>
+    </div>
+
+    <!-- SEGUIR (porte da extensão InstaFollow) -->
+    <div class="page" id="page-follow">
+      <div class="page-header">
+        <div>
+          <div class="page-title">InstaFollow</div>
+          <div class="page-subtitle">Coleta contas de uma fonte, filtra e segue uma a uma — usando um perfil JÁ LOGADO (a conta dele faz as requisições). Não desfaz follows.</div>
+        </div>
+      </div>
+
+      <div class="form-hint" style="max-width:820px;margin-bottom:14px;border-left:3px solid var(--warn,#f59e0b);padding:8px 12px;background:var(--surface2);border-radius:0 8px 8px 0">
+        ⚠️ <b>Seguir queima conta muito mais rápido que raspar</b> (o Spider só lê; aqui a conta AGE). Os padrões são o preset
+        <b>Conservador</b> e o <b>modo simulação ligado</b> de propósito. Rode a simulação primeiro, confira a fila, e só então desligue.
+      </div>
+      <div class="form-hint" style="max-width:820px;margin-bottom:14px;border-left:3px solid #ef4444;padding:8px 12px;background:var(--surface2);border-radius:0 8px 8px 0">
+        🚨 <b>Feche o WhatsApp Web, Instagram pessoal, Facebook e Messenger antes de rodar.</b>
+        Tudo isso é <b>Meta</b>, e a rotação troca o IP do <b>PC inteiro</b>: a sessão pessoal salta de IP no meio
+        (o que já causou bloqueio aqui) e — pior — a Meta passa a ver a <b>sua conta real e as contas de automação
+        no mesmo IP, no mesmo horário</b>. O Camoufox isola cookies e fingerprint por perfil, mas <b>não isola o IP</b>
+        do modem. Para separar de verdade, use um <b>proxy por perfil</b> (aba Contas → Proxy do perfil).
+      </div>
+
+      <!-- 1. COLETA -->
+      <div class="form-card" style="max-width:600px">
+        <div style="font-weight:600;margin-bottom:12px">1 · Coletar contas para a fila</div>
+        <div class="form-group">
+          <label>Conta que vai coletar</label>
+          <select id="fw-profile" onchange="loadUnfollowQuota()"></select>
+          <div class="form-hint">Só aparecem perfis com conta do Instagram <b>já logada</b>. O teto por hora/dia é <b>por conta</b> — cada conta tem o seu.</div>
+        </div>
+        <div class="form-group">
+          <label>Contas que vão SEGUIR — marque para dividirem a fila</label>
+          <div id="fw-pool" style="max-height:130px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;padding:6px 8px;background:var(--surface)"></div>
+          <div class="form-hint">Vazio = usa só a conta acima. Marcando várias, elas <b>se revezam na mesma fila</b>, com <b>IP novo</b> a cada troca. O histórico é global, então <b>duas contas nunca seguem a mesma pessoa</b>.</div>
+          <label style="margin-top:10px">Trocar de conta a cada quantos follows</label>
+          <input id="fw-followsPerAccount" type="number" min="1" value="100" style="max-width:160px" oninput="followPoolHint()">
+          <div class="form-hint" id="fw-pool-hint"></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Fonte</label>
+            <select id="fw-source" onchange="followSourceHint()">
+              <option value="followers">Seguidores de um perfil</option>
+              <option value="following">Seguindo de um perfil</option>
+              <option value="likers">Curtidas de um post</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Total de contas novas</label>
+            <input id="fw-limit" type="number" min="1" value="200" oninput="followTargetsHint()">
+            <!-- "Quantas por alvo" saiu: a divisão é automática (total ÷ nº de alvos).
+                 O campo fixo virava um teto menor que a divisão e a coleta parava cedo. -->
+            <input id="fw-per-target" type="hidden" value="50">
+          </div>
+        </div>
+        <div class="form-group">
+          <label id="fw-target-label">Alvos — um por linha</label>
+          <textarea id="fw-target" rows="4" oninput="followTargetsHint()"
+            placeholder="@perfil_um&#10;@perfil_dois&#10;@perfil_tres"
+            style="width:100%;box-sizing:border-box;padding:8px 10px;background:var(--surface);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;font-family:inherit;resize:vertical"></textarea>
+          <div class="form-hint" id="fw-source-hint"></div>
+          <div class="form-hint" id="fw-targets-hint" style="margin-top:6px;color:var(--accent2)"></div>
+        </div>
+        <div class="form-group">
+          <label>Conexão de saída</label>
+          <select id="fw-ipmode">
+            <option value="proxy" selected>Proxy do perfil — a conta sai pelo IP dela</option>
+            <option value="local">IP local do PC (sem proxy)</option>
+          </select>
+          <div class="form-hint">Para seguir, o coerente é a conta sair <b>sempre pelo mesmo IP</b> em que ela vive (idealmente 4G/LTE). Trocar de IP entre sessões é sinal forte.</div>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center">
+          <button id="fw-harvest" class="btn btn-primary" onclick="followHarvest()">🔎 Coletar para a fila</button>
+          <button id="fw-newqueue" class="btn btn-ghost btn-sm" onclick="followNewQueue()" style="display:none">🗑 Começar fila nova</button>
+          <button id="fw-discard" class="btn btn-danger btn-sm" onclick="followDiscardQueue()" title="Apaga a fila atual e a execução — não fica no histórico">🗑️ Zerar fila (sem salvar)</button>
+        </div>
+        <div class="form-hint" style="margin-top:8px">Esta etapa só <b>lê</b> listas — nada é seguido aqui. Coletar de novo <b>acumula</b> na mesma fila (dá pra juntar várias fontes); quem já está na fila, no histórico global ou na blacklist não entra duas vezes.</div>
+      </div>
+
+      <!-- 2. FILTROS -->
+      <div class="form-card" style="max-width:600px;margin-top:16px">
+        <div style="font-weight:600;margin-bottom:12px">2 · Filtros — quem qualifica</div>
+        <div style="font-size:12px;color:var(--muted);margin-bottom:10px">Grátis (não custam requisição):</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px 14px;margin-bottom:14px">
+          <label style="display:flex;gap:8px;align-items:center;font-weight:400;cursor:pointer;font-size:13px"><input type="checkbox" id="fw-skipPrivate"> Pular privadas</label>
+          <label style="display:flex;gap:8px;align-items:center;font-weight:400;cursor:pointer;font-size:13px"><input type="checkbox" id="fw-skipVerified"> Pular verificadas</label>
+          <label style="display:flex;gap:8px;align-items:center;font-weight:400;cursor:pointer;font-size:13px"><input type="checkbox" id="fw-skipNoProfilePic"> Exigir foto de perfil</label>
+          <label style="display:flex;gap:8px;align-items:center;font-weight:400;cursor:pointer;font-size:13px"><input type="checkbox" id="fw-skipFollowedByViewer"> Pular quem já sigo</label>
+        </div>
+        <div style="font-size:12px;color:var(--muted);margin-bottom:10px">Custam <b>1 requisição extra por conta</b> (leitura de perfil) — só mexa se precisar:</div>
+        <div class="form-row">
+          <div class="form-group"><label>Seguidores (mín)</label><input id="fw-followersMin" type="number" min="0"></div>
+          <div class="form-group"><label>Seguidores (máx)</label><input id="fw-followersMax" type="number" min="0"></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label>Seguindo (mín)</label><input id="fw-followingMin" type="number" min="0"></div>
+          <div class="form-group"><label>Seguindo (máx)</label><input id="fw-followingMax" type="number" min="0"></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label>Posts (mín)</label><input id="fw-postsMin" type="number" min="0"></div>
+          <div class="form-group"><label>Ratio mín (seg/segue)</label><input id="fw-ratioMin" type="number" min="0" step="0.1"></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label>Postou nos últimos (dias, 0=off)</label><input id="fw-lastPostMaxDays" type="number" min="0"></div>
+          <div class="form-group" style="display:flex;align-items:flex-end;padding-bottom:8px">
+            <label style="display:flex;gap:8px;align-items:center;font-weight:400;cursor:pointer;font-size:13px"><input type="checkbox" id="fw-skipBusiness"> Pular business</label>
+          </div>
+        </div>
+        <div class="form-group"><label>Bio contém (separe por vírgula)</label><input id="fw-requireBioText" type="text" placeholder="ex.: moda, sp"></div>
+        <div class="form-group"><label>Bio NÃO contém</label><input id="fw-excludeBioText" type="text" placeholder="ex.: loja, promo"></div>
+        <div class="form-hint" id="fw-enrich-warn" style="display:none;color:var(--accent2)"></div>
+      </div>
+
+      <!-- 3. RITMO -->
+      <div class="form-card" style="max-width:600px;margin-top:16px">
+        <div style="font-weight:600;margin-bottom:12px">3 · Ritmo e tetos</div>
+        <div class="form-group">
+          <label>Preset</label>
+          <select id="fw-preset" onchange="followApplyPreset()">
+            <option value="conservador">🛡️ Conservador — 3 min · 20/h · 100/dia (padrão)</option>
+            <option value="equilibrado">⚖ Equilibrado — 1,5 min · 40/h · 150/dia</option>
+            <option value="rapido">🚀 Rápido — 1 min · 60/h · 200/dia</option>
+            <option value="custom">✎ Personalizado</option>
+          </select>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label>Intervalo (min)</label><input id="fw-interval" type="number" min="0.2" step="0.1" onchange="document.getElementById('fw-preset').value='custom'"></div>
+          <div class="form-group"><label>Máx por hora</label><input id="fw-maxPerHour" type="number" min="1" onchange="document.getElementById('fw-preset').value='custom'"></div>
+          <div class="form-group"><label>Máx por dia</label><input id="fw-maxPerDay" type="number" min="1" onchange="document.getElementById('fw-preset').value='custom'"></div>
+        </div>
+        <div class="form-hint">Intervalo e teto/hora descrevem a <b>mesma</b> velocidade (intervalo ≈ 60 ÷ máx/hora). Baixar só o intervalo não produz mais: gera rajada e depois ociosidade. Os tetos usam <b>janela deslizante real</b> — não "zeram à meia-noite".</div>
+        <label style="display:flex;align-items:flex-start;gap:8px;margin-top:12px;font-weight:400;cursor:pointer">
+          <input type="checkbox" id="fw-dryRun" checked style="margin-top:3px">
+          <span style="font-size:12px;color:var(--muted)"><b>Modo simulação</b> — decide tudo (coleta, filtros, fila) e mostra quem <i>seria</i> seguido, <b>sem seguir de verdade</b>. Deixe ligado no primeiro teste.</span>
+        </label>
+        <div style="display:flex;gap:8px;align-items:center;margin-top:14px">
+          <button id="fw-start" class="btn btn-primary" onclick="followStart()">▶ Iniciar</button>
+          <button id="fw-stop" class="btn btn-danger btn-sm" onclick="followStop()" style="display:none">⏹ Parar</button>
+          <button class="btn btn-ghost btn-sm" onclick="followSaveConfig(this)">💾 Salvar ajustes</button>
+        </div>
+      </div>
+
+      <!-- 4. UNFOLLOW -->
+      <div class="form-card" style="max-width:600px;margin-top:16px">
+        <div style="font-weight:600;margin-bottom:4px">4 · Deixar de seguir</div>
+        <div class="form-hint" style="margin-bottom:12px">
+          O Instagram limita cada conta a seguir <b>7.500 perfis</b>. Sem desfazer follows a campanha
+          trava nesse teto — por isso o unfollow não é opcional a longo prazo, é o que mantém espaço.
+        </div>
+        <div id="fw-quota" style="margin-bottom:14px;font-size:13px"></div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Desfazer após (dias)</label>
+            <input id="fw-unfollowAfterDays" type="number" min="1" max="90" value="3">
+          </div>
+          <div class="form-group">
+            <label>Quantos nesta execução</label>
+            <input id="fw-unfollow-limit" type="number" min="1" value="200">
+          </div>
+        </div>
+        <label style="display:flex;align-items:flex-start;gap:8px;font-weight:400;cursor:pointer;margin-bottom:6px">
+          <input type="checkbox" id="fw-protectMutuals" checked style="margin-top:3px">
+          <span style="font-size:12px;color:var(--muted)"><b>Não desfazer quem te seguiu de volta</b> — mantém os mútuos (custa 1 requisição por conta para checar).</span>
+        </label>
+        <div class="form-hint" style="margin-bottom:12px">
+          🔒 Só desfaz o que <b>o app seguiu com esta conta</b> — follows que você fez na mão nunca são tocados.
+          A <b>whitelist</b> abaixo protege contas específicas para sempre.
+        </div>
+        <div class="form-group">
+          <label>Whitelist — nunca deixar de seguir</label>
+          <div style="display:flex;gap:6px">
+            <input id="fw-white-input" type="text" placeholder="@usuario" style="flex:1">
+            <button class="btn btn-ghost btn-sm" onclick="followWhitelistAdd()">+ Proteger</button>
+          </div>
+          <div id="fw-whitelist" style="margin-top:8px;font-size:12px;color:var(--muted)"></div>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;margin-top:6px">
+          <button id="fw-unfollow-start" class="btn btn-primary" onclick="unfollowStart()">▶ Deixar de seguir</button>
+          <button class="btn btn-ghost btn-sm" onclick="loadUnfollowQuota(true)">↻ Recalcular</button>
+        </div>
+        <div class="form-hint" style="margin-top:8px">Usa o <b>mesmo ritmo e os mesmos tetos</b> do passo 3 — desfazer follow gasta o mesmo orçamento de ações da conta que seguir. O <b>modo simulação</b> também vale aqui.</div>
+      </div>
+
+      <!-- STATUS -->
+      <div id="fw-status" style="display:none;margin-top:16px;max-width:820px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:14px 16px;font-size:13px">
+        <div><b id="fw-state">—</b> <span id="fw-mode" style="color:var(--accent2)"></span></div>
+        <div id="fw-stats" style="color:var(--muted);font-size:12px;margin-top:6px"></div>
+        <div style="margin-top:12px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em">Terminal do processo</div>
+        <pre id="fw-log" style="margin:6px 0 0;max-height:240px;overflow:auto;background:#0b0f17;border:1px solid var(--border);border-radius:8px;padding:10px 12px;font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.5;color:#cbd5e1;white-space:pre-wrap;word-break:break-word"></pre>
+        <div style="margin-top:12px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em">Fila <span id="fw-queue-count"></span></div>
+        <div class="table-wrap" style="max-height:260px;overflow:auto">
+          <table>
+            <thead><tr><th>Conta</th><th>Seguidores</th><th>Status</th><th>Observação</th></tr></thead>
+            <tbody id="fw-queue"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- MÉTRICAS -->
+      <div style="margin-top:22px;max-width:980px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+          <div style="font-weight:600">📊 Métricas</div>
+          <div style="display:flex;gap:6px">
+            <button class="btn btn-success btn-sm" onclick="followExportCsv(this)" title="CSV com todas as pessoas já seguidas (nunca repetidas), a conta que seguiu, a origem e se ainda está seguindo">⬇ Exportar CSV</button>
+            <button class="btn btn-ghost btn-sm" onclick="loadFollowMetrics()">↻ Atualizar</button>
+          </div>
+        </div>
+        <div id="fw-metrics-total" style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px"></div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Conta</th><th>Seguiu</th><th>Ainda seguindo</th><th>Desfez</th><th>Teto 7.500</th><th>Última hora</th><th>Últimas 24h</th></tr></thead>
+            <tbody id="fw-metrics-contas"></tbody>
+          </table>
+        </div>
+        <div id="fw-metrics-alvos" style="margin-top:10px;font-size:12px;color:var(--muted)"></div>
+      </div>
+
+      <!-- HISTÓRICO -->
+      <div style="margin-top:22px;max-width:980px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+          <div style="font-weight:600">📜 Histórico de execuções</div>
+          <button class="btn btn-ghost btn-sm" onclick="loadFollowHistory()">↻ Atualizar</button>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Quando</th><th>Conta</th><th>Fonte</th><th>Resultado</th><th>Status</th><th>Ações</th></tr></thead>
+            <tbody id="fw-history"></tbody>
+          </table>
+        </div>
+        <div id="fw-global" style="margin-top:10px;font-size:12px;color:var(--muted)"></div>
       </div>
     </div>
 
@@ -1455,12 +1738,29 @@ let editProfileId = null;
 let pollInterval = null;
 
 // ── Helpers ──────────────────────────────────────────────
-async function api(method, path, body) {
-  const res = await fetch(API + path, {
-    method,
-    headers: body ? {'Content-Type': 'application/json'} : {},
-    body: body ? JSON.stringify(body) : undefined,
-  });
+async function api(method, path, body, timeoutMs) {
+  // TIMEOUT obrigatório: sem ele, uma requisição que nunca responde (backend caiu,
+  // internet fora no meio de uma chamada) deixava a tela em "Carregando..." para
+  // sempre — o sintoma de "travou". Melhor falhar visível do que fingir que carrega.
+  // Operações longas (abrir perfil, importar sessão, disparar) passam o seu próprio.
+  const ctrl = new AbortController();
+  const limite = timeoutMs || 20000;
+  const t = setTimeout(() => ctrl.abort(), limite);
+  let res;
+  try {
+    res = await fetch(API + path, {
+      method,
+      headers: body ? {'Content-Type': 'application/json'} : {},
+      body: body ? JSON.stringify(body) : undefined,
+      signal: ctrl.signal,
+    });
+  } catch (e) {
+    clearTimeout(t);
+    if (e.name === 'AbortError')
+      throw new Error(`sem resposta em ${Math.round(limite / 1000)}s — o app está rodando? (${path})`);
+    throw new Error(`falha de conexão com o app (${path})`);
+  }
+  clearTimeout(t);
   if (res.status === 204) return null;
   const text = await res.text();
   let data = null;
@@ -1527,6 +1827,7 @@ function showPage(name) {
   if (name === 'proxies') loadProxiesPage();
   if (name === 'analytics') loadAnalytics();
   if (name === 'spider') loadSpider();
+  if (name === 'follow') loadFollow();
   if (name === 'monitored') loadMonitored();
   if (name === 'start') loadStartProxyHealth();
   if (name === 'localdata') loadLocalData();
@@ -2437,8 +2738,11 @@ async function confirmLaunch() {
   if (!profileId) { toast('Perfil nao selecionado', 'error'); return; }
   closeModal();
   try {
-    await api('POST', `/profiles/${encodeURIComponent(profileId)}/launch`, { url, headless, mode });
-    toast('Browser iniciando...');
+    toast('🔄 Renovando o IP do modem antes de abrir (~20s)…');
+    const r = await api('POST', `/profiles/${encodeURIComponent(profileId)}/launch`, { url, headless, mode }, 180000);
+    const rot = r && r.ip_rotation;
+    toast(rot && rot.mudou ? `✓ IP novo (${(rot.ips || []).join(', ')}) · browser iniciando…`
+                           : 'Browser iniciando...');
     setTimeout(loadProfiles, 1500);
   } catch(e) {
     // 409 = perfil em uso por outra máquina (lock compartilhado)
@@ -2459,7 +2763,7 @@ async function warmupProfile(id, btn) {
   const minutes = parseFloat(mins) || 10;
   if (btn) { btn.disabled = true; btn.textContent = '🔥 ...'; }
   try {
-    await api('POST', `/profiles/${encodeURIComponent(id)}/warmup-profile`, { minutes, headless: true });
+    await api('POST', `/profiles/${encodeURIComponent(id)}/warmup-profile`, { minutes, headless: true }, 1800000);
     toast(`Aquecendo perfil por ~${minutes} min em segundo plano...`);
   } catch (e) {
     toast(e.message?.includes('already') ? 'O perfil já está aberto — feche antes de aquecer' : (e.message || 'Erro ao aquecer'), 'error');
@@ -2476,7 +2780,7 @@ async function warmBrowser(profileId, btn) {
   const minutes = parseFloat(mins) || 10;
   if (btn) { btn.disabled = true; btn.textContent = '🔥 …'; }
   try {
-    await api('POST', `/profiles/${encodeURIComponent(profileId)}/warmup-profile`, { minutes, headless: true });
+    await api('POST', `/profiles/${encodeURIComponent(profileId)}/warmup-profile`, { minutes, headless: true }, 1800000);
     toast(`Aquecendo o navegador por ~${minutes} min em segundo plano…`);
     setTimeout(loadAccountsPage, 1500);
   } catch (e) {
@@ -2485,14 +2789,11 @@ async function warmBrowser(profileId, btn) {
   }
 }
 
-async function launchAll() {
-  const profiles = await api('GET', '/profiles');
-  if (!profiles.length) { toast('Nenhum perfil cadastrado', 'error'); return; }
-  const ids = profiles.map(p => p.id);
-    await api('POST', '/sessions/bulk-launch', { profile_ids: ids, url: 'https://abrahamjuliot.github.io/creepjs/', mode: 'manual' });
-  toast(`${ids.length} perfis iniciando...`);
-  setTimeout(loadProfiles, 1500);
-}
+// "Abrir Todos" REMOVIDO (2026-08-16, decisão do usuário: não será usado). Já estava
+// fora do menu desde 2026-06-17 e nenhum botão chamava a função — era código morto.
+// Abrir vários perfis de uma vez também briga com a rotação de IP: perfis simultâneos
+// compartilham a mesma época de saída do modem, então a rotação não os separaria.
+// O endpoint POST /sessions/bulk-launch continua no backend, dormente.
 
 // ── Sessions ──────────────────────────────────────────────
 async function loadSessions() {
@@ -3106,6 +3407,7 @@ function renderProxyHealth(h) {
 }
 
 async function loadProxiesPage() {
+  loadModem();                       // card do modem 4G (independente do pool)
   try {
     const [pool, analytics, test, health] = await Promise.all([
       api('GET', '/proxies/pool'),
@@ -3430,7 +3732,7 @@ async function importAccountSession(id, btn) {
   const stop = runBtnCountdown(btn, 50);
   out.textContent = '';
   try {
-    const r = await api('POST', `/accounts/${encodeURIComponent(id)}/import-session`, { cookies: raw });
+    const r = await api('POST', `/accounts/${encodeURIComponent(id)}/import-session`, { cookies: raw }, 180000);
     stop();
     if (r.logged === true) {
       out.innerHTML = `<span style="color:var(--green)">✓ sessão importada e LOGADA (status ${r.status}${r.ds_user_id ? ', id ' + escapeHtml(String(r.ds_user_id)) : ''}) — já dá pra extrair no Spider</span>`;
@@ -3448,19 +3750,32 @@ async function importAccountSession(id, btn) {
 // até 0; se estourar (a ação ainda não voltou), mostra "finalizando…". Retorna
 // uma função para parar e restaurar o rótulo. Guarda o texto original p/ não
 // trocar "Verificar status" do modal por "Verificar".
+// Ações em andamento (countdown rodando). O poll de 3s NÃO pode re-renderizar as
+// listas enquanto isso: ele troca o <button> por um novo elemento, o timer fica
+// escrevendo num nó já descartado e a contagem "some" na cara do usuário.
+window._uiBusy = 0;
+
 function runBtnCountdown(btn, estSeconds) {
   if (!btn) return () => {};
   const orig = btn.dataset.origText || btn.textContent;
   btn.dataset.origText = orig;
   btn.disabled = true;
+  window._uiBusy++;
   let remaining = estSeconds;
+  let parado = false;
   const tick = () => {
+    // Se mesmo assim o botão sair do DOM (outra re-renderização), encerra o timer
+    // em vez de escrever no vazio para sempre.
+    if (!btn.isConnected) { clearInterval(iv); return; }
     btn.textContent = remaining > 0 ? `⏳ ${remaining}s` : '⏳ finalizando…';
     if (remaining > 0) remaining--;
   };
   tick();
   const iv = setInterval(tick, 1000);
   return () => {
+    if (parado) return;
+    parado = true;
+    window._uiBusy = Math.max(0, window._uiBusy - 1);
     clearInterval(iv);
     btn.disabled = false;
     btn.textContent = btn.dataset.origText || orig;
@@ -3473,7 +3788,7 @@ async function checkAccount(id, btn) {
   const stop = runBtnCountdown(btn, 45);
   toast('Verificando status (pode abrir o navegador)...');
   try {
-    const r = await api('POST', `/accounts/${id}/check`);
+    const r = await api('POST', `/accounts/${id}/check`, null, 180000);
     toast(`✓ Verificação concluída — ${ACCOUNT_LABELS[r.status] || r.status}${r.detail ? ' · ' + r.detail : ''}`);
     await loadAccountsPage();
     if (document.getElementById('modal-account').classList.contains('open')) accountDetail(id);
@@ -3486,17 +3801,20 @@ async function checkAccount(id, btn) {
 
 async function openAccountProfile(profileId, btn) {
   if (!profileId) { toast('Esta conta não tem perfil vinculado', 'error'); return; }
-  if (btn) { btn.disabled = true; btn.textContent = '...'; }
+  // O launch renova o IP do modem antes de abrir (~20s) — daí o countdown.
+  const stopCountdown = runBtnCountdown(btn, 25);
   try {
-    await api('POST', `/profiles/${encodeURIComponent(profileId)}/launch`, {
+    const r = await api('POST', `/profiles/${encodeURIComponent(profileId)}/launch`, {
       url: 'https://www.instagram.com/', headless: false, mode: 'manual',
-    });
-    toast('Abrindo o perfil no navegador...');
+    }, 180000);
+    const rot = r && r.ip_rotation;
+    toast(rot && rot.mudou ? `✓ IP novo (${(rot.ips || []).join(', ')}) · abrindo o perfil…`
+                           : 'Abrindo o perfil no navegador...');
   } catch (e) {
     // 409 = já está aberto
     toast(e.message?.includes('already') ? 'Este perfil já está aberto' : (e.message || 'Erro ao abrir'), e.message?.includes('already') ? 'success' : 'error');
   } finally {
-    if (btn) { btn.disabled = false; btn.textContent = 'Abrir'; }
+    stopCountdown();
   }
 }
 
@@ -3642,6 +3960,632 @@ function spiderIpModeHint() {
     }
   }
   hint.innerHTML = msg;
+}
+
+// ── Modem 4G: rotação do IP de saída ─────────────────────────────────────────
+async function loadModem() {
+  const box = document.getElementById('modem-state');
+  if (!box) return;
+  try {
+    const cfg = await api('GET', '/modem/config');
+    document.getElementById('modem-url').value = cfg.url || '';
+    document.getElementById('modem-user').value = cfg.user || '';
+    document.getElementById('modem-method').value = cfg.method || 'mode';
+    document.getElementById('modem-enabled').checked = !!cfg.enabled;
+    box.textContent = 'consultando o modem…';
+    const st = await api('GET', '/modem/status');
+    if (!st.ok) {
+      box.innerHTML = `<span style="color:#ef4444">✖ não consegui falar com o modem em ${escapeHtml(st.url || '')}`
+        + `${st.error ? ' — ' + escapeHtml(st.error) : ''}</span>`;
+      return;
+    }
+    const sig = st.signal != null ? `${st.signal} dBm` : '—';
+    box.innerHTML = `<b>${escapeHtml(st.carrier || '?')}</b> · ${escapeHtml(st.state || '')}`
+      + ` · modo ${escapeHtml(st.netmode_label || '?')} · sinal ${sig}`
+      + `<br>IP de saída agora: <b>${(st.public_ips || []).map(escapeHtml).join(', ') || '?'}</b>`
+      + ` <span style="color:var(--muted)">(vários = CGNAT da operadora)</span>`
+      + `<br><span style="color:var(--muted)">WAN interno ${escapeHtml(st.wan_ip || '?')} · IMEI ${escapeHtml(st.imei || '?')}</span>`
+      + (st.last_rotation && st.last_rotation.at
+          ? `<br><span style="color:var(--muted)">Última rotação: ${escapeHtml(st.last_rotation.at)} (${escapeHtml(st.last_rotation.method || '')})</span>` : '');
+  } catch (e) {
+    box.innerHTML = `<span style="color:#ef4444">Erro: ${escapeHtml(e.message || e)}</span>`;
+  }
+}
+
+async function saveModem(btn) {
+  const body = {
+    url: document.getElementById('modem-url').value.trim(),
+    user: document.getElementById('modem-user').value.trim(),
+    method: document.getElementById('modem-method').value,
+    enabled: document.getElementById('modem-enabled').checked,
+  };
+  const pw = document.getElementById('modem-pass').value;
+  if (pw) body.password = pw;
+  try {
+    await api('POST', '/modem/config', body);
+    document.getElementById('modem-pass').value = '';
+    toast('✓ Ajustes do modem salvos', 'success');
+    loadModem();
+  } catch (e) { toast(e.message || 'Erro ao salvar', 'error'); }
+}
+
+async function rotateModem(btn) {
+  if (!confirm('Rotacionar o IP agora?\n\nA internet do PC cai por alguns segundos — inclusive para extrações em andamento.')) return;
+  const out = document.getElementById('modem-rotate-result');
+  out.style.display = '';
+  out.innerHTML = '⏳ rotacionando… (a conexão vai cair por alguns segundos)';
+  runBtnCountdown(btn, 35);
+  try {
+    const r = await api('POST', '/modem/rotate', null, 240000);
+    if (!r.ok) {
+      out.innerHTML = `<span style="color:#ef4444">✖ ${escapeHtml(r.error || 'falhou')}</span>`;
+      return;
+    }
+    const antes = (r.ips_antes || []).map(escapeHtml).join(', ') || '?';
+    const depois = (r.ips_depois || []).map(escapeHtml).join(', ') || '?';
+    out.innerHTML = (r.mudou
+        ? `<span style="color:#22c55e">✓ IP renovado em ${r.segundos}s</span>`
+        : `<span style="color:#f59e0b">⚠ rotação feita, mas repetiu ${escapeHtml((r.repetidos || []).join(', '))}</span>`)
+      + `<br><span style="color:var(--muted)">antes:</span> ${antes}`
+      + `<br><span style="color:var(--muted)">depois:</span> ${depois}`;
+    loadModem();
+  } catch (e) {
+    out.innerHTML = `<span style="color:#ef4444">✖ ${escapeHtml(e.message || e)}</span>`;
+  }
+}
+
+// ── Seguir (porte da extensão InstaFollow) ───────────────────────────────────
+let _followJob = null, _followTimer = null;
+
+// Campos do formulário ↔ chaves de filtro do backend.
+const FW_CHECKS = ['skipPrivate', 'skipVerified', 'skipNoProfilePic', 'skipFollowedByViewer', 'skipBusiness'];
+const FW_NUMS = ['followersMin', 'followersMax', 'followingMin', 'followingMax',
+                 'postsMin', 'ratioMin', 'lastPostMaxDays'];
+const FW_TEXTS = ['requireBioText', 'excludeBioText'];
+
+function followTargets() {
+  return document.getElementById('fw-target').value
+    .split('\n').map(s => s.trim()).filter(Boolean);
+}
+
+// Salva sozinho o que você digitou (alvos, fonte, fatia) — sem depender de lembrar
+// de clicar em "Salvar ajustes". Debounce para não bater na API a cada tecla.
+let _fwSaveTimer = null;
+function followAutoSave() {
+  clearTimeout(_fwSaveTimer);
+  _fwSaveTimer = setTimeout(async () => {
+    try {
+      const { settings, filters } = followReadConfig();
+      await api('POST', '/follow/config', { settings, filters });
+    } catch (e) { /* silencioso: é só memória de tela */ }
+  }, 900);
+}
+
+function followTargetsHint() {
+  const el = document.getElementById('fw-targets-hint');
+  if (!el) return;
+  const n = followTargets().length;
+  const teto = parseInt(document.getElementById('fw-limit').value, 10) || 200;
+  followAutoSave();     // ANTES do return: apagar os alvos também precisa ser salvo
+  if (!n) { el.textContent = ''; return; }
+  // A divisão é automática: o total é repartido IGUALMENTE entre os alvos, e o
+  // resto sobra nos primeiros (1000 ÷ 7 = 5×143 + 2×142 = 1000, sem truncar).
+  const base = Math.floor(teto / n), resto = teto % n;
+  const reparte = resto ? `${base + 1} nos primeiros ${resto} e ${base} nos demais` : `${base} de cada`;
+  el.innerHTML = `🎯 <b>${teto}</b> contas novas ÷ ${n} alvo(s) = <b>${reparte}</b>`
+    + ` <span style="color:var(--muted)">— se um alvo render menos, os outros completam</span>`
+    + ` <span style="color:var(--muted)">· salvo automaticamente</span>`;
+}
+
+function followPoolHint() {
+  const el = document.getElementById('fw-pool-hint');
+  if (!el) return;
+  const n = document.querySelectorAll('.fw-pool-chk:checked').length || 1;
+  const bloco = parseInt(document.getElementById('fw-followsPerAccount').value, 10) || 100;
+  const fila = _followJob ? (window._followPendentes || 0) : 0;
+  el.innerHTML = `👥 ${n} conta(s) × ${bloco} = <b>${n * bloco}</b> follow(s) por ciclo`
+    + (fila ? ` · fila atual: ${fila}` : '')
+    + ` <span style="color:var(--muted)">— o teto por hora/dia da conta também vale (o que vier primeiro)</span>`;
+  followAutoSave();
+}
+
+function followSourceHint() {
+  const src = document.getElementById('fw-source').value;
+  const isLikers = src === 'likers';
+  document.getElementById('fw-target-label').textContent = isLikers
+    ? 'Posts — uma URL por linha' : 'Alvos — um por linha';
+  document.getElementById('fw-target').placeholder = isLikers
+    ? 'https://www.instagram.com/p/XXXXXXXXXXX/\nhttps://www.instagram.com/p/YYYYYYYYYYY/'
+    : '@perfil_um\n@perfil_dois\n@perfil_tres';
+  document.getElementById('fw-source-hint').innerHTML = isLikers
+    ? '⚠️ A API de curtidas <b>não pagina</b>: vem só a primeira página (~50 contas) de cada post.'
+    : 'A coleta pega só o <b>topo</b> da lista de cada alvo e passa pro próximo — em vez de paginar fundo num só. '
+      + 'Menos risco (a lista profunda é o que queima conta) e material melhor (o topo são os seguidores mais recentes, contas ativas agora).';
+  followTargetsHint();
+}
+
+function followApplyPreset() {
+  const p = document.getElementById('fw-preset').value;
+  const presets = (window._followCfg && window._followCfg.presets) || {};
+  if (p === 'custom' || !presets[p]) return;
+  document.getElementById('fw-interval').value = (presets[p].baseDelayMs / 60000).toFixed(1);
+  document.getElementById('fw-maxPerHour').value = presets[p].maxPerHour;
+  document.getElementById('fw-maxPerDay').value = presets[p].maxPerDay;
+}
+
+function followReadConfig() {
+  const filters = {};
+  FW_CHECKS.forEach(k => filters[k] = document.getElementById('fw-' + k).checked);
+  FW_NUMS.forEach(k => {
+    const v = document.getElementById('fw-' + k).value;
+    if (v !== '') filters[k] = Number(v);
+  });
+  FW_TEXTS.forEach(k => filters[k] = document.getElementById('fw-' + k).value.trim());
+  const settings = {
+    baseDelayMs: Math.round((parseFloat(document.getElementById('fw-interval').value) || 3) * 60000),
+    maxPerHour: parseInt(document.getElementById('fw-maxPerHour').value, 10) || 20,
+    maxPerDay: parseInt(document.getElementById('fw-maxPerDay').value, 10) || 100,
+    dryRun: document.getElementById('fw-dryRun').checked,
+    harvestLimit: parseInt(document.getElementById('fw-limit').value, 10) || 200,
+    // O que estava na tela — para reabrir o app e encontrar tudo como deixou.
+    harvestTargets: document.getElementById('fw-target').value,
+    harvestSourceType: document.getElementById('fw-source').value,
+    harvestPerTarget: parseInt(document.getElementById('fw-per-target').value, 10) || 50,
+    unfollowAfterDays: parseInt(document.getElementById('fw-unfollowAfterDays').value, 10) || 3,
+    protectMutuals: document.getElementById('fw-protectMutuals').checked,
+    followsPerAccount: parseInt(document.getElementById('fw-followsPerAccount').value, 10) || 100,
+  };
+  return { settings, filters };
+}
+
+function followFillConfig(cfg) {
+  window._followCfg = cfg;
+  const f = cfg.filters || {}, s = cfg.settings || {};
+  FW_CHECKS.forEach(k => document.getElementById('fw-' + k).checked = f[k] === true);
+  FW_NUMS.forEach(k => document.getElementById('fw-' + k).value = f[k] ?? '');
+  FW_TEXTS.forEach(k => document.getElementById('fw-' + k).value = f[k] || '');
+  document.getElementById('fw-interval').value = ((s.baseDelayMs || 180000) / 60000).toFixed(1);
+  document.getElementById('fw-maxPerHour').value = s.maxPerHour ?? 20;
+  document.getElementById('fw-maxPerDay').value = s.maxPerDay ?? 100;
+  document.getElementById('fw-dryRun').checked = s.dryRun !== false;
+  document.getElementById('fw-unfollowAfterDays').value = s.unfollowAfterDays ?? 3;
+  document.getElementById('fw-protectMutuals').checked = s.protectMutuals !== false;
+  // Restaura o que estava na tela (alvos, fonte, fatia por alvo).
+  if (s.harvestTargets) document.getElementById('fw-target').value = s.harvestTargets;
+  if (s.harvestSourceType) document.getElementById('fw-source').value = s.harvestSourceType;
+  if (s.harvestPerTarget) document.getElementById('fw-per-target').value = s.harvestPerTarget;
+  if (s.harvestLimit) document.getElementById('fw-limit').value = s.harvestLimit;
+  document.getElementById('fw-followsPerAccount').value = s.followsPerAccount ?? 100;
+  // Reconhece o preset pelos valores atuais (senão marca Personalizado).
+  const presets = cfg.presets || {};
+  const hit = Object.keys(presets).find(k => presets[k].baseDelayMs === s.baseDelayMs
+    && presets[k].maxPerHour === s.maxPerHour && presets[k].maxPerDay === s.maxPerDay);
+  document.getElementById('fw-preset').value = hit || 'custom';
+  followEnrichWarn(cfg);
+  const g = document.getElementById('fw-global');
+  if (g) g.innerHTML = `Histórico global: <b>${cfg.history_count || 0}</b> conta(s) já seguida(s) — nunca são seguidas de novo, `
+    + `então cada conta sua pega uma fatia distinta da fila.`
+    + ((cfg.blacklist || []).length ? ` · Blacklist: ${cfg.blacklist.length}` : '');
+}
+
+function followEnrichWarn(cfg) {
+  const el = document.getElementById('fw-enrich-warn');
+  if (!el) return;
+  const on = cfg && cfg.needs_enrichment;
+  el.style.display = on ? '' : 'none';
+  if (on) el.innerHTML = '⚠️ Enriquecimento <b>ligado</b> pelos filtros acima: cada conta da fila custa <b>1 requisição extra</b> '
+    + '(leitura de perfil). Dobra o tráfego e é o que mais pesa no risco de limite.'
+    + ((cfg.active_filters || []).length ? `<br>Filtros ativos: ${escapeHtml(cfg.active_filters.join(' · '))}` : '');
+}
+
+async function loadFollow() {
+  try {
+    const [profiles, cfg] = await Promise.all([
+      api('GET', '/profiles'),
+      api('GET', '/follow/config'),
+    ]);
+    const logged = (profiles || []).filter(p => p.account_status === 'active');
+    document.getElementById('fw-profile').innerHTML = logged.map(p =>
+      `<option value="${p.id}">${escapeHtml(p.name)}${p.account_username ? ' (@' + escapeHtml(p.account_username) + ')' : ''}</option>`
+    ).join('') || '<option value="">(nenhum perfil com conta logada)</option>';
+    // Já vêm MARCADAS: o normal é querer que todas as contas logadas dividam a fila.
+    // Desmarcar é a exceção (deixar uma conta de fora), não a regra.
+    document.getElementById('fw-pool').innerHTML = logged.map(p =>
+      `<label style="display:flex;align-items:center;gap:8px;padding:3px 2px;font-weight:400;cursor:pointer">
+         <input type="checkbox" class="fw-pool-chk" value="${p.id}" checked onchange="followPoolHint()">
+         <span style="font-size:13px">${escapeHtml(p.name)}${p.account_username ? ' <span style="color:var(--muted)">(@' + escapeHtml(p.account_username) + ')</span>' : ''}</span>
+       </label>`).join('') || '<div style="color:var(--muted);font-size:12px;padding:4px">Nenhum perfil logado.</div>';
+    followFillConfig(cfg);
+    followSourceHint();
+    followPoolHint();
+    loadFollowHistory();
+    loadFollowWhitelist();
+    loadUnfollowQuota();
+    loadFollowMetrics();
+    followReattach();
+  } catch (e) { toast(e.message || 'Erro ao carregar a aba InstaFollow', 'error'); }
+}
+
+// Ao voltar para a aba, RELIGA o acompanhamento de uma execução em andamento.
+// O job vive no backend (asyncio), não na tela — trocar de aba nunca o interrompe;
+// sem isto, porém, o painel voltava vazio e parecia que tinha parado.
+async function followReattach() {
+  try {
+    if (_followJob) { followPoll(); return; }
+    const r = await api('GET', '/follow/history');
+    const itens = r.items || [];
+    const viva = itens.find(i => i.status === 'running' || i.status === 'harvesting');
+    if (viva) {
+      _followJob = viva.id;
+      document.getElementById('fw-status').style.display = '';
+      document.getElementById('fw-stop').style.display = '';
+      toast('▶ Reconectado à execução em andamento', 'success');
+      followPoll();
+      return;
+    }
+    // Sem execução ativa: traz de volta a ÚLTIMA fila coletada. Ela está salva em
+    // queue_json desde sempre — só faltava a tela ir buscar depois de reiniciar.
+    const ultima = itens.find(i => (i.mode || 'follow') === 'follow');
+    if (!ultima) return;
+    const j = await api('GET', `/follow/jobs/${ultima.id}`);
+    if (!j || !j.queue_total) return;
+    _followJob = j.id;
+    document.getElementById('fw-status').style.display = '';
+    document.getElementById('fw-newqueue').style.display = '';
+    followPoll();     // uma passada só: o status não é 'running', então não reagenda
+    if (j.queue_pending) toast(`Fila recuperada: ${j.queue_pending} conta(s) pendente(s)`, 'success');
+  } catch (e) { /* nada a recuperar */ }
+}
+
+async function followSaveConfig(btn) {
+  const { settings, filters } = followReadConfig();
+  try {
+    const cfg = await api('POST', '/follow/config', { settings, filters });
+    followFillConfig(cfg);
+    toast('✓ Ajustes salvos', 'success');
+  } catch (e) { toast(e.message || 'Erro ao salvar', 'error'); }
+}
+
+async function followHarvest() {
+  const profile_id = document.getElementById('fw-profile').value;
+  const targets = followTargets();
+  if (!profile_id) { toast('Selecione uma conta logada', 'error'); return; }
+  if (!targets.length) { toast('Informe ao menos um alvo (um por linha)', 'error'); return; }
+  const body = {
+    profile_id,
+    source_type: document.getElementById('fw-source').value,
+    targets,
+    per_target: parseInt(document.getElementById('fw-per-target').value, 10) || 50,
+    limit: parseInt(document.getElementById('fw-limit').value, 10) || 200,
+    use_local: document.getElementById('fw-ipmode').value === 'local',
+  };
+  if (_followJob) body.run_id = _followJob;      // acumula na fila atual
+  const btn = document.getElementById('fw-harvest');
+  btn.disabled = true;
+  try {
+    const r = await api('POST', '/follow/harvest', body);
+    _followJob = r.job_id;
+    document.getElementById('fw-newqueue').style.display = '';
+    document.getElementById('fw-status').style.display = '';
+    document.getElementById('fw-log').textContent = '(abrindo o perfil…)';
+    followPoll();
+  } catch (e) { toast(e.message || 'Erro ao coletar', 'error'); btn.disabled = false; }
+}
+
+function followNewQueue() {
+  if (!confirm('Começar uma fila nova? A fila atual fica salva no histórico.')) return;
+  _followJob = null;
+  if (_followTimer) clearTimeout(_followTimer);
+  document.getElementById('fw-status').style.display = 'none';
+  document.getElementById('fw-newqueue').style.display = 'none';
+  loadFollowHistory();
+  toast('Fila zerada — colete de uma fonte para começar', 'success');
+}
+
+async function followDiscardQueue() {
+  if (!_followJob) { toast('Não há fila para zerar', 'error'); return; }
+  if (!confirm('Zerar a fila atual SEM SALVAR? A execucao e apagada e nao fica no historico. O historico global de quem ja foi seguido NAO e afetado.')) return;
+  try {
+    const r = await api('POST', '/follow/queue/discard', { run_id: _followJob });
+    if (_followTimer) clearTimeout(_followTimer);
+    _followJob = null;
+    document.getElementById('fw-status').style.display = 'none';
+    document.getElementById('fw-newqueue').style.display = 'none';
+    document.getElementById('fw-start').disabled = false;
+    document.getElementById('fw-harvest').disabled = false;
+    document.getElementById('fw-stop').style.display = 'none';
+    followRenderQueue({ queue_total: 0, queue: [] });
+    loadFollowHistory();
+    loadFollowMetrics();
+    toast('🗑️ Fila zerada — nada foi salvo', 'success');
+  } catch (e) { toast(e.message || 'Erro ao zerar', 'error'); }
+}
+
+async function followStart() {
+  const profile_id = document.getElementById('fw-profile').value;
+  if (!profile_id) { toast('Selecione uma conta logada', 'error'); return; }
+  if (!_followJob) { toast('Colete contas para a fila primeiro', 'error'); return; }
+  const { settings, filters } = followReadConfig();
+  const pool = [...document.querySelectorAll('.fw-pool-chk:checked')].map(c => c.value);
+  if (!settings.dryRun && !confirm(
+      `Modo simulação DESLIGADO: as contas da fila serão seguidas de verdade`
+      + (pool.length > 1 ? `, revezando entre ${pool.length} contas suas` : '') + '.\n\nConfirma?')) return;
+  try {
+    const r = await api('POST', '/follow/start',
+      { profile_id, profile_ids: pool, run_id: _followJob,
+        use_local: document.getElementById('fw-ipmode').value === 'local', settings, filters });
+    if ((r.contas || []).length > 1) toast(`Revezando entre ${r.contas.length} contas`, 'success');
+    document.getElementById('fw-start').disabled = true;
+    document.getElementById('fw-stop').style.display = '';
+    document.getElementById('fw-status').style.display = '';
+    toast(r.dry_run ? `🔎 Simulação iniciada — ${r.pending} conta(s) na fila` : `▶ Seguindo ${r.pending} conta(s)`, 'success');
+    followPoll();
+  } catch (e) { toast(e.message || 'Erro ao iniciar', 'error'); }
+}
+
+async function followStop() {
+  if (!_followJob) return;
+  try {
+    await api('POST', `/follow/stop/${_followJob}`);
+    toast('⏹ Parando… (termina a espera atual)', 'success');
+  } catch (e) { toast(e.message || 'Erro ao parar', 'error'); }
+}
+
+async function followPoll() {
+  if (!_followJob) return;
+  if (_followTimer) clearTimeout(_followTimer);
+  try {
+    const j = await api('GET', `/follow/jobs/${_followJob}`);
+    const map = { idle: '⏸ Pronto', harvesting: '🔎 Coletando…', running: '⏳ Em andamento',
+                  done: '✅ Concluído', stopped: '⏹ Parado', error: '⚠️ Erro' };
+    document.getElementById('fw-state').textContent = map[j.status] || j.status;
+    document.getElementById('fw-mode').textContent = j.dry_run ? '· SIMULAÇÃO (nada é seguido)' : '';
+    const s = j.stats || {}, c = j.counts || {};
+    const ehUnfollow = j.mode === 'unfollow';
+    const acoes = ehUnfollow
+      ? `↩ ${s.unfollowed || 0} desfeita(s)` + (s.simulated ? ` · 🔎 ${s.simulated} simulada(s)` : '')
+      : `✓ ${s.followed || 0} seguida(s) · ✉ ${s.requested || 0} solicitada(s)`
+        + (s.simulated ? ` · 🔎 ${s.simulated} simulada(s)` : '');
+    let quota = '';
+    if (ehUnfollow && j.seguindo_antes != null) {
+      const dep = j.seguindo_depois != null ? ` → <b>${j.seguindo_depois}</b>` : '';
+      quota = `<br>Seguindo no Instagram: <b>${j.seguindo_antes}</b>${dep}`
+            + ` <span style="color:var(--muted)">de ${j.limite_ig || 7500}</span>`;
+    }
+    document.getElementById('fw-stats').innerHTML =
+      `Fila: <b>${j.queue_pending}</b> pendente(s) de ${j.queue_total}`
+      + ` · ${acoes}`
+      + ` · ⏭ ${s.skipped || 0} pulada(s) · ✖ ${s.failed || 0} falha(s)`
+      + quota
+      + `<br>Teto da conta ${escapeHtml(j.account_key || '')}: <b>${c.hour || 0}</b>/h · <b>${c.day || 0}</b>/dia`
+      + (j.error ? `<br><span style="color:var(--danger,#ef4444)">${escapeHtml(j.error)}</span>` : '');
+    const log = document.getElementById('fw-log');
+    const atBottom = log.scrollTop + log.clientHeight >= log.scrollHeight - 24;
+    log.textContent = (j.log || []).join('\n') || '(sem saída ainda)';
+    if (atBottom) log.scrollTop = log.scrollHeight;
+    followRenderQueue(j);
+
+    if (j.status === 'running' || j.status === 'harvesting') { _followTimer = setTimeout(followPoll, 2000); return; }
+    document.getElementById('fw-start').disabled = false;
+    document.getElementById('fw-harvest').disabled = false;
+    document.getElementById('fw-unfollow-start').disabled = false;
+    document.getElementById('fw-stop').style.display = 'none';
+    loadFollowHistory();
+    if (j.mode === 'unfollow') loadUnfollowQuota();
+  } catch (e) {
+    document.getElementById('fw-start').disabled = false;
+    document.getElementById('fw-harvest').disabled = false;
+  }
+}
+
+function followRenderQueue(j) {
+  const rows = j.queue || [];
+  document.getElementById('fw-queue-count').textContent =
+    rows.length < j.queue_total ? `(mostrando ${rows.length} de ${j.queue_total})` : `(${j.queue_total})`;
+  const badge = { pending: '<span style="color:var(--muted)">na fila</span>',
+                  followed: '<span style="color:#22c55e">✓ seguida</span>',
+                  requested: '<span style="color:#22c55e">✉ solicitada</span>',
+                  simulated: '<span style="color:var(--accent2)">🔎 simularia</span>',
+                  unfollowed: '<span style="color:#22c55e">↩ desfeita</span>',
+                  skipped: '<span style="color:var(--muted)">⏭ pulada</span>',
+                  failed: '<span style="color:#ef4444">✖ falhou</span>' };
+  document.getElementById('fw-queue').innerHTML = rows.map(a => `<tr>
+      <td><a href="https://www.instagram.com/${encodeURIComponent(a.username)}/" target="_blank">@${escapeHtml(a.username)}</a></td>
+      <td>${a.followers == null ? '—' : Number(a.followers).toLocaleString('pt-BR')}</td>
+      <td>${badge[a.status] || escapeHtml(a.status)}</td>
+      <td style="color:var(--muted);font-size:12px">${escapeHtml(a.note || '')}</td>
+    </tr>`).join('') || '<tr><td colspan="4" style="color:var(--muted)">Fila vazia — colete contas de uma fonte.</td></tr>';
+}
+
+// ── Métricas + exportação ────────────────────────────────────────────────────
+async function loadFollowMetrics() {
+  const tot = document.getElementById('fw-metrics-total');
+  const tb = document.getElementById('fw-metrics-contas');
+  if (!tot || !tb) return;
+  try {
+    const m = await api('GET', '/follow/metrics');
+    const t = m.total || {};
+    const card = (rot, val, sub) => `<div style="flex:1;min-width:130px;background:var(--surface2);
+      border:1px solid var(--border);border-radius:10px;padding:10px 12px">
+      <div style="font-size:20px;font-weight:600">${val}</div>
+      <div style="font-size:11.5px;color:var(--muted)">${rot}</div>
+      ${sub ? `<div style="font-size:10.5px;color:var(--muted);margin-top:2px">${sub}</div>` : ''}</div>`;
+    tot.innerHTML =
+      card('Pessoas seguidas (total)', (t.pessoas_seguidas || 0).toLocaleString('pt-BR'), 'nunca repetidas')
+      + card('Ainda seguindo', (t.ainda_seguindo || 0).toLocaleString('pt-BR'), 'é o que conta no teto')
+      + card('Follows desfeitos', (t.desfeitos || 0).toLocaleString('pt-BR'), '')
+      + card('Capacidade da frota', (t.capacidade_total || 0).toLocaleString('pt-BR'),
+             `${t.contas || 0} conta(s) × ${(m.limite_ig || 7500).toLocaleString('pt-BR')}`);
+
+    tb.innerHTML = (m.por_conta || []).map(c => {
+      const cor = c.pct_do_teto >= 90 ? '#ef4444' : c.pct_do_teto >= 70 ? '#f59e0b' : 'var(--accent2)';
+      return `<tr>
+        <td>${escapeHtml(c.conta)}</td>
+        <td>${c.seguidos.toLocaleString('pt-BR')}</td>
+        <td><b>${c.ainda_seguindo.toLocaleString('pt-BR')}</b></td>
+        <td>${c.desfeitos.toLocaleString('pt-BR')}</td>
+        <td style="min-width:130px">
+          <div style="display:flex;align-items:center;gap:6px">
+            <div style="flex:1;height:5px;background:var(--surface);border-radius:3px;overflow:hidden">
+              <div style="height:100%;width:${Math.min(100, c.pct_do_teto)}%;background:${cor}"></div>
+            </div>
+            <span style="color:${cor};font-size:11.5px">${c.pct_do_teto}%</span>
+          </div>
+          <div style="font-size:10.5px;color:var(--muted)">${c.vagas_ate_o_teto.toLocaleString('pt-BR')} vaga(s)</div>
+        </td>
+        <td>${c.hora}</td><td>${c.dia}</td>
+      </tr>`;
+    }).join('') || '<tr><td colspan="7" style="color:var(--muted)">Nenhuma ação registrada ainda.</td></tr>';
+
+    const alvos = m.por_alvo || [];
+    document.getElementById('fw-metrics-alvos').innerHTML = alvos.length
+      ? '<b>Rendimento por alvo:</b> ' + alvos.map(a =>
+          `${escapeHtml(a.source)} = ${a.seguidos}`).join(' · ')
+      : '';
+  } catch (e) { tb.innerHTML = `<tr><td colspan="7" style="color:var(--muted)">${escapeHtml(e.message || 'erro')}</td></tr>`; }
+}
+
+async function followExportCsv(btn) {
+  const orig = btn ? btn.textContent : '';
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ gerando…'; }
+  try {
+    const res = await fetch(API + '/follow/export-csv');
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const salvo = res.headers.get('X-Saved-Path');
+    const blob = await res.blob();
+    // Best-effort: no pywebview o download do navegador costuma não disparar, por
+    // isso o backend TAMBÉM grava o arquivo em disco e devolve o caminho.
+    try {
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = (res.headers.get('Content-Disposition') || '').match(/filename="([^"]+)"/)?.[1] || 'instafollow.csv';
+      document.body.appendChild(a); a.click(); a.remove();
+    } catch (e) {}
+    toast(salvo ? `✓ CSV salvo em: ${salvo}` : '✓ CSV gerado', 'success');
+  } catch (e) { toast(e.message || 'Erro ao exportar', 'error'); }
+  finally { if (btn) { btn.disabled = false; btn.textContent = orig; } }
+}
+
+// ── Unfollow: teto de 7.500 do IG + whitelist ────────────────────────────────
+async function loadUnfollowQuota(avisar) {
+  const box = document.getElementById('fw-quota');
+  const pid = document.getElementById('fw-profile').value;
+  if (!box) return;
+  if (!pid) { box.innerHTML = '<span style="color:var(--muted)">Selecione uma conta.</span>'; return; }
+  try {
+    const q = await api('GET', `/follow/unfollow/candidates?profile_id=${encodeURIComponent(pid)}&limit=1`);
+    const teto = q.limite_ig || 7500;
+    // "ainda_seguindo" = o que o APP seguiu e não desfez. O total real da conta só
+    // é lido ao rodar (custa uma requisição ao Instagram), então não inventamos aqui.
+    const pct = Math.min(100, Math.round((q.ainda_seguindo / teto) * 100));
+    const cor = pct >= 90 ? '#ef4444' : pct >= 70 ? '#f59e0b' : 'var(--accent2)';
+    box.innerHTML = `
+      <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+        <span>Seguindo pelo app: <b style="color:${cor}">${q.ainda_seguindo}</b>
+          <span style="color:var(--muted)">de ${teto} (teto do Instagram)</span></span>
+        <span style="color:var(--muted)">${q.candidatos} pronto(s) p/ desfazer</span>
+      </div>
+      <div style="height:6px;background:var(--surface);border-radius:3px;overflow:hidden">
+        <div style="height:100%;width:${pct}%;background:${cor}"></div>
+      </div>
+      <div style="color:var(--muted);font-size:11.5px;margin-top:5px">
+        ${q.seguidos_pelo_app} seguida(s) no total por esta conta · desfazendo após ${q.unfollow_after_days} dia(s)
+        · o número real de "seguindo" da conta é lido no Instagram quando a execução começa
+      </div>`;
+    if (avisar) toast(`${q.candidatos} conta(s) pronta(s) para desfazer`, 'success');
+  } catch (e) {
+    box.innerHTML = `<span style="color:var(--muted)">Não consegui calcular (${escapeHtml(e.message || '')})</span>`;
+  }
+}
+
+async function loadFollowWhitelist() {
+  const el = document.getElementById('fw-whitelist');
+  if (!el) return;
+  try {
+    const r = await api('GET', '/follow/whitelist');
+    el.innerHTML = (r.items || []).length
+      ? r.items.map(u => `<span style="display:inline-block;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:2px 8px;margin:2px 4px 2px 0">
+           @${escapeHtml(u)} <a href="#" onclick="followWhitelistDel('${escapeHtml(u)}');return false" style="color:#ef4444;text-decoration:none">×</a></span>`).join('')
+      : 'Nenhuma conta protegida.';
+  } catch (e) { el.textContent = ''; }
+}
+
+async function followWhitelistAdd() {
+  const inp = document.getElementById('fw-white-input');
+  const u = (inp.value || '').trim();
+  if (!u) { toast('Informe um @usuário', 'error'); return; }
+  try {
+    await api('POST', '/follow/whitelist', { username: u });
+    inp.value = '';
+    loadFollowWhitelist();
+    loadUnfollowQuota();
+  } catch (e) { toast(e.message || 'Erro ao proteger', 'error'); }
+}
+
+async function followWhitelistDel(u) {
+  try {
+    await api('DELETE', `/follow/whitelist/${encodeURIComponent(u)}`);
+    loadFollowWhitelist();
+    loadUnfollowQuota();
+  } catch (e) { toast(e.message || 'Erro ao remover', 'error'); }
+}
+
+async function unfollowStart() {
+  const profile_id = document.getElementById('fw-profile').value;
+  if (!profile_id) { toast('Selecione uma conta logada', 'error'); return; }
+  const settings = {
+    ...followReadConfig().settings,
+    unfollowAfterDays: parseInt(document.getElementById('fw-unfollowAfterDays').value, 10) || 3,
+    protectMutuals: document.getElementById('fw-protectMutuals').checked,
+  };
+  if (!settings.dryRun && !confirm('Modo simulação DESLIGADO: as contas serão realmente deixadas de seguir.\n\nConfirma?')) return;
+  try {
+    const r = await api('POST', '/follow/unfollow/start', {
+      profile_id, use_local: document.getElementById('fw-ipmode').value === 'local',
+      limit: parseInt(document.getElementById('fw-unfollow-limit').value, 10) || 200,
+      settings,
+    });
+    _followJob = r.job_id;
+    document.getElementById('fw-unfollow-start').disabled = true;
+    document.getElementById('fw-stop').style.display = '';
+    document.getElementById('fw-status').style.display = '';
+    toast(r.dry_run ? `🔎 Simulação — ${r.candidatos} candidato(s)` : `▶ Desfazendo ${r.candidatos} follow(s)`, 'success');
+    followPoll();
+  } catch (e) { toast(e.message || 'Erro ao iniciar', 'error'); }
+}
+
+async function loadFollowHistory() {
+  const tb = document.getElementById('fw-history');
+  if (!tb) return;
+  try {
+    const r = await api('GET', '/follow/history');
+    const map = { done: '✅ concluída', stopped: '⏹ parada', error: '⚠️ erro',
+                  running: '⏳ rodando', harvesting: '🔎 coletando', idle: '⏸ pronta' };
+    tb.innerHTML = (r.items || []).map(it => {
+      const res = it.dry_run
+        ? `🔎 ${it.simulated || 0} simulada(s)`
+        : (it.mode === 'unfollow' ? `↩ ${it.unfollowed || 0} desfeita(s)`
+                                  : `✓ ${it.followed || 0} · ✉ ${it.requested || 0}`);
+      const st = it.blocked ? '🚫 bloqueio de ação' : (map[it.status] || it.status || '—');
+      return `<tr>
+        <td style="white-space:nowrap">${escapeHtml(it.started_at || '')}</td>
+        <td>${escapeHtml(it.account_key || it.profile || '')}</td>
+        <td>${escapeHtml(it.source_target || it.source_type || '')}</td>
+        <td style="white-space:nowrap">${res} · ⏭ ${it.skipped || 0} · ✖ ${it.failed || 0}</td>
+        <td style="white-space:nowrap">${st}</td>
+        <td style="white-space:nowrap"><button class="btn btn-ghost btn-sm" onclick="followDeleteRun('${it.id}')" title="Remover do histórico">🗑</button></td>
+      </tr>`;
+    }).join('') || '<tr><td colspan="6" style="color:var(--muted)">Nenhuma execução ainda.</td></tr>';
+  } catch (e) { /* aba pode não ter sido aberta ainda */ }
+}
+
+async function followDeleteRun(id) {
+  if (!confirm('Remover esta execução do histórico?')) return;
+  try {
+    await api('DELETE', `/follow/history/${id}`);
+    if (_followJob === id) _followJob = null;
+    loadFollowHistory();
+  } catch (e) { toast(e.message || 'Erro ao remover', 'error'); }
 }
 
 // ── Perfis monitorados ────────────────────────────────────────────────────────
@@ -4305,7 +5249,7 @@ async function submitAddAccount(btn) {
     if (cookies && acctId) {
       if (btn) btn.textContent = '⏳ importando sessão…';
       try {
-        const r = await api('POST', `/accounts/${encodeURIComponent(acctId)}/import-session`, { cookies });
+        const r = await api('POST', `/accounts/${encodeURIComponent(acctId)}/import-session`, { cookies }, 180000);
         if (r.logged === true) toast(`✓ Sessão importada — perfil LOGADO (status ${r.status})`, 'success');
         else if (r.logged === false) toast(`Conta salva; importou cookies mas NÃO logou (status ${r.status}) — veja Detalhes`, 'error');
         else toast('Conta salva; sessão importada (login não confirmado)', 'success');
@@ -4538,6 +5482,9 @@ loadStartProxyHealth();   // aba "start" é a ativa por padrão
 pollInterval = setInterval(() => {
   loadActiveProxy();      // global: indicador do proxy em uso, independente da aba
   loadActiveSessions();   // global: caixa de sessões/navegadores abertos
+  // Enquanto há uma ação com countdown (abrir perfil, verificar conta, importar
+  // sessão), NÃO re-renderiza as listas: isso destruiria o botão e a contagem.
+  if (window._uiBusy > 0) return;
   const page = document.querySelector('.page.active')?.id;
   if (page === 'page-start')        loadStartProxyHealth();
   if (page === 'page-profiles')     loadProfiles();
