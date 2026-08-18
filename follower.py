@@ -474,11 +474,13 @@ async def _follow_one(page, user_id, username, extra=None, tokens=None) -> dict:
     """Segue uma conta. Tenta a API v1 e cai para /web/ se a resposta vier inválida.
     Retorna {ok, following, requested, status, payload}."""
     referer = f"{IG}/{username}/"
-    # Body VAZIO de propósito. Esta é a ÚNICA forma desta requisição comprovada contra o
-    # Instagram real: o auto-follow do spider.py (`_follow`) seguiu @xerifedoconsumidor ao
-    # vivo em 2026-06-21 com body ''. O `container_module=profile` veio da extensão, cuja
-    # camada de follow nunca rodou contra a API real (HANDOFF §11) — e era a única
-    # diferença entre o caminho que funciona e este, que devolve 404 em tudo.
+    # Corpo e headers MEDIDOS da interface real (captura de 2026-08-18, usuário seguindo
+    # na mão): container_module + include_follow_friction_check + user_id + jazoest +
+    # fb_dtsg. O `fb_dtsg` é o token anti-CSRF da Meta e é o que destrava a escrita — sem
+    # ele o Instagram devolve 404 (não 403), o que mandou o diagnóstico para o lado errado.
+    # Histórico que importa: este follow FUNCIONOU em 2026-08-16 (12 contas seguidas, no
+    # banco) com body simples, e parou quando o IG passou a exigir o token. Foi regressão
+    # de verdade — do lado deles, não do nosso código.
     res = await page.evaluate(_POST_JS, [f"{IG}/api/v1/friendships/create/{user_id}/",
                                          referer, corpo_follow(user_id, tokens),
                                          extra or {}])
