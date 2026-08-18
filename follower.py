@@ -462,8 +462,13 @@ async def _follow_one(page, user_id, username) -> dict:
     """Segue uma conta. Tenta a API v1 e cai para /web/ se a resposta vier inválida.
     Retorna {ok, following, requested, status, payload}."""
     referer = f"{IG}/{username}/"
+    # Body VAZIO de propósito. Esta é a ÚNICA forma desta requisição comprovada contra o
+    # Instagram real: o auto-follow do spider.py (`_follow`) seguiu @xerifedoconsumidor ao
+    # vivo em 2026-06-21 com body ''. O `container_module=profile` veio da extensão, cuja
+    # camada de follow nunca rodou contra a API real (HANDOFF §11) — e era a única
+    # diferença entre o caminho que funciona e este, que devolve 404 em tudo.
     res = await page.evaluate(_POST_JS, [f"{IG}/api/v1/friendships/create/{user_id}/",
-                                         referer, "container_module=profile"])
+                                         referer, ""])
     j = res.get("json") or {}
     fs = j.get("friendship_status") or {}
     if res.get("ok") and j.get("status") == "ok" and (fs.get("following") is True

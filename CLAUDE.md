@@ -23,11 +23,21 @@ devolve **404 em tudo**.
    em 404 o motor **resolve o pk real e tenta de novo**, logando
    `id da fila X ≠ id resolvido Y` ou `id resolvido é o MESMO`.
 
+6. **Confound ELIMINADO (2026-08-18):** o `_follow_one` mandava `container_module=profile`
+   no body do POST v1, enquanto a chamada comprovada ao vivo (`spider._follow`) manda body
+   **vazio**. Era a **única** diferença restante entre os dois (headers, URL e referer já
+   eram idênticos — medido). O `container_module` veio da extensão, cuja camada de follow
+   **nunca rodou contra a API real** (HANDOFF §11). Agora o POST do follower é
+   byte-idêntico ao do spider, travado por teste de paridade.
+
 **→ PRÓXIMO PASSO CONCRETO:** rodar o InstaFollow com simulação DESLIGADA num lote
-pequeno e ler essas duas linhas do terminal. **Se os ids diferem**, o conserto definitivo
-é na COLETA (guardar o campo certo do GraphQL, para não pagar 1 requisição extra por
-conta). **Se são iguais**, comparar nosso POST com o que a interface manda (DevTools no
-perfil aberto, que já se sabe que consegue seguir).
+pequeno e ler o terminal. Três desfechos, todos já instrumentados:
+- **Seguiu normalmente** → era o `container_module` no body. Fechado.
+- **`id da fila X ≠ id resolvido Y`** → o conserto definitivo é na COLETA (guardar o campo
+  certo do GraphQL, para não pagar 1 requisição extra por conta).
+- **`id resolvido é o MESMO`** → id e requisição estão certos; sobra comparar com o que a
+  interface manda (DevTools no perfil aberto, que já se sabe que consegue seguir). Candidato
+  não testado dessa via: o header `x-ig-www-claim`, que a UI web envia e nós não.
 
 **Pendente, planejado e NÃO implementado (usuário pediu para esperar):** disparos de
 WhatsApp — ver a seção "DISPAROS WHATSAPP" abaixo. Decisões já travadas: **Evolution API
@@ -400,6 +410,40 @@ Sintoma: app abria, menu e cards renderizavam, mas **tudo** ficava em "Carregand
 - **Furo do meu próprio patch, corrigido:** a primeira versão colocou a re-tentativa DENTRO do bloco de tratamento de erro — quando ela dava certo, o código seguia marcando a conta como falha. Reestruturado: a re-tentativa acontece **antes** do bloco de erro, então sucesso simplesmente não entra nele.
 - Validado: **8 asserções** (id errado + resolve devolve o certo → **segue as 4, zero falhas, e o id corrigido fica salvo na fila**; resolve devolve o mesmo id → segue o fluxo de 404 e devolve a fila; `_resolve_user` explodindo não quebra o motor; resolve só uma vez por conta) + regressão dos **9 arquivos** do motor (9+11+8+8+11+13+12+16+74).
 - **Se o log da próxima execução mostrar "id resolvido é o MESMO"**, o id está certo e sobra investigar o corpo/headers do POST (comparar com o que a interface manda, via DevTools no perfil aberto). Se mostrar ids diferentes, a coleta é que está guardando o campo errado do GraphQL — e aí o fix definitivo é na coleta, não no follow.
+
+## 🧪 404 do follow: o body era a ÚNICA diferença com a chamada que FUNCIONA (2026-08-18)
+Comparação linha a linha entre o POST que **dá 404** (`follower._follow_one`) e o que
+**funcionou ao vivo** em 2026-06-21 (`spider._follow`, log real "➕ agora seguindo
+@xerifedoconsumidor"). Resultado da medição:
+- **Headers: IGUAIS.** Os dois templates JS mandam `x-csrftoken` (lido do
+  `document.cookie`), `x-ig-app-id: 936619743392459`, `x-asbd-id: 129477`,
+  `x-requested-with: XMLHttpRequest`, `content-type: application/x-www-form-urlencoded`,
+  `credentials: 'include'`. O follower só acrescenta `accept: */*` (inofensivo). Ou seja
+  **a hipótese de header faltando morreu** — em especial o `x-ig-app-id`, que se ausente
+  poderia fazer o `www` não rotear para a API e devolver 404.
+- **URL e referer: IGUAIS.** `POST {IG}/api/v1/friendships/create/{id}/` com
+  `referer = {IG}/{username}/` nos dois.
+- **Body: A DIFERENÇA.** spider = `''` · follower = `container_module=profile`. Esse
+  parâmetro veio da extensão InstaFollow — e o HANDOFF §11 avisa que **a camada de follow
+  da extensão nunca rodou contra a API real**, ou seja, nunca houve evidência de que essa
+  forma funcione. **Fix:** body vazio, deixando o POST byte-idêntico ao único
+  empiricamente comprovado. Custo zero e remove o confound antes do próximo teste ao vivo.
+- **Sobre a hipótese do ID (que os registros apontavam como a viva):** `to_account` grava
+  `node.id` do GraphQL — **o mesmo campo** que o Spider grava como "User Id" nos CSVs de
+  1,6M usados no mobiliza. Então o id é estruturalmente um pk válido e o esperado é o log
+  dizer "id resolvido é o MESMO". A instrumentação fica — ela responde de graça — mas o
+  suspeito nº1 passou a ser o body.
+- **Validado:** py_compile + **33 asserções** novas de paridade (headers dos dois templates
+  campo a campo · URL/referer/body idênticos · `container_module` não volta · sucesso no v1
+  não chama o fallback · 404 ainda cai para `/web/` · 400/401/403/429 seguem sendo resposta
+  definitiva · os dois corpos preservados p/ o log) + **regressão dos 21 arquivos** de teste
+  do motor e do banco (196 asserções do motor + 90 de banco/guardas, todas passando).
+- **Teste velho consertado (não era regressão):** `test_follow_db` acusou 2 falhas porque
+  ainda codificava o comportamento **anterior** ao fix do `add_follow_action` (a ação no
+  mesmo milissegundo era perdida por colisão de PK; hoje **desloca 1ms de propósito**, para
+  o limitador — justamente o contador que protege a conta — nunca contar a menos). As duas
+  expectativas foram atualizadas para o comportamento correto → volta a 19/19. **Lição:**
+  quando um teste do scratchpad falha, conferir primeiro se ele não é mais velho que o fix.
 
 ## 🗑️ Botão "Zerar fila (sem salvar)" + leitura do 404 em 2 contas (2026-08-18)
 - **Pedido:** *"faça um botão de zerar fila atual sem salvar"*. **`POST /follow/queue/discard {run_id}`**: para o job se estiver rodando, zera a fila em memória, **apaga a execução do banco** (não fica no histórico) e limpa `_follow_jobs`. Botão vermelho "🗑️ Zerar fila (sem salvar)" ao lado de "Começar fila nova" — a diferença é que aquele só solta a tela e **mantém** o registro; este descarta. **O histórico GLOBAL de quem já foi seguido NÃO é afetado** (é o que impede repetir follow; apagá-lo seria perder o ativo). Validado: **11 asserções** (execução apagada do banco e do histórico, saiu da memória, histórico global intacto, job rodando recebe stop, id inexistente/vazio = no-op).
