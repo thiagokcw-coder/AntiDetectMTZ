@@ -4493,7 +4493,7 @@ async function loadFollowMetrics() {
 async function followCheckBack(btn) {
   const parar = runBtnCountdown(btn, 60);
   try {
-    const r = await api('POST', '/follow/check-followback', { limit: 500 }, 600000);
+    const r = await api('POST', '/follow/check-followback', {}, 900000);
     const linhas = (r.por_perfil || [])
       .map(p => `${p.perfil}: ${p.seguiram_de_volta || 0}/${p.verificados || 0}${p.erro ? ' (' + p.erro + ')' : ''}`)
       .join(' · ');

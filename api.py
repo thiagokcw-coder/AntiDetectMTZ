@@ -3120,7 +3120,9 @@ def follow_queue_discard(body: FollowDiscardRequest):
 
 class FollowBackCheckRequest(BaseModel):
     profile_id: str = ""
-    limit: int = 500
+    # Cobre TODOS por padrao: o custo agora e a lista de seguidores da conta,
+    # que nao muda com o numero de pessoas conferidas.
+    limit: int = 100000
 
 
 @app.post("/follow/check-followback")
@@ -3166,7 +3168,7 @@ async def follow_check_followback(body: FollowBackCheckRequest):
         conta = db.get_account_by_profile(p["id"])
         chave = (conta or {}).get("username") or ""
         cands = db.follow_followback_candidates(by_account=chave,
-                                                limit=max(1, min(5000, int(body.limit or 500))))
+                                                limit=max(1, min(200000, int(body.limit or 100000))))
         if not cands:
             linhas.append({"perfil": p.get("name"), "conta": chave, "verificados": 0,
                            "seguiram_de_volta": 0, "nota": "ninguem novo para conferir"})
