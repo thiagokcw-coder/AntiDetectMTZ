@@ -582,6 +582,51 @@ async def _session_ok(page, user_id=None) -> dict:
     return {"ok": True, "status": 200, "quem": quem, "ctx": ctx, "motivo": None}
 
 
+async def _diag_rotas(page, alvo_id=None) -> dict:
+    """A família de rotas `/api/v1/` está VIVA nesta superfície?
+
+    Os dados de 2026-08-18 mostram um padrão: tudo em `/api/v1/*` e `/web/*` falha
+    (follow, `web_profile_info`, `topsearch`), enquanto `/graphql/query` funciona (a
+    coleta trouxe 1000 contas com ele). Se uma LEITURA v1 pública também der 404, o
+    problema não é a nossa requisição de follow nem a conta — é a rota v1 não existir
+    mais nesta superfície, e o follow precisa migrar para o que a interface usa hoje.
+
+    Duas requisições GET, uma vez por execução, nada de escrita."""
+    out = {}
+    try:
+        r = await spider._api_get(
+            page, f"{IG}/api/v1/users/web_profile_info/?username=instagram", f"{IG}/")
+        out["v1_status"] = r.get("status")
+        out["v1_body"] = (r.get("text") or "")[:120]
+        out["v1_tem_user"] = bool(((r.get("json") or {}).get("data") or {}).get("user"))
+    except Exception as e:
+        out["v1_status"], out["v1_erro"] = -1, str(e)
+    try:
+        g = await spider._graphql(page, spider._GQL["followers"],
+                                  {"id": str(alvo_id or "25025320"), "first": 1}, f"{IG}/")
+        out["gql_status"] = g.get("status")
+        out["gql_tem_user"] = bool(((g.get("json") or {}).get("data") or {}).get("user"))
+    except Exception as e:
+        out["gql_status"], out["gql_erro"] = -1, str(e)
+
+    # Cuidado com o status -1: ele significa que o fetch ESTOUROU (rede), não que a rota
+    # respondeu. Tratá-lo como "v1 viva" faria o log afirmar o contrário do que houve.
+    v1_ok = out.get("v1_status") == 200 and out.get("v1_tem_user")
+    v1_rejeitada = isinstance(out.get("v1_status"), int) and out["v1_status"] >= 400
+    gql_viva = out.get("gql_status") == 200 and out.get("gql_tem_user")
+    if v1_rejeitada and gql_viva:
+        out["conclusao"] = ("as rotas /api/v1/ NÃO respondem nesta superfície (o GraphQL "
+                            "responde) — não é a conta nem o corpo do POST: é a rota. O follow "
+                            "precisa usar o que a interface web usa hoje.")
+    elif v1_ok:
+        out["conclusao"] = ("/api/v1/ responde para LEITURA — então o 404 é específico da rota "
+                            "de ESCRITA (friendships/create), não da família v1 inteira.")
+    else:
+        out["conclusao"] = ("inconclusivo — alguma das duas leituras não chegou a responder "
+                            "(rede/IP no momento do teste). Não dá para culpar a rota.")
+    return out
+
+
 async def _friendship_show(page, user_id) -> dict:
     """Estado do relacionamento com um usuário: {following, followed_by, ...}.
     UMA requisição — é o que diz se a pessoa retribuiu o follow."""
@@ -1178,7 +1223,9 @@ async def run(profile: dict, queue: list, settings: dict, filters: dict, *,
                 return
             if log:
                 if sonda["ok"]:
-                    log(f"✓ perfil logado (ds_user_id {sonda.get('quem')})")
+                    log(f"✓ perfil logado (ds_user_id {sonda.get('quem')}) · "
+                        f"csrftoken={'sim' if ctx.get('csrftoken') else 'NÃO — o POST sai sem CSRF!'}"
+                        f" · {ctx.get('cookies')} cookie(s)")
                 else:
                     log(f"⚠ sonda de sessão inconclusiva (status {sonda.get('status')}) — "
                         f"seguindo mesmo assim")
@@ -1344,6 +1391,15 @@ async def run(profile: dict, queue: list, settings: dict, filters: dict, *,
                             log(f"   ↳ v1 {res.get('status')}: {(res.get('body') or '(vazio)')[:140]}")
                             log(f"   ↳ /web/ {res.get('status_web')}: "
                                 f"{(res.get('body_web') or '(vazio)')[:140]}")
+                            # Duas LEITURAS (zero escrita) que separam "a rota v1 morreu"
+                            # de "a nossa requisição de escrita está errada".
+                            d = await _diag_rotas(page, acct.get("id"))
+                            log(f"   🔬 leitura /api/v1/ (web_profile_info): "
+                                f"status {d.get('v1_status')}"
+                                f"{' com usuário' if d.get('v1_tem_user') else ' SEM usuário'}"
+                                f" · GraphQL: status {d.get('gql_status')}"
+                                f"{' com usuário' if d.get('gql_tem_user') else ' SEM usuário'}")
+                            log(f"   🔬 conclusão: {d.get('conclusao')}")
                     # Uma 404 avulsa é normal (conta apagada). Várias SEGUIDAS não:
                     # a fila foi coletada minutos antes, essa gente existe. Sinal de
                     # sessão caída/ids inválidos — parar em vez de varrer a fila
