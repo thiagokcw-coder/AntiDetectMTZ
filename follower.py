@@ -313,21 +313,32 @@ def limiter_check(actions: list, settings: dict) -> tuple:
 
 # POST autenticado (mesma origem, cookies da sessão do perfil).
 _POST_JS = r"""
-async ([url, referer, body]) => {
+async ([url, referer, body, extra]) => {
   const m = document.cookie.match(/(?:^|;\s*)csrftoken=([^;]+)/);
   const csrf = m ? m[1] : '';
+  // Base + os headers DINAMICOS colhidos do trafego da propria interface
+  // (x-ig-www-claim, x-instagram-ajax, x-web-session-id, x-asbd-id atual). Eles
+  // rotacionam e sao emitidos pelo IG; sem eles o POST de escrita dava 404.
+  const h = {
+    'accept': '*/*',
+    'x-csrftoken': csrf,
+    'x-ig-app-id': '936619743392459',
+    'x-asbd-id': '129477',
+    'x-requested-with': 'XMLHttpRequest',
+    'content-type': 'application/x-www-form-urlencoded',
+  };
+  try {
+    if (extra) {
+      Object.keys(extra).forEach((k) => {
+        if (extra[k]) h[String(k).toLowerCase()] = String(extra[k]);
+      });
+    }
+  } catch (e) {}
   try {
     const r = await fetch(url, {
       method: 'POST',
       credentials: 'include',
-      headers: {
-        'accept': '*/*',
-        'x-csrftoken': csrf,
-        'x-ig-app-id': '936619743392459',
-        'x-asbd-id': '129477',
-        'x-requested-with': 'XMLHttpRequest',
-        'content-type': 'application/x-www-form-urlencoded',
-      },
+      headers: h,
       body: body || '',
       referrer: referer,
     });
@@ -458,7 +469,7 @@ def apply_profile(acct: dict, user: dict) -> dict:
     return acct
 
 
-async def _follow_one(page, user_id, username) -> dict:
+async def _follow_one(page, user_id, username, extra=None) -> dict:
     """Segue uma conta. Tenta a API v1 e cai para /web/ se a resposta vier inválida.
     Retorna {ok, following, requested, status, payload}."""
     referer = f"{IG}/{username}/"
@@ -468,7 +479,7 @@ async def _follow_one(page, user_id, username) -> dict:
     # camada de follow nunca rodou contra a API real (HANDOFF §11) — e era a única
     # diferença entre o caminho que funciona e este, que devolve 404 em tudo.
     res = await page.evaluate(_POST_JS, [f"{IG}/api/v1/friendships/create/{user_id}/",
-                                         referer, ""])
+                                         referer, "", extra or {}])
     j = res.get("json") or {}
     fs = j.get("friendship_status") or {}
     if res.get("ok") and j.get("status") == "ok" and (fs.get("following") is True
@@ -485,7 +496,8 @@ async def _follow_one(page, user_id, username) -> dict:
     if isinstance(st, int) and st in (400, 401, 403, 429):
         return {"ok": False, "status": st, "payload": j, "body": res.get("text") or ""}
 
-    fb = await page.evaluate(_POST_JS, [f"{IG}/web/friendships/{user_id}/follow/", referer, ""])
+    fb = await page.evaluate(_POST_JS, [f"{IG}/web/friendships/{user_id}/follow/",
+                                        referer, "", extra or {}])
     fj = fb.get("json") or {}
     if fb.get("ok") and fj.get("status") == "ok":
         result = str(fj.get("result") or "").lower()
@@ -504,12 +516,14 @@ async def _follow_one(page, user_id, username) -> dict:
             "status_web": fb.get("status")}
 
 
-async def _unfollow_one(page, user_id, username) -> dict:
+async def _unfollow_one(page, user_id, username, extra=None) -> dict:
     """Desfaz o follow. Espelha _follow_one: v1 `friendships/destroy/` e fallback
     `/web/friendships/<id>/unfollow/`. Sucesso = status ok e `following` FALSO."""
     referer = f"{IG}/{username}/"
+    # Mesmo tratamento do follow: body vazio (a forma comprovada) e os headers
+    # dinamicos colhidos da interface.
     res = await page.evaluate(_POST_JS, [f"{IG}/api/v1/friendships/destroy/{user_id}/",
-                                         referer, "container_module=profile"])
+                                         referer, "", extra or {}])
     j = res.get("json") or {}
     fs = j.get("friendship_status") or {}
     if res.get("ok") and j.get("status") == "ok" and fs.get("following") is not True:
@@ -519,7 +533,8 @@ async def _unfollow_one(page, user_id, username) -> dict:
     if isinstance(st, int) and 400 <= st < 500:
         return {"ok": False, "status": st, "payload": j}
 
-    fb = await page.evaluate(_POST_JS, [f"{IG}/web/friendships/{user_id}/unfollow/", referer, ""])
+    fb = await page.evaluate(_POST_JS, [f"{IG}/web/friendships/{user_id}/unfollow/",
+                                        referer, "", extra or {}])
     fj = fb.get("json") or {}
     if fb.get("ok") and fj.get("status") == "ok":
         return {"ok": True, "status": fb.get("status"), "payload": fj}
@@ -592,28 +607,62 @@ async def _session_ok(page, user_id=None) -> dict:
 _SPY_BODY = r"""
   if (window.__ifSpy) return true;
   window.__ifSpy = true;
-  const guardar = (reg) => {
+
+  const guardar = (chave, reg, limite) => {
     try {
-      const atual = JSON.parse(localStorage.getItem('__if_cap') || '[]');
-      atual.push(reg);
-      localStorage.setItem('__if_cap', JSON.stringify(atual.slice(-20)));
+      if (limite) {
+        const atual = JSON.parse(localStorage.getItem(chave) || '[]');
+        atual.push(reg);
+        localStorage.setItem(chave, JSON.stringify(atual.slice(-limite)));
+      } else {
+        localStorage.setItem(chave, JSON.stringify(reg));
+      }
     } catch (e) {}
   };
-  const interessa = (u, m, corpo) => {
-    if (String(m || 'GET').toUpperCase() !== 'POST') return false;
-    const url = String(u || '');
-    if (/friendship|\/follow/i.test(url)) return true;
-    if (/graphql/i.test(url) && /follow/i.test(String(corpo || ''))) return true;
-    return false;
-  };
+
   const cabecalhos = (h) => {
     const out = {};
     try {
       if (!h) return out;
-      if (typeof h.forEach === 'function') h.forEach((v, k) => { out[k] = String(v); });
-      else Object.keys(h).forEach((k) => { out[k] = String(h[k]); });
+      if (typeof h.forEach === 'function') h.forEach((v, k) => { out[String(k).toLowerCase()] = String(v); });
+      else Object.keys(h).forEach((k) => { out[String(k).toLowerCase()] = String(h[k]); });
     } catch (e) {}
     return out;
+  };
+
+  // ESCRITA de follow -- e so isto que encerra a captura. Antes o filtro pegava
+  // qualquer URL com "friendship", e o `friendships/show_many` disparado ao abrir a
+  // lista de seguidores fechava o navegador antes de o usuario clicar em Seguir.
+  const ehEscritaFollow = (u, m, corpo) => {
+    if (String(m || 'GET').toUpperCase() !== 'POST') return false;
+    const url = String(u || '');
+    const b = String(corpo || '');
+    if (/\/friendships\/(create|destroy)\//i.test(url)) return true;
+    if (/\/(un)?follow\/?(\?|$)/i.test(url)) return true;
+    // GraphQL: SO mutacao. "followers"/"following" sao QUERIES de lista.
+    if (/graphql/i.test(url) && /mutation/i.test(b) && /follow/i.test(b)) return true;
+    return false;
+  };
+
+  // Headers dinamicos do IG (rotacionam; nao se inventam). Guarda os mais recentes
+  // de QUALQUER requisicao da interface que os carregue, para o nosso POST reusar.
+  const INTERESSANTES = ['x-ig-www-claim', 'x-instagram-ajax', 'x-web-session-id',
+                         'x-asbd-id', 'x-ig-max-touch-points', 'x-ig-app-id'];
+  const colher = (hs) => {
+    try {
+      if (!hs || (!hs['x-ig-www-claim'] && !hs['x-instagram-ajax'])) return;
+      const guardados = JSON.parse(localStorage.getItem('__if_hdrs') || '{}');
+      INTERESSANTES.forEach((k) => { if (hs[k]) guardados[k] = hs[k]; });
+      guardar('__if_hdrs', guardados, 0);
+    } catch (e) {}
+  };
+
+  const registrar = (via, m, url, hs, corpo) => {
+    colher(hs);
+    if (ehEscritaFollow(url, m, corpo)) {
+      guardar('__if_cap', { via: via, method: String(m).toUpperCase(), url: String(url),
+                            headers: hs, body: String(corpo || '').slice(0, 600) }, 20);
+    }
   };
 
   const origFetch = window.fetch;
@@ -625,11 +674,8 @@ _SPY_BODY = r"""
       const b = init && init.body;
       if (typeof b === 'string') corpo = b;
       else if (b && typeof b.toString === 'function') corpo = String(b);
-      if (interessa(url, m, corpo)) {
-        guardar({ via: 'fetch', method: String(m).toUpperCase(), url: String(url),
-                  headers: cabecalhos((init && init.headers) || (input && input.headers)),
-                  body: corpo.slice(0, 600) });
-      }
+      registrar('fetch', m, url,
+                cabecalhos((init && init.headers) || (input && input.headers)), corpo);
     } catch (e) {}
     return origFetch.apply(this, arguments);
   };
@@ -642,17 +688,13 @@ _SPY_BODY = r"""
     return xOpen.apply(this, arguments);
   };
   XMLHttpRequest.prototype.setRequestHeader = function (k, v) {
-    try { (this.__h = this.__h || {})[String(k)] = String(v); } catch (e) {}
+    try { (this.__h = this.__h || {})[String(k).toLowerCase()] = String(v); } catch (e) {}
     return xHead.apply(this, arguments);
   };
   XMLHttpRequest.prototype.send = function (b) {
     try {
-      const corpo = typeof b === 'string' ? b : '';
-      if (interessa(this.__u, this.__m, corpo)) {
-        guardar({ via: 'xhr', method: String(this.__m).toUpperCase(),
-                  url: String(this.__u), headers: this.__h || {},
-                  body: corpo.slice(0, 600) });
-      }
+      registrar('xhr', this.__m, this.__u, this.__h || {},
+                typeof b === 'string' ? b : '');
     } catch (e) {}
     return xSend.apply(this, arguments);
   };
@@ -664,6 +706,8 @@ _SPY_EVAL = "() => {" + _SPY_BODY + "}"
 _LER_CAP = ("() => { try { const v = localStorage.getItem('__if_cap');"
             " return v ? JSON.parse(v) : []; } catch (e) { return []; } }")
 _LIMPAR_CAP = "() => { try { localStorage.removeItem('__if_cap'); } catch (e) {} }"
+_LER_HDRS = ("() => { try { const v = localStorage.getItem('__if_hdrs');"
+             " return v ? JSON.parse(v) : {}; } catch (e) { return {}; } }")
 
 
 async def capture_follow(profile, log=None, should_stop=None, timeout=300) -> dict:
@@ -709,6 +753,12 @@ async def capture_follow(profile, log=None, should_stop=None, timeout=300) -> di
             if caps:
                 achado["capturas"] = caps
                 achado["ok"] = True
+                # Os headers dinâmicos são o achado mais reaproveitável: o motor passou a
+                # colhê-los sozinho, e aqui eles ficam visíveis para conferência.
+                try:
+                    achado["headers_ui"] = await page.evaluate(_LER_HDRS) or {}
+                except Exception:
+                    achado["headers_ui"] = {}
                 if log:
                     log(f"✓ capturei {len(caps)} requisição(ões) de follow da interface:")
                     for c in caps[:3]:
@@ -730,6 +780,31 @@ async def capture_follow(profile, log=None, should_stop=None, timeout=300) -> di
     except Exception as e:
         achado["erro"] = str(e)
     return achado
+
+
+async def colher_headers_dinamicos(page, log=None) -> dict:
+    """Colhe do tráfego da PRÓPRIA interface os headers que o IG exige e que rotacionam.
+
+    Medido ao vivo (POST `/api/v1/friendships/show_many/` que a UI dispara ao abrir a
+    lista de seguidores): a interface manda `x-ig-www-claim`, `x-instagram-ajax`,
+    `x-web-session-id`, `x-ig-max-touch-points` e `x-asbd-id: 359341` — **nenhum deles
+    ia no nosso POST**, e o nosso `x-asbd-id` constante (129477) estava velho. Esses
+    valores são emitidos pelo Instagram e mudam; por isso são COLHIDOS em vez de
+    escritos no código, o que mantém o follow funcionando quando o IG rotacionar.
+
+    Requer o espão instalado (`_SPY_INIT` via add_init_script) antes da navegação."""
+    try:
+        hs = await page.evaluate(_LER_HDRS) or {}
+    except Exception:
+        hs = {}
+    if log:
+        if hs.get("x-ig-www-claim") or hs.get("x-instagram-ajax"):
+            log("🧬 headers da interface colhidos: "
+                + " · ".join(f"{k}={str(v)[:22]}" for k, v in sorted(hs.items())))
+        else:
+            log("⚠ não colhi os headers dinâmicos da interface (x-ig-www-claim etc.) — "
+                "seguindo com os headers básicos; se der 404, é provavelmente isso")
+    return hs
 
 
 async def _diag_rotas(page, alvo_id=None) -> dict:
@@ -830,8 +905,15 @@ async def run_unfollow(profile: dict, candidatos: list, settings: dict, *,
         if log:
             log(f"{'🔎 SIMULAÇÃO — ' if dry else ''}{len(candidatos)} candidato(s) a deixar de seguir"
                 + (" · protegendo quem retribuiu" if proteger else " · SEM proteger mútuos"))
+        # Espiao ANTES de navegar: colhe do trafego da propria interface os headers
+        # dinamicos que o IG exige na escrita (x-ig-www-claim, x-instagram-ajax...).
+        try:
+            await page.add_init_script(_SPY_INIT)
+        except Exception:
+            pass
         await page.goto(IG + "/", wait_until="domcontentloaded")
         await asyncio.sleep(round(random.uniform(1.0, 2.5), 1))
+        hdrs_ui = await colher_headers_dinamicos(page, log=log)
 
         if viewer:
             seguindo, _ = await viewer_following_count(page, viewer)
@@ -899,7 +981,7 @@ async def run_unfollow(profile: dict, candidatos: list, settings: dict, *,
                 continue
 
             try:
-                res = await _unfollow_one(page, uid, uname)
+                res = await _unfollow_one(page, uid, uname, extra=hdrs_ui)
             except Exception as e:
                 res = {"ok": False, "status": -1, "payload": None, "error": str(e)}
 
@@ -1339,8 +1421,16 @@ async def run(profile: dict, queue: list, settings: dict, filters: dict, *,
             log(f"{'🔎 SIMULAÇÃO (nada será seguido) — ' if dry else ''}"
                 f"{len(pending)} conta(s) pendente(s)."
                 + (" Enriquecimento de perfil ligado (1 requisição extra por conta)." if enrich else ""))
+        # Espão ANTES de navegar: ele colhe, do tráfego que a própria interface gera ao
+        # carregar, os headers dinâmicos que o IG exige na escrita (medido: sem eles o
+        # POST de follow devolvia 404). Reinstala em cada documento.
+        try:
+            await page.add_init_script(_SPY_INIT)
+        except Exception:
+            pass
         await page.goto(IG + "/", wait_until="domcontentloaded")
         await asyncio.sleep(round(random.uniform(1.0, 2.5), 1))
+        hdrs_ui = await colher_headers_dinamicos(page, log=log)
 
         # ── sonda de sessão (1 requisição, antes de agir) ──
         # Sem isto, perfil deslogado só era descoberto queimando itens da fila.
@@ -1475,7 +1565,7 @@ async def run(profile: dict, queue: list, settings: dict, filters: dict, *,
 
             # ── follow ──
             try:
-                res = await _follow_one(page, acct["id"], acct["username"])
+                res = await _follow_one(page, acct["id"], acct["username"], extra=hdrs_ui)
             except Exception as e:
                 res = {"ok": False, "status": -1, "payload": None, "error": str(e)}
 
@@ -1508,7 +1598,7 @@ async def run(profile: dict, queue: list, settings: dict, filters: dict, *,
                             f"tentando de novo com o id real")
                     acct["id"] = str(pk)
                     try:
-                        res = await _follow_one(page, acct["id"], acct["username"])
+                        res = await _follow_one(page, acct["id"], acct["username"], extra=hdrs_ui)
                     except Exception as e:
                         res = {"ok": False, "status": -1, "payload": None, "error": str(e)}
                 elif pk and log:

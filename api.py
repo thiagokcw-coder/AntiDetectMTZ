@@ -3083,7 +3083,7 @@ async def follow_capture(body: FollowCaptureRequest):
                                         timeout=max(30, min(900, int(body.timeout or 300))))
     relatorio = {"perfil": p.get("name"), "ok": res.get("ok"),
                  "erro": res.get("erro"), "capturas": res.get("capturas"),
-                 "log": linhas}
+                 "headers_ui": res.get("headers_ui"), "log": linhas}
     try:
         d = SPIDER_DATA_DIR / "_analise"
         d.mkdir(parents=True, exist_ok=True)

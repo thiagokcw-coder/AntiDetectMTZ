@@ -8,54 +8,70 @@
 (3.793 contatos coletados de 7 alvos). O que **não** funciona ainda: o **follow em si**
 devolve **404 em tudo**.
 
-**Estado do diagnóstico do 404 — 6 hipóteses MORTAS, medição cercou o culpado:**
-1. **✗ sessão/deslogado:** a sonda logou ao vivo `✓ perfil logado (ds_user_id 33868094898)`
-   e o follow ainda deu 404.
-2. **✗ conta específica:** o ródízio testou as 3, todas 404.
-3. **✗ header ou body:** medido campo a campo; o POST é idêntico ao `spider._follow`.
-4. **✗ dado corrompido:** cookie jar medido no `cookies.sqlite` real.
-5. **✗ regressão nossa:** `follower.py` tem 3 commits e **nasceu em 2026-08-18**; o follow
-   **nunca funcionou**. A base do porte (extensão local `InstaFollow`) diz no próprio
-   HANDOFF §11: *"nunca rodou contra a API real do Instagram nem foi carregado no Chrome"*.
-   **O GrowBot não foi a base do follow** — entrou só como referência de FUNCIONALIDADE do
-   unfollow (teto 7.500, mútuos, whitelist), lida da página da loja; nunca tivemos o
-   código. Logo, **não houve "começou funcionando e parou"**.
-6. **✗ família de rotas `/api/v1/` morta:** o `_diag_rotas` mediu ao vivo
-   `web_profile_info: status 200 com usuário · GraphQL: status 200 com usuário`. **A v1
-   está VIVA para leitura.**
+**🎯 CAUSA DO 404 ACHADA POR MEDIÇÃO: faltavam 4 headers que a interface manda.**
+A captura da requisição real (botão "🔬 Capturar requisição real") pegou um
+`POST /api/v1/friendships/show_many/` **da própria UI** e revelou o que ela envia num POST
+v1 — comparado com o nosso:
 
-**→ O que restou, cercado:** perfil logado · v1 viva · leituras 200 · headers e body idênticos
-ao que funcionou · 3 contas iguais → **só a rota de ESCRITA `friendships/create` devolve 404
-(corpo vazio)**. Candidatos restantes: a rota de escrita mudou no cliente web (provável:
-**mutação GraphQL com `doc_id`**, que substituiu várias rotas v1), ou falta um header que só
-a escrita exige (`x-ig-www-claim`, `x-instagram-ajax` — note que o `_GQL_JS`, que funciona,
-manda `x-instagram-ajax` e o `_POST_JS` **não**).
+| header | interface | nós (antes) |
+|---|---|---|
+| `X-IG-App-ID` | 936619743392459 | ✓ igual |
+| `X-CSRFToken` | presente | ✓ |
+| `X-ASBD-ID` | **359341** | ⚠ 129477 (obsoleto) |
+| `X-IG-WWW-Claim` | `hmac.AR2wQagG1HTzAJk…` | ✗ **ausente** |
+| `X-Instagram-AJAX` | 1045443255 | ✗ **ausente** |
+| `X-Web-Session-ID` | `f9k4mc:mg13gk:owunew` | ✗ **ausente** |
+| `X-IG-Max-Touch-Points` | 0 | ✗ ausente |
 
-**→ PRÓXIMO PASSO: PARAR DE ADIVINHAR E MEDIR (feito, aguardando 1 clique seu).** Botão
-**"🔬 Capturar requisição real"** na aba InstaFollow (ao lado de "Zerar fila").
-`follower.capture_follow` + `POST /follow/capture`: abre o perfil **visível**, instala um
-espão via `page.add_init_script` (reinstala em CADA documento — um wrapper preso ao
-documento morreria na navegação até o perfil do alvo) que embrulha `fetch` **e** XHR,
-guarda em `localStorage` e mostra **método/URL/headers/corpo** no terminal + salva em
-`data/_analise/follow_capture.json`. **Você segue alguém na mão e o app diz exatamente o que
-o Instagram de 2026-08 espera** — encerrando o ciclo de hipótese/teste.
-Filtro cuidadoso para não afogar no tráfego: POST em `friendship|/follow`, **ou** POST em
-`/graphql/query` cujo corpo mencione follow (se virou mutação GraphQL a URL não tem
-"friendship" — é por isso que este segundo caso existe).
-**Validado:** `node --check` nos 4 trechos de JS injetado + **16 asserções rodando o espão
-no node** com fetch/XHR/localStorage simulados (captura v1 com `x-ig-www-claim` e
-`x-instagram-ajax` · captura mutação GraphQL · **ignora** graphql sem follow, feed e GET ·
-lê headers no formato Headers/Map · caminho XHR · teto de 20 · **a fetch e o send ORIGINAIS
-seguem sendo chamados e a Promise é devolvida — não quebra o navegador** · instalar 2x é
-idempotente) + UI conferida ao vivo na instância do usuário (botão presente, função ligada,
-0 erro de console).
-**⚠ O bug de 2026-08-18 REPETIU e o `node --check` pegou:** patch por heredoc transformou
-`
-` em quebra de linha literal dentro de string JS. Restaurei do backup e refiz o patch
-como **arquivo `.py`** (nenhuma camada de shell toca nos escapes) + mensagem de uma linha.
-Dois erros meus também pegos na revisão antes de rodar: classe `fw-prof-chk` **inventada**
-(a real é `fw-pool-chk`) e a ordem dos argumentos de `api()` invertida (é
-`api(method, path, body, timeout)`).
+Isso fecha a história: perfil logado · v1 viva para leitura · POST idêntico ao `spider._follow`
+· só a ESCRITA 404 — porque a escrita é o que exige esses headers. E explica o
+`spider._follow` ter funcionado em **2026-06-21**: o IG passou a exigi-los depois.
+**Coerente com um sinal que estava à vista:** o `_GQL_JS` (que funciona) manda
+`x-instagram-ajax`; o `_POST_JS` **não mandava**.
+
+**Fix: os headers são COLHIDOS, não escritos no código.** `x-ig-www-claim`,
+`x-instagram-ajax`, `x-web-session-id` e `x-asbd-id` são emitidos pelo Instagram e
+**rotacionam** — fixar no código quebraria na próxima virada. Então o espão (que já existia
+para a captura) passou a **colher os mais recentes do tráfego da própria interface** e o
+POST reusa: `_SPY_INIT` via `add_init_script` antes do `goto` →
+`colher_headers_dinamicos(page)` → `_POST_JS` mescla o `extra` sobre a base. Vale para
+**follow E unfollow** (o unfollow também perdeu o `container_module` do body, que o follow
+já tinha perdido). Auto-atualizável: quando o IG rotacionar, colhemos o novo.
+Se não colher nada, o log avisa (`⚠ não colhi os headers dinâmicos… se der 404, é
+provavelmente isso`) e segue com os básicos — sem regressão.
+
+**🐞 BUG que o usuário relatou e que era meu: "abro os seguidores e o Camoufox fecha
+sozinho".** O `friendships/show_many` que o IG dispara **ao abrir a lista de seguidores**
+(para pintar os botões Seguir/Seguindo) casava com o filtro do espão, porque a URL contém
+`friendship` → o `capture_follow` achava que havia capturado o follow, retornava, e o
+`run_profile_task` **fechava o contexto** (ele "roda fn e fecha"). Filtro agora exige
+ESCRITA de verdade: `friendships/(create|destroy)`, caminho terminando em `/follow/` ou
+`/unfollow/`, ou GraphQL **com `mutation` no corpo** (`followers`/`following` são
+**queries** de lista — era exatamente o que fechava a janela).
+
+**Hipóteses mortas no caminho (todas por medição, não por palpite):** sessão/deslogado
+(sonda logou `ds_user_id 33868094898`) · conta específica (ródízio testou 3) · body
+`container_module` · id da fila · dado corrompido · rota v1 morta (`web_profile_info` deu
+200) · **regressão nossa** (`follower.py` nasceu em 2026-08-18 com 3 commits; o follow
+**nunca funcionou**, e a extensão base diz no HANDOFF §11 *"nunca rodou contra a API real
+nem foi carregado no Chrome"*. O **GrowBot não foi a base do follow** — só referência de
+funcionalidade do unfollow; nunca tivemos o código dele).
+
+**→ PRÓXIMO PASSO:** rodar o InstaFollow. O terminal agora mostra
+`🧬 headers da interface colhidos: …` antes de agir. Se o follow passar, causa
+confirmada. Se ainda der 404 **com** os headers colhidos, o candidato seguinte é a rota ter
+migrado para **mutação GraphQL com `doc_id`** — e o botão de captura já pega isso (o filtro
+cobre `graphql` + `mutation`), bastando seguir alguém na mão.
+
+**Validado:** py_compile + `node --check` no JS injetado + **16 asserções do espão rodando
+no node** (o `show_many` real medido **não** encerra mais · queries de followers/following
+não encerram · `create`/`destroy`/`/unfollow/`/mutação GraphQL encerram · headers colhidos
+são os mais recentes · requisição sem `www-claim` não zera os colhidos · **fetch e send
+ORIGINAIS seguem chamados e a Promise é devolvida — não quebra o navegador**) +
+**15 asserções do capture** (sem follow real ele **continua esperando** em vez de fechar ·
+o follow real encerra na hora · abre VISÍVEL · Parar responde na hora) + **38 asserções de
+paridade** (base idêntica ao spider + os 4 headers medidos chegam ao POST, também no
+fallback `/web/` e no unfollow) + regressão **264 asserções** do motor.
 
 **Pendente, planejado e NÃO implementado (usuário pediu para esperar):** disparos de
 WhatsApp — ver a seção "DISPAROS WHATSAPP" abaixo. Decisões já travadas: **Evolution API
