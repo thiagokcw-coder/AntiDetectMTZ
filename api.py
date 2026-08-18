@@ -3118,6 +3118,72 @@ def follow_queue_discard(body: FollowDiscardRequest):
     return {"ok": True, "apagado": apagado}
 
 
+class FollowBackCheckRequest(BaseModel):
+    profile_id: str = ""
+    limit: int = 500
+
+
+@app.post("/follow/check-followback")
+async def follow_check_followback(body: FollowBackCheckRequest):
+    """Confere quem retribuiu o follow e grava o resultado nas metricas.
+
+    So LEITURA: usa `friendships/show_many` -- a mesma rota que a interface chama
+    ao abrir uma lista de seguidores (medido na captura de 2026-08-18), o que
+    permite conferir ~50 pessoas por requisicao em vez de uma a uma.
+
+    Roda POR PERFIL: cada perfil so pode perguntar sobre as pessoas que ELE
+    seguiu (quem segue quem e uma relacao entre aquela conta e a pessoa)."""
+    perfis = []
+    if body.profile_id:
+        p = db.get_profile(body.profile_id)
+        if not p:
+            raise HTTPException(404, "perfil nao encontrado")
+        perfis = [p]
+    else:
+        # Sem perfil escolhido, confere todos os que tem conta logada.
+        for p in db.list_profiles():
+            a = db.get_account_by_profile(p["id"])
+            if a and (a.get("status") == "active"):
+                perfis.append(p)
+    if not perfis:
+        raise HTTPException(400, "nenhum perfil com conta logada")
+
+    # Nao roubar o perfil de uma campanha/extracao em andamento.
+    ocupados = set()
+    for j in list(_spider_jobs.values()):
+        if j.get("status") == "running":
+            ocupados.update(j.get("profile_ids") or [])
+    for j in list(_follow_jobs.values()):
+        if j.get("status") in ("running", "harvesting"):
+            ocupados.update(j.get("profile_ids") or [])
+
+    agora = int(time.time() * 1000)
+    linhas, total_ver, total_volta = [], 0, 0
+    for p in perfis:
+        if p["id"] in ocupados:
+            linhas.append({"perfil": p.get("name"), "erro": "em uso por outra operacao"})
+            continue
+        conta = db.get_account_by_profile(p["id"])
+        chave = (conta or {}).get("username") or ""
+        cands = db.follow_followback_candidates(by_account=chave,
+                                                limit=max(1, min(5000, int(body.limit or 500))))
+        if not cands:
+            linhas.append({"perfil": p.get("name"), "conta": chave, "verificados": 0,
+                           "seguiram_de_volta": 0, "nota": "ninguem novo para conferir"})
+            continue
+        r = await follower.checar_seguiram_de_volta(p, cands, log=None)
+        if r.get("resultados"):
+            db.mark_followback(r["resultados"], agora)
+        total_ver += r.get("verificados") or 0
+        total_volta += r.get("retribuiram") or 0
+        linhas.append({"perfil": p.get("name"), "conta": chave,
+                       "verificados": r.get("verificados") or 0,
+                       "seguiram_de_volta": r.get("retribuiram") or 0,
+                       "erro": r.get("erro")})
+    return {"ok": True, "verificados": total_ver, "seguiram_de_volta": total_volta,
+            "por_perfil": linhas, **db.follow_followback_totals()}
+
+
 @app.get("/follow/metrics")
 def follow_metrics():
     """Métricas do InstaFollow: total seguido, quanto cada CONTA está segurando do
@@ -3136,6 +3202,14 @@ def follow_metrics():
             "desfeitos": int(row.get("desfeitos") or 0),
             "vagas_ate_o_teto": max(0, follower.IG_FOLLOWING_LIMIT - seg),
             "pct_do_teto": round(seg * 100.0 / follower.IG_FOLLOWING_LIMIT, 1),
+            # Quantos deste perfil retribuiram. A taxa usa VERIFICADOS como
+            # denominador: quem ainda nao foi conferido nao e "nao retribuiu".
+            "seguiram_de_volta": int(row.get("seguiram_de_volta") or 0),
+            "verificados": int(row.get("verificados") or 0),
+            "taxa_retorno_pct": (
+                round(int(row.get("seguiram_de_volta") or 0) * 100.0
+                      / int(row.get("verificados") or 0), 1)
+                if int(row.get("verificados") or 0) else None),
             "primeiro_ms": row.get("primeiro_ms"), "ultimo_ms": row.get("ultimo_ms"),
             **db.follow_actions_counts(key, agora),
         })
@@ -3149,6 +3223,7 @@ def follow_metrics():
             "desfeitos": sum(c["desfeitos"] for c in contas),
             "contas": len(contas),
             "capacidade_total": len(contas) * follower.IG_FOLLOWING_LIMIT,
+            **db.follow_followback_totals(),
         },
         "por_conta": contas,
         "por_alvo": db.follow_metrics_by_source(20),

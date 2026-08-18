@@ -1462,13 +1462,14 @@
           <div style="font-weight:600">📊 Métricas</div>
           <div style="display:flex;gap:6px">
             <button class="btn btn-success btn-sm" onclick="followExportCsv(this)" title="CSV com todas as pessoas já seguidas (nunca repetidas), a conta que seguiu, a origem e se ainda está seguindo">⬇ Exportar CSV</button>
+            <button class="btn btn-sm" onclick="followCheckBack(this)" title="Confere quem retribuiu o follow. Só leitura — pergunta o status de ~50 pessoas por requisição, a mesma rota que a interface usa ao abrir uma lista">🤝 Conferir quem seguiu de volta</button>
             <button class="btn btn-ghost btn-sm" onclick="loadFollowMetrics()">↻ Atualizar</button>
           </div>
         </div>
         <div id="fw-metrics-total" style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px"></div>
         <div class="table-wrap">
           <table>
-            <thead><tr><th>Conta</th><th>Seguiu</th><th>Ainda seguindo</th><th>Desfez</th><th>Teto 7.500</th><th>Última hora</th><th>Últimas 24h</th></tr></thead>
+            <thead><tr><th>Conta</th><th>Seguiu</th><th>Ainda seguindo</th><th>Seguiram de volta</th><th>Desfez</th><th>Teto 7.500</th><th>Última hora</th><th>Últimas 24h</th></tr></thead>
             <tbody id="fw-metrics-contas"></tbody>
           </table>
         </div>
@@ -4440,6 +4441,12 @@ async function loadFollowMetrics() {
       card('Pessoas seguidas (total)', (t.pessoas_seguidas || 0).toLocaleString('pt-BR'), 'nunca repetidas')
       + card('Ainda seguindo', (t.ainda_seguindo || 0).toLocaleString('pt-BR'), 'é o que conta no teto')
       + card('Follows desfeitos', (t.desfeitos || 0).toLocaleString('pt-BR'), '')
+      + card('Seguiram de volta',
+             (t.seguiram_de_volta || 0).toLocaleString('pt-BR'),
+             t.taxa_retorno_pct == null
+               ? 'ninguém conferido ainda'
+               : `${t.taxa_retorno_pct}% de ${(t.verificados || 0).toLocaleString('pt-BR')} conferido(s)`
+                 + ((t.nao_verificados || 0) ? ` · ${(t.nao_verificados).toLocaleString('pt-BR')} por conferir` : ''))
       + card('Capacidade da frota', (t.capacidade_total || 0).toLocaleString('pt-BR'),
              `${t.contas || 0} conta(s) × ${(m.limite_ig || 7500).toLocaleString('pt-BR')}`);
 
@@ -4449,6 +4456,11 @@ async function loadFollowMetrics() {
         <td>${escapeHtml(c.conta)}</td>
         <td>${c.seguidos.toLocaleString('pt-BR')}</td>
         <td><b>${c.ainda_seguindo.toLocaleString('pt-BR')}</b></td>
+        <td>${(c.seguiram_de_volta || 0).toLocaleString('pt-BR')}
+          <div style="font-size:10.5px;color:var(--muted)">${
+            c.taxa_retorno_pct == null
+              ? 'não conferido'
+              : c.taxa_retorno_pct + '% de ' + (c.verificados || 0)}</div></td>
         <td>${c.desfeitos.toLocaleString('pt-BR')}</td>
         <td style="min-width:130px">
           <div style="display:flex;align-items:center;gap:6px">
@@ -4461,14 +4473,37 @@ async function loadFollowMetrics() {
         </td>
         <td>${c.hora}</td><td>${c.dia}</td>
       </tr>`;
-    }).join('') || '<tr><td colspan="7" style="color:var(--muted)">Nenhuma ação registrada ainda.</td></tr>';
+    }).join('') || '<tr><td colspan="8" style="color:var(--muted)">Nenhuma ação registrada ainda.</td></tr>';
 
     const alvos = m.por_alvo || [];
     document.getElementById('fw-metrics-alvos').innerHTML = alvos.length
-      ? '<b>Rendimento por alvo:</b> ' + alvos.map(a =>
-          `${escapeHtml(a.source)} = ${a.seguidos}`).join(' · ')
+      ? '<b>Rendimento por alvo:</b> ' + alvos.map(a => {
+          const taxa = a.verificados
+            ? ` (${Math.round((a.seguiram_de_volta || 0) * 1000 / a.verificados) / 10}% de volta)`
+            : '';
+          return `${escapeHtml(a.source)} = ${a.seguidos}${taxa}`;
+        }).join(' · ')
       : '';
-  } catch (e) { tb.innerHTML = `<tr><td colspan="7" style="color:var(--muted)">${escapeHtml(e.message || 'erro')}</td></tr>`; }
+  } catch (e) { tb.innerHTML = `<tr><td colspan="8" style="color:var(--muted)">${escapeHtml(e.message || 'erro')}</td></tr>`; }
+}
+
+// Confere quem retribuiu. So LEITURA: usa friendships/show_many, a mesma rota que a
+// interface chama ao abrir uma lista de seguidores -- ~50 pessoas por requisicao, em
+// vez de uma consulta por pessoa.
+async function followCheckBack(btn) {
+  const parar = runBtnCountdown(btn, 60);
+  try {
+    const r = await api('POST', '/follow/check-followback', { limit: 500 }, 600000);
+    const linhas = (r.por_perfil || [])
+      .map(p => `${p.perfil}: ${p.seguiram_de_volta || 0}/${p.verificados || 0}${p.erro ? ' (' + p.erro + ')' : ''}`)
+      .join(' · ');
+    toast(`Conferi ${r.verificados || 0} — ${r.seguiram_de_volta || 0} seguiram de volta. ${linhas}`);
+    await loadFollowMetrics();
+  } catch (e) {
+    toast('Falha ao conferir: ' + e.message);
+  } finally {
+    if (parar) parar();
+  }
 }
 
 async function followExportCsv(btn) {

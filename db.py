@@ -324,6 +324,11 @@ def init_db():
         # De qual alvo/fonte a pessoa veio ("followers:@fulano") — permite medir qual
         # alvo rende mais e exportar isso no CSV.
         _ensure_column(conn, "follow_history", "source", "TEXT")
+        # Quem retribuiu o follow. Duas colunas de proposito: sem a de verificacao,
+        # "ainda nao conferi" seria indistinguivel de "nao retribuiu" e a taxa de
+        # retorno apareceria menor do que e.
+        _ensure_column(conn, "follow_history", "followed_back_ts_ms", "BIGINT")
+        _ensure_column(conn, "follow_history", "followback_checked_ms", "BIGINT")
         # Execuções de unfollow reusam follow_runs (mesmo motor/limitador).
         _ensure_column(conn, "follow_runs", "mode", "TEXT DEFAULT 'follow'")
         _ensure_column(conn, "follow_runs", "unfollowed", "INTEGER DEFAULT 0")
@@ -1038,6 +1043,82 @@ def follow_history_export() -> list:
     return [dict(r) for r in rows]
 
 
+def follow_followback_candidates(by_account: str = "", limit: int = 500,
+                                 revalidar_apos_ms: int = 0) -> list:
+    """Quem checar para saber se retribuiu: seguidos que ainda seguimos.
+
+    Prioriza NUNCA verificados (checked IS NULL) e, depois, os verificados ha mais
+    tempo -- assim a primeira passada cobre o desconhecido antes de re-conferir
+    quem ja se sabe. `revalidar_apos_ms` = so devolve re-checagem mais velha que
+    isso (0 = re-checa qualquer um depois dos nao verificados).
+
+    Exclui quem ja retribuiu: seguir de volta e um evento praticamente estavel, e
+    re-checar todo mundo a cada rodada gastaria requisicao para confirmar o que ja
+    se sabe. Quem deixar de seguir aparece na proxima checagem completa."""
+    onde = ["unfollowed_ts_ms IS NULL", "followed_back_ts_ms IS NULL",
+            "user_id IS NOT NULL", "user_id <> ''"]
+    args = []
+    if by_account:
+        onde.append("by_account = ?")
+        args.append(by_account)
+    if revalidar_apos_ms:
+        onde.append("(followback_checked_ms IS NULL OR followback_checked_ms < ?)")
+        args.append(int(revalidar_apos_ms))
+    args.append(int(limit or 500))
+    with get_conn() as conn:
+        rows = _ex(conn,
+            "SELECT username, user_id, by_account FROM follow_history WHERE "
+            + " AND ".join(onde)
+            + " ORDER BY followback_checked_ms IS NULL DESC, followback_checked_ms ASC,"
+              " ts_ms ASC LIMIT ?",
+            tuple(args)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def mark_followback(resultados: dict, checked_ms: int):
+    """Grava o resultado da checagem. `resultados` = {username: retribuiu(bool)}.
+
+    Marca TODOS como verificados; grava o carimbo de retribuicao so em quem
+    retribuiu, e nao o apaga de quem ja tinha (o registro e de que aconteceu)."""
+    if not resultados:
+        return
+    ts = int(checked_ms or 0)
+    with get_conn() as conn:
+        for username, retribuiu in resultados.items():
+            u = str(username or "").strip().lower()
+            if not u:
+                continue
+            if retribuiu:
+                _ex(conn,
+                    "UPDATE follow_history SET followback_checked_ms = ?, "
+                    "followed_back_ts_ms = COALESCE(followed_back_ts_ms, ?) "
+                    "WHERE username = ?", (ts, ts, u))
+            else:
+                _ex(conn,
+                    "UPDATE follow_history SET followback_checked_ms = ? "
+                    "WHERE username = ?", (ts, u))
+        conn.commit()
+
+
+def follow_followback_totals() -> dict:
+    """Total geral de retribuicao, com o denominador honesto (so o que foi checado)."""
+    with get_conn() as conn:
+        r = _ex(conn,
+            "SELECT COUNT(*) AS total, "
+            "SUM(CASE WHEN followed_back_ts_ms IS NOT NULL THEN 1 ELSE 0 END) AS seguiram_de_volta, "
+            "SUM(CASE WHEN followback_checked_ms IS NOT NULL THEN 1 ELSE 0 END) AS verificados "
+            "FROM follow_history").fetchone()
+    d = dict(r) if r else {}
+    total = int(d.get("total") or 0)
+    volta = int(d.get("seguiram_de_volta") or 0)
+    verif = int(d.get("verificados") or 0)
+    return {"seguiram_de_volta": volta, "verificados": verif,
+            "nao_verificados": max(0, total - verif),
+            # A taxa usa VERIFICADOS como denominador: dividir pelo total trataria
+            # "ainda nao conferido" como "nao retribuiu" e subestimaria o resultado.
+            "taxa_retorno_pct": round(volta * 100.0 / verif, 1) if verif else None}
+
+
 def follow_metrics_by_account() -> list:
     """Agregado POR CONTA: seguidos, ainda seguindo (= o que conta no teto de 7.500),
     desfeitos, e quando foi a primeira/última ação."""
@@ -1046,6 +1127,8 @@ def follow_metrics_by_account() -> list:
             "SELECT by_account, COUNT(*) AS seguidos, "
             "SUM(CASE WHEN unfollowed_ts_ms IS NULL THEN 1 ELSE 0 END) AS ainda_seguindo, "
             "SUM(CASE WHEN unfollowed_ts_ms IS NOT NULL THEN 1 ELSE 0 END) AS desfeitos, "
+            "SUM(CASE WHEN followed_back_ts_ms IS NOT NULL THEN 1 ELSE 0 END) AS seguiram_de_volta, "
+            "SUM(CASE WHEN followback_checked_ms IS NOT NULL THEN 1 ELSE 0 END) AS verificados, "
             "MIN(ts_ms) AS primeiro_ms, MAX(ts_ms) AS ultimo_ms "
             "FROM follow_history GROUP BY by_account ORDER BY seguidos DESC").fetchall()
     return [dict(r) for r in rows]
@@ -1056,7 +1139,9 @@ def follow_metrics_by_source(limit: int = 20) -> list:
     with get_conn() as conn:
         rows = _ex(conn,
             "SELECT COALESCE(source, '(sem origem)') AS source, COUNT(*) AS seguidos, "
-            "SUM(CASE WHEN unfollowed_ts_ms IS NULL THEN 1 ELSE 0 END) AS ainda_seguindo "
+            "SUM(CASE WHEN unfollowed_ts_ms IS NULL THEN 1 ELSE 0 END) AS ainda_seguindo, "
+            "SUM(CASE WHEN followed_back_ts_ms IS NOT NULL THEN 1 ELSE 0 END) AS seguiram_de_volta, "
+            "SUM(CASE WHEN followback_checked_ms IS NOT NULL THEN 1 ELSE 0 END) AS verificados "
             "FROM follow_history GROUP BY source ORDER BY seguidos DESC LIMIT ?",
             (int(limit or 20),)).fetchall()
     return [dict(r) for r in rows]

@@ -912,6 +912,117 @@ async def colher_headers_dinamicos(page, log=None) -> dict:
     return hs
 
 
+# Quantos ids por requisicao. A interface real foi medida mandando ~15-20; 50 e
+# conservador o bastante para nao destoar e ja reduz 1000 pessoas a 20 requisicoes.
+_SHOW_MANY_LOTE = 50
+
+
+async def _show_many(page, user_ids: list, extra=None, tokens=None) -> dict:
+    """Status de amizade de VARIOS usuarios numa requisicao.
+
+    Retorna {user_id: {"following": bool, "followed_by": bool}}. `followed_by` e o
+    que responde "essa pessoa me segue de volta?".
+
+    Usa a mesma rota que a interface usa ao renderizar uma lista de seguidores
+    (medido). Corpo no mesmo formato: `user_ids=1,2,3` percent-encoded."""
+    ids = [str(u).strip() for u in (user_ids or []) if str(u or "").strip()]
+    if not ids:
+        return {}
+    corpo = "user_ids=" + quote(",".join(ids), safe="")
+    if tokens:
+        if tokens.get("jazoest"):
+            corpo += f"&jazoest={quote(str(tokens['jazoest']))}"
+        if tokens.get("fb_dtsg"):
+            corpo += f"&fb_dtsg={quote(str(tokens['fb_dtsg']), safe='')}"
+    res = await page.evaluate(_POST_JS, [f"{IG}/api/v1/friendships/show_many/",
+                                         f"{IG}/", corpo, extra or {}])
+    j = res.get("json") or {}
+    # A resposta vem em `friendship_statuses` (formato da interface). Alguns
+    # builds devolvem o mapa na raiz -- aceita os dois em vez de assumir um.
+    mapa = j.get("friendship_statuses")
+    if not isinstance(mapa, dict):
+        mapa = {k: v for k, v in j.items() if isinstance(v, dict) and "following" in v}
+    saida = {}
+    for uid, st in (mapa or {}).items():
+        if isinstance(st, dict):
+            saida[str(uid)] = {"following": st.get("following") is True,
+                               "followed_by": st.get("followed_by") is True}
+    return {"ok": bool(res.get("ok")) and bool(saida), "status": res.get("status"),
+            "mapa": saida, "body": (res.get("text") or "")[:160]}
+
+
+async def checar_seguiram_de_volta(profile, candidatos: list, *, log=None,
+                                   should_stop=None, use_local=True) -> dict:
+    """Quantos dos que ESTE perfil seguiu retribuiram.
+
+    `candidatos` = [{username, user_id, by_account}] vindos do banco. Devolve
+    {resultados: {username: bool}, verificados, retribuiram, erro}.
+
+    So LEITURA -- nao segue, nao desfaz. Ainda assim respeita o Parar e faz pausa
+    humana entre os lotes: e a mesma superficie que da bloqueio de acao."""
+    saida = {"resultados": {}, "verificados": 0, "retribuiram": 0, "erro": None}
+    if not candidatos:
+        return saida
+    por_id = {str(c.get("user_id")): str(c.get("username") or "").lower()
+              for c in candidatos if c.get("user_id")}
+    ids = list(por_id.keys())
+
+    async def _job(page):
+        try:
+            await page.add_init_script(_SPY_INIT)
+        except Exception:
+            pass
+        await page.goto(IG + "/", wait_until="domcontentloaded")
+        await asyncio.sleep(round(random.uniform(1.0, 2.0), 1))
+        sonda = await _session_ok(page)
+        if not sonda["ok"] and sonda.get("motivo"):
+            saida["erro"] = f"perfil nao esta logado ({sonda['motivo']})"
+            if log:
+                log(f"\u2716 {saida['erro']}")
+            return
+        hdrs = await colher_headers_dinamicos(page, log=None)
+        toks = await colher_tokens_ui(page, log=None)
+
+        lotes = [ids[i:i + _SHOW_MANY_LOTE] for i in range(0, len(ids), _SHOW_MANY_LOTE)]
+        if log:
+            log(f"\U0001f50e conferindo {len(ids)} pessoa(s) em {len(lotes)} requisicao(oes)")
+        for n, lote in enumerate(lotes, 1):
+            if should_stop and should_stop():
+                saida["erro"] = "cancelado"
+                return
+            r = await _show_many(page, lote, extra=hdrs, tokens=toks)
+            if not r.get("ok"):
+                # Falha de lote nao invalida o que ja foi conferido: para aqui e
+                # grava o parcial, em vez de perder tudo.
+                saida["erro"] = (f"o Instagram recusou a consulta (status "
+                                 f"{r.get('status')}) {r.get('body') or ''}".strip())
+                if log:
+                    log(f"\u26a0 lote {n}/{len(lotes)}: {saida['erro']}")
+                return
+            for uid, st in (r.get("mapa") or {}).items():
+                u = por_id.get(str(uid))
+                if not u:
+                    continue
+                retribuiu = bool(st.get("followed_by"))
+                saida["resultados"][u] = retribuiu
+                saida["verificados"] += 1
+                if retribuiu:
+                    saida["retribuiram"] += 1
+            if log:
+                log(f"   lote {n}/{len(lotes)} \u00b7 {saida['retribuiram']} de "
+                    f"{saida['verificados']} conferidos seguiram de volta")
+            if n < len(lotes):
+                if await spider._sleep_stop(round(random.uniform(3.0, 8.0), 1), should_stop):
+                    saida["erro"] = "cancelado"
+                    return
+
+    try:
+        await sm.run_profile_task(profile, _job, headless=True)
+    except Exception as e:
+        saida["erro"] = str(e)
+    return saida
+
+
 async def _diag_rotas(page, alvo_id=None) -> dict:
     """A família de rotas `/api/v1/` está VIVA nesta superfície?
 

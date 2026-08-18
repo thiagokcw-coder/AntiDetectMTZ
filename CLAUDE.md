@@ -304,6 +304,50 @@ Porte do projeto **InstaFollow** (`C:\Users\thiag\OneDrive\Documents\GitHub\Inst
 - **Aba renomeada p/ "InstaFollow"** (era "Seguir") no menu e no título — a pedido do usuário, 2026-08-16. Só rótulo: rota (`follow`), endpoints (`/follow/*`) e `follower.py` inalterados.
 - **🎯 COLETA MULTI-ALVO RASA (2026-08-16, decisão do usuário: "alternar entre contas alvo, não tem necessidade de ir muito afundo na paginação").** A coleta deixou de paginar fundo num alvo só e passou a **alternar entre vários alvos, pegando só o TOPO de cada**. Duas razões, ambas alinhadas ao aprendizado do projeto: (1) **risco** — paginar fundo é o que queima conta (no Spider a lista profunda só abre se a conta SEGUE o alvo, e ainda assim derruba); o topo da lista é a leitura mais banal que existe, é o que qualquer usuário vê ao abrir o perfil; (2) **qualidade** — o topo traz os seguidores MAIS RECENTES (contas ativas agora), o fundo é gente que seguiu há anos e pode estar morta. N alvos rasos dão o mesmo volume que um alvo fundo, com fração do risco e material melhor. **Implementação:** `follower.harvest(profile, source_type, targets, per_target)` aceita string OU lista, abre o perfil UMA vez e percorre os alvos na mesma sessão (`_harvest_one` por alvo), com **dedup entre alvos** (seguidor em comum entra uma vez só), pausa humana entre alvos, e erro em um alvo **não derruba os outros** (vai pro próximo e reporta em `erros`). Retorno ganhou `por_alvo` e `erros`. **API:** `FollowHarvestRequest.targets[]` + `per_target` (o `target` antigo continua aceito); o teto total (`limit`) **divide** a fatia entre os alvos (10 alvos/teto 200 → 20 de cada, nunca 0). **UI:** o campo de alvo virou **textarea (um por linha)** + "Quantas por alvo" + "Teto total", com dica ao vivo ("🎯 3 alvo(s) × 50 do topo de cada = até 150 contas"). Validado: 8 asserções (guardas de alvo vazio/espaços/None + a divisão do teto) + endpoint ao vivo com perfil temporário (alvo vazio → erro claro; `target` antigo aceito; 3 alvos → job com rótulo "3 alvos") + UI no navegador (textarea, dica recalculando, likers vs followers, 0 erro de console).
 
+## 🤝 MÉTRICA "seguiram de volta" por perfil (FEITO, 2026-08-18)
+Pedido: *"bote nas métricas também o número de pessoas que seguiram de volta"* — esclarecido
+como **"as pessoas que seguiram os meus 3 perfis de volta"**, ou seja, retribuição por conta.
+
+**Como mede — reusa o que a captura do 404 revelou.** A captura de 2026-08-18 flagrou a
+própria interface chamando `POST /api/v1/friendships/show_many/` com `user_ids=a%2Cb%2Cc...`
+ao abrir uma lista de seguidores. Ou seja: dá para perguntar o status de **~50 pessoas por
+requisição**, numa rota que o Instagram vê o tempo todo vinda do navegador — muito melhor
+que `friendships/show/{id}` um a um. `followed_by` é o campo que responde "essa pessoa me
+segue de volta?". 1.000 pessoas = 20 requisições, não 1.000.
+
+**Duas colunas, não uma — e isso é o ponto do desenho.** `followed_back_ts_ms` (retribuiu) e
+`followback_checked_ms` (foi conferido). Sem separar, "ainda não conferi" seria
+indistinguível de "não retribuiu" e a taxa apareceria **menor do que é**. Por isso
+`taxa_retorno_pct` usa **verificados** como denominador, e vem `None` (não 0%) quando
+ninguém foi conferido.
+
+**Alternativa descartada:** ler o contador de seguidores dos próprios perfis (1 requisição
+cada) — barato, mas conta crescimento orgânico junto e **não sabe de qual alvo veio**. Como
+o valor da métrica é justamente dizer *qual alvo rende*, a checagem pessoa a pessoa ganha.
+
+- **Banco (`db.py`):** colunas via `_ensure_column` + `follow_followback_candidates`
+  (por conta; prioriza nunca-verificados; **exclui quem já retribuiu** — seguir de volta é
+  estável, re-checar gastaria requisição para confirmar o sabido) · `mark_followback` ·
+  `follow_followback_totals`. `follow_metrics_by_account` e `follow_metrics_by_source`
+  ganharam `seguiram_de_volta` + `verificados`.
+- **Motor (`follower.py`):** `_show_many` (lotes de `_SHOW_MANY_LOTE=50`, corpo no formato
+  medido, com os headers e tokens colhidos) + `checar_seguiram_de_volta` — **só leitura**,
+  com sonda de sessão antes, pausa humana entre lotes e Parar respondendo na hora. Recusa
+  no meio **grava o parcial** em vez de perder tudo.
+- **API:** `POST /follow/check-followback` (por perfil, ou todos os logados; pula perfil em
+  uso por extração/campanha) e `GET /follow/metrics` com os campos novos.
+- **UI:** card "Seguiram de volta" (com taxa e quantos faltam conferir), **coluna por
+  perfil** na tabela, taxa por alvo no rendimento, e botão "🤝 Conferir quem seguiu de volta".
+- **Validado:** py_compile + `node --check` + **34 asserções** (banco: candidatos isolados por
+  perfil, taxa None sem verificação, quem retribuiu sai da fila, desfeito sai da fila, retorno
+  repartido por alvo; motor: 120 pessoas em 3 requisições, id→username correto, leva
+  fb_dtsg e headers colhidos, **nunca chama create/destroy**, deslogado aborta sem gastar
+  requisição, recusa no meio guarda o parcial, Parar encerra, lista vazia nem abre o
+  navegador) + regressão **314 asserções, 0 falhas**.
+- **⚠ Não testado contra o Instagram real.** O formato da resposta (`friendship_statuses`)
+  vem da observação da interface; o parser aceita também o mapa na raiz em vez de assumir um
+  único formato. Se vier vazio, o log diz o status e o corpo.
+
 ## ↩ UNFOLLOW no InstaFollow — o teto de 7.500 do Instagram (FEITO, 2026-08-16)
 **Motivo (usuário):** o IG limita cada conta a seguir **7.500 perfis**; sem desfazer follows a campanha trava nesse teto. Referência: extensão **GrowBot Automator** (chromewebstore `abhcgokmndbiegmmbjffdlpihgdmeejf`) — ela não é local, foi lida pela página da loja. Funções dela portadas: *"Unfollow after follow: auto-schedule an unfollow 1 to 90 days later"*, *"Don't unfollow people who follow you"*, *"Don't unfollow people followed outside Growbot"*, *"Whitelist: never unfollow these accounts"*. O InstaFollow original **não fazia unfollow** (escopo deliberado) — agora faz.
 - **A tabela `follow_history` já era o ativo que faltava:** ela guarda `username + ts_ms + by_account`, então "desfazer após N dias" e "só desfazer o que o app seguiu" saem de graça, sem varrer a lista de seguindo no IG. Colunas novas: `unfollowed_ts_ms` (NULL = ainda seguimos) e `user_id` (evita re-resolver o perfil na hora de desfazer).
