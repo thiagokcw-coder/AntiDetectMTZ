@@ -22,6 +22,7 @@ import asyncio
 import random
 import re
 import time
+from urllib.parse import quote
 
 import session_manager as sm
 import spider
@@ -469,7 +470,7 @@ def apply_profile(acct: dict, user: dict) -> dict:
     return acct
 
 
-async def _follow_one(page, user_id, username, extra=None) -> dict:
+async def _follow_one(page, user_id, username, extra=None, tokens=None) -> dict:
     """Segue uma conta. Tenta a API v1 e cai para /web/ se a resposta vier inválida.
     Retorna {ok, following, requested, status, payload}."""
     referer = f"{IG}/{username}/"
@@ -479,7 +480,8 @@ async def _follow_one(page, user_id, username, extra=None) -> dict:
     # camada de follow nunca rodou contra a API real (HANDOFF §11) — e era a única
     # diferença entre o caminho que funciona e este, que devolve 404 em tudo.
     res = await page.evaluate(_POST_JS, [f"{IG}/api/v1/friendships/create/{user_id}/",
-                                         referer, "", extra or {}])
+                                         referer, corpo_follow(user_id, tokens),
+                                         extra or {}])
     j = res.get("json") or {}
     fs = j.get("friendship_status") or {}
     if res.get("ok") and j.get("status") == "ok" and (fs.get("following") is True
@@ -516,14 +518,15 @@ async def _follow_one(page, user_id, username, extra=None) -> dict:
             "status_web": fb.get("status")}
 
 
-async def _unfollow_one(page, user_id, username, extra=None) -> dict:
+async def _unfollow_one(page, user_id, username, extra=None, tokens=None) -> dict:
     """Desfaz o follow. Espelha _follow_one: v1 `friendships/destroy/` e fallback
     `/web/friendships/<id>/unfollow/`. Sucesso = status ok e `following` FALSO."""
     referer = f"{IG}/{username}/"
     # Mesmo tratamento do follow: body vazio (a forma comprovada) e os headers
     # dinamicos colhidos da interface.
     res = await page.evaluate(_POST_JS, [f"{IG}/api/v1/friendships/destroy/{user_id}/",
-                                         referer, "", extra or {}])
+                                         referer, corpo_follow(user_id, tokens),
+                                         extra or {}])
     j = res.get("json") or {}
     fs = j.get("friendship_status") or {}
     if res.get("ok") and j.get("status") == "ok" and fs.get("following") is not True:
@@ -648,17 +651,36 @@ _SPY_BODY = r"""
   // de QUALQUER requisicao da interface que os carregue, para o nosso POST reusar.
   const INTERESSANTES = ['x-ig-www-claim', 'x-instagram-ajax', 'x-web-session-id',
                          'x-asbd-id', 'x-ig-max-touch-points', 'x-ig-app-id'];
-  const colher = (hs) => {
+  // Tokens anti-CSRF que a interface manda no CORPO (medido: sem eles o POST de
+  // escrita era recusado). O corpo do trafego real e a fonte mais fresca -- o
+  // bootstrap da pagina e do momento do carregamento e pode ter envelhecido.
+  const doCorpo = (corpo) => {
+    const out = {};
     try {
-      if (!hs || (!hs['x-ig-www-claim'] && !hs['x-instagram-ajax'])) return;
+      const b = String(corpo || '');
+      const d = b.match(/(?:^|&)fb_dtsg=([^&]+)/);
+      if (d) out.fb_dtsg = decodeURIComponent(d[1]);
+      const j = b.match(/(?:^|&)jazoest=([^&]+)/);
+      if (j) out.jazoest = decodeURIComponent(j[1]);
+    } catch (e) {}
+    return out;
+  };
+
+  const colher = (hs, corpo) => {
+    try {
+      const doB = doCorpo(corpo);
+      const temHeader = hs && (hs['x-ig-www-claim'] || hs['x-instagram-ajax']);
+      if (!temHeader && !doB.fb_dtsg && !doB.jazoest) return;
       const guardados = JSON.parse(localStorage.getItem('__if_hdrs') || '{}');
-      INTERESSANTES.forEach((k) => { if (hs[k]) guardados[k] = hs[k]; });
+      if (hs) INTERESSANTES.forEach((k) => { if (hs[k]) guardados[k] = hs[k]; });
+      if (doB.fb_dtsg) guardados.fb_dtsg = doB.fb_dtsg;
+      if (doB.jazoest) guardados.jazoest = doB.jazoest;
       guardar('__if_hdrs', guardados, 0);
     } catch (e) {}
   };
 
   const registrar = (via, m, url, hs, corpo) => {
-    colher(hs);
+    colher(hs, corpo);
     if (ehEscritaFollow(url, m, corpo)) {
       guardar('__if_cap', { via: via, method: String(m).toUpperCase(), url: String(url),
                             headers: hs, body: String(corpo || '').slice(0, 600) }, 20);
@@ -780,6 +802,87 @@ async def capture_follow(profile, log=None, should_stop=None, timeout=300) -> di
     except Exception as e:
         achado["erro"] = str(e)
     return achado
+
+
+# Tokens anti-CSRF da Meta que a interface manda no CORPO do follow (medido). Sao
+# por sessao e rotacionam. O `jazoest` NAO deriva do `fb_dtsg` pelo algoritmo classico
+# ("2" + soma dos charCodes da string) -- conferido contra a captura real: daria 26330,
+# o valor real era 22845. Portanto: colher os dois, nunca calcular.
+_TOKENS_JS = r"""
+() => {
+  const out = { fb_dtsg: '', jazoest: '' };
+  try {
+    if (typeof require === 'function') {
+      const d = require('DTSGInitialData');
+      if (d && d.token) out.fb_dtsg = String(d.token);
+    }
+  } catch (e) {}
+  try {
+    const i = document.querySelector('input[name="fb_dtsg"]');
+    if (i && i.value && !out.fb_dtsg) out.fb_dtsg = String(i.value);
+    const j = document.querySelector('input[name="jazoest"]');
+    if (j && j.value) out.jazoest = String(j.value);
+  } catch (e) {}
+  try {
+    const html = document.documentElement.innerHTML;
+    if (!out.fb_dtsg) {
+      const m = html.match(/"dtsg":\s*\{\s*"token":\s*"([^"]+)"/)
+             || html.match(/"token":"(NA[A-Za-z0-9_\-:]{20,})"/);
+      if (m) out.fb_dtsg = m[1];
+    }
+    if (!out.jazoest) {
+      const m2 = html.match(/jazoest["'=:\s]+(\d{4,})/);
+      if (m2) out.jazoest = m2[1];
+    }
+  } catch (e) {}
+  return out;
+}
+"""
+
+
+async def colher_tokens_ui(page, log=None) -> dict:
+    """Colhe `fb_dtsg` e `jazoest` — os tokens anti-CSRF que a interface manda no CORPO
+    do follow. Duas fontes, a mais fresca vence: o que o espão viu no tráfego real
+    (`__if_hdrs`) e, como reserva, o bootstrap da própria página."""
+    achado = {"fb_dtsg": "", "jazoest": ""}
+    try:
+        do_trafego = await page.evaluate(_LER_HDRS) or {}
+    except Exception:
+        do_trafego = {}
+    for k in ("fb_dtsg", "jazoest"):
+        if do_trafego.get(k):
+            achado[k] = str(do_trafego[k])
+    if not achado["fb_dtsg"] or not achado["jazoest"]:
+        try:
+            da_pagina = await page.evaluate(_TOKENS_JS) or {}
+        except Exception:
+            da_pagina = {}
+        for k in ("fb_dtsg", "jazoest"):
+            if not achado[k] and da_pagina.get(k):
+                achado[k] = str(da_pagina[k])
+    if log:
+        if achado["fb_dtsg"]:
+            log(f"🔑 tokens da interface: fb_dtsg={achado['fb_dtsg'][:18]}… "
+                f"jazoest={achado['jazoest'] or '(não achei)'}")
+        else:
+            log("⚠ não achei o fb_dtsg da página — a interface manda esse token no corpo do "
+                "follow; sem ele o POST pode ser recusado (foi a causa medida do 404)")
+    return achado
+
+
+def corpo_follow(user_id, tokens=None) -> str:
+    """Monta o corpo do follow como a INTERFACE manda (medido ao vivo em 2026-08-18).
+
+    `nav_chain` fica de fora de propósito: é telemetria da navegação (de qual tela o
+    clique veio), não credencial — e inventar uma trilha falsa seria pior que omitir."""
+    partes = ["container_module=profile", "include_follow_friction_check=true",
+              f"user_id={quote(str(user_id))}"]
+    t = tokens or {}
+    if t.get("jazoest"):
+        partes.append(f"jazoest={quote(str(t['jazoest']))}")
+    if t.get("fb_dtsg"):
+        partes.append(f"fb_dtsg={quote(str(t['fb_dtsg']), safe='')}")
+    return "&".join(partes)
 
 
 async def colher_headers_dinamicos(page, log=None) -> dict:
@@ -914,6 +1017,7 @@ async def run_unfollow(profile: dict, candidatos: list, settings: dict, *,
         await page.goto(IG + "/", wait_until="domcontentloaded")
         await asyncio.sleep(round(random.uniform(1.0, 2.5), 1))
         hdrs_ui = await colher_headers_dinamicos(page, log=log)
+        tokens_ui = await colher_tokens_ui(page, log=log)
 
         if viewer:
             seguindo, _ = await viewer_following_count(page, viewer)
@@ -981,7 +1085,7 @@ async def run_unfollow(profile: dict, candidatos: list, settings: dict, *,
                 continue
 
             try:
-                res = await _unfollow_one(page, uid, uname, extra=hdrs_ui)
+                res = await _unfollow_one(page, uid, uname, extra=hdrs_ui, tokens=tokens_ui)
             except Exception as e:
                 res = {"ok": False, "status": -1, "payload": None, "error": str(e)}
 
@@ -1431,6 +1535,7 @@ async def run(profile: dict, queue: list, settings: dict, filters: dict, *,
         await page.goto(IG + "/", wait_until="domcontentloaded")
         await asyncio.sleep(round(random.uniform(1.0, 2.5), 1))
         hdrs_ui = await colher_headers_dinamicos(page, log=log)
+        tokens_ui = await colher_tokens_ui(page, log=log)
 
         # ── sonda de sessão (1 requisição, antes de agir) ──
         # Sem isto, perfil deslogado só era descoberto queimando itens da fila.
@@ -1565,7 +1670,8 @@ async def run(profile: dict, queue: list, settings: dict, filters: dict, *,
 
             # ── follow ──
             try:
-                res = await _follow_one(page, acct["id"], acct["username"], extra=hdrs_ui)
+                res = await _follow_one(page, acct["id"], acct["username"], extra=hdrs_ui,
+                                        tokens=tokens_ui)
             except Exception as e:
                 res = {"ok": False, "status": -1, "payload": None, "error": str(e)}
 
@@ -1598,7 +1704,8 @@ async def run(profile: dict, queue: list, settings: dict, filters: dict, *,
                             f"tentando de novo com o id real")
                     acct["id"] = str(pk)
                     try:
-                        res = await _follow_one(page, acct["id"], acct["username"], extra=hdrs_ui)
+                        res = await _follow_one(page, acct["id"], acct["username"], extra=hdrs_ui,
+                                        tokens=tokens_ui)
                     except Exception as e:
                         res = {"ok": False, "status": -1, "payload": None, "error": str(e)}
                 elif pk and log:

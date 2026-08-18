@@ -8,70 +8,73 @@
 (3.793 contatos coletados de 7 alvos). O que **não** funciona ainda: o **follow em si**
 devolve **404 em tudo**.
 
-**🎯 CAUSA DO 404 ACHADA POR MEDIÇÃO: faltavam 4 headers que a interface manda.**
-A captura da requisição real (botão "🔬 Capturar requisição real") pegou um
-`POST /api/v1/friendships/show_many/` **da própria UI** e revelou o que ela envia num POST
-v1 — comparado com o nosso:
+**🎯 CAUSA DO 404 MEDIDA — faltava o CORPO (`fb_dtsg`), não a rota.** A captura da
+requisição real (botão "🔬 Capturar requisição real", usuário seguindo na mão) entregou
+o POST que a interface manda:
 
-| header | interface | nós (antes) |
-|---|---|---|
-| `X-IG-App-ID` | 936619743392459 | ✓ igual |
-| `X-CSRFToken` | presente | ✓ |
-| `X-ASBD-ID` | **359341** | ⚠ 129477 (obsoleto) |
-| `X-IG-WWW-Claim` | `hmac.AR2wQagG1HTzAJk…` | ✗ **ausente** |
-| `X-Instagram-AJAX` | 1045443255 | ✗ **ausente** |
-| `X-Web-Session-ID` | `f9k4mc:mg13gk:owunew` | ✗ **ausente** |
-| `X-IG-Max-Touch-Points` | 0 | ✗ ausente |
+```
+POST /api/v1/friendships/create/8402629992/
+container_module=profile&include_follow_friction_check=true&nav_chain=PolarisExploreRoot%3A...
+&user_id=8402629992&jazoest=22845&fb_dtsg=NAfzVS1a...%3A17864955220006059%3A1786912318
+```
 
-Isso fecha a história: perfil logado · v1 viva para leitura · POST idêntico ao `spider._follow`
-· só a ESCRITA 404 — porque a escrita é o que exige esses headers. E explica o
-`spider._follow` ter funcionado em **2026-06-21**: o IG passou a exigi-los depois.
-**Coerente com um sinal que estava à vista:** o `_GQL_JS` (que funciona) manda
-`x-instagram-ajax`; o `_POST_JS` **não mandava**.
+**A ROTA SEMPRE ESTEVE CERTA** — é exatamente a que usávamos. Faltava o **corpo**:
+- **`fb_dtsg`** — token anti-CSRF da Meta. **É o achado.** Sem ele a escrita é recusada, e o
+  IG responde **404 em vez de 403** — o que mandou a investigação para o lado errado por dias.
+- **`jazoest`** — checksum companheiro que **NÃO deriva do `fb_dtsg`**: conferi o algoritmo
+  clássico (`"2"` + soma dos charCodes) contra a captura → daria **26330**, o real era
+  **22845**. Por isso é **colhido**, nunca calculado.
+- **`user_id`** também no corpo (além da URL) e **`include_follow_friction_check=true`**.
+- **`container_module=profile`** — **estava certo desde o início**. Eu o havia removido para
+  igualar ao `spider._follow`; a medição venceu o espelhamento. O body vazio do spider
+  funcionava em **junho**; o Instagram apertou depois.
+- **`nav_chain` fica de fora de propósito:** é telemetria de qual tela veio o clique, não
+  credencial — inventar uma trilha falsa seria pior que omitir.
+Mais os **4 headers** já medidos (`x-ig-www-claim`, `x-instagram-ajax`, `x-web-session-id`,
+`x-ig-max-touch-points`) e o `x-asbd-id` atual (**359341**; o nosso constante era 129477).
 
-**Fix: os headers são COLHIDOS, não escritos no código.** `x-ig-www-claim`,
-`x-instagram-ajax`, `x-web-session-id` e `x-asbd-id` são emitidos pelo Instagram e
-**rotacionam** — fixar no código quebraria na próxima virada. Então o espão (que já existia
-para a captura) passou a **colher os mais recentes do tráfego da própria interface** e o
-POST reusa: `_SPY_INIT` via `add_init_script` antes do `goto` →
-`colher_headers_dinamicos(page)` → `_POST_JS` mescla o `extra` sobre a base. Vale para
-**follow E unfollow** (o unfollow também perdeu o `container_module` do body, que o follow
-já tinha perdido). Auto-atualizável: quando o IG rotacionar, colhemos o novo.
-Se não colher nada, o log avisa (`⚠ não colhi os headers dinâmicos… se der 404, é
-provavelmente isso`) e segue com os básicos — sem regressão.
+**Nada é fixado no código — tudo é COLHIDO.** Headers e tokens são emitidos pelo Instagram e
+**rotacionam**; escrevê-los no código quebraria na próxima virada. Duas fontes, a mais fresca
+vence: (1) o **espão** lê os headers **e o corpo** do tráfego da própria interface
+(`fb_dtsg`/`jazoest` extraídos e **URL-decodificados**); (2) reserva — `_TOKENS_JS` lê o
+bootstrap da página (`DTSGInitialData`, `input[name=fb_dtsg]`, regex no HTML).
+`colher_headers_dinamicos` + `colher_tokens_ui` rodam uma vez por execução após o `goto`, e
+`corpo_follow(user_id, tokens)` monta o corpo medido. Vale **follow E unfollow**. Se o
+`fb_dtsg` não for achado, o log avisa e segue — sem regressão.
 
-**🐞 BUG que o usuário relatou e que era meu: "abro os seguidores e o Camoufox fecha
-sozinho".** O `friendships/show_many` que o IG dispara **ao abrir a lista de seguidores**
-(para pintar os botões Seguir/Seguindo) casava com o filtro do espão, porque a URL contém
-`friendship` → o `capture_follow` achava que havia capturado o follow, retornava, e o
-`run_profile_task` **fechava o contexto** (ele "roda fn e fecha"). Filtro agora exige
-ESCRITA de verdade: `friendships/(create|destroy)`, caminho terminando em `/follow/` ou
-`/unfollow/`, ou GraphQL **com `mutation` no corpo** (`followers`/`following` são
-**queries** de lista — era exatamente o que fechava a janela).
+**🐞 BUG do usuário, era meu: "abro os seguidores e o Camoufox fecha sozinho".** O
+`friendships/show_many` que o IG dispara **ao abrir a lista de seguidores** (para pintar os
+botões Seguir/Seguindo) casava com o filtro do espão porque a URL contém `friendship` → o
+`capture_follow` achava ter capturado o follow, retornava, e o `run_profile_task` **fechava o
+contexto** (ele "roda fn e fecha"). O filtro agora exige ESCRITA:
+`friendships/(create|destroy)`, caminho terminando em `/follow/`|`/unfollow/`, ou GraphQL
+**com `mutation` no corpo** (`followers`/`following` são **queries** de lista — era isso que
+fechava a janela). **De brinde, esse bug entregou a solução:** a captura acidental do
+`show_many` revelou os headers, e a captura correta do follow revelou o corpo.
 
-**Hipóteses mortas no caminho (todas por medição, não por palpite):** sessão/deslogado
-(sonda logou `ds_user_id 33868094898`) · conta específica (ródízio testou 3) · body
-`container_module` · id da fila · dado corrompido · rota v1 morta (`web_profile_info` deu
-200) · **regressão nossa** (`follower.py` nasceu em 2026-08-18 com 3 commits; o follow
-**nunca funcionou**, e a extensão base diz no HANDOFF §11 *"nunca rodou contra a API real
-nem foi carregado no Chrome"*. O **GrowBot não foi a base do follow** — só referência de
+**Hipóteses mortas no caminho, todas por medição (nenhuma por palpite):** sessão/deslogado
+(sonda logou `ds_user_id 33868094898`) · conta específica (ródízio testou 3) · id da fila ·
+dado corrompido · família v1 morta (`web_profile_info` deu 200) · rota de escrita errada (a
+captura provou que é a mesma) · **regressão nossa** (`follower.py` nasceu em 2026-08-18; o
+follow **nunca funcionou**, e a extensão base diz no HANDOFF §11 *"nunca rodou contra a API
+real nem foi carregado no Chrome"*. O **GrowBot não foi a base do follow** — só referência de
 funcionalidade do unfollow; nunca tivemos o código dele).
 
-**→ PRÓXIMO PASSO:** rodar o InstaFollow. O terminal agora mostra
-`🧬 headers da interface colhidos: …` antes de agir. Se o follow passar, causa
-confirmada. Se ainda der 404 **com** os headers colhidos, o candidato seguinte é a rota ter
-migrado para **mutação GraphQL com `doc_id`** — e o botão de captura já pega isso (o filtro
-cobre `graphql` + `mutation`), bastando seguir alguém na mão.
+**→ PRÓXIMO PASSO:** reiniciar o app e rodar o InstaFollow. Antes de agir o terminal mostra
+`🧬 headers da interface colhidos: ...` e `🔑 tokens da interface: fb_dtsg=... jazoest=...`.
+Se o `fb_dtsg` aparecer e o follow passar, causa confirmada e fechada. Se o log disser que
+**não achou o fb_dtsg**, o conserto é na extração do token (`_TOKENS_JS` tem 3 fontes, dá
+para acrescentar) — e nesse caso o botão de captura, depois de um follow manual, já popula o
+token colhido para a execução seguinte.
 
-**Validado:** py_compile + `node --check` no JS injetado + **16 asserções do espão rodando
-no node** (o `show_many` real medido **não** encerra mais · queries de followers/following
-não encerram · `create`/`destroy`/`/unfollow/`/mutação GraphQL encerram · headers colhidos
-são os mais recentes · requisição sem `www-claim` não zera os colhidos · **fetch e send
-ORIGINAIS seguem chamados e a Promise é devolvida — não quebra o navegador**) +
-**15 asserções do capture** (sem follow real ele **continua esperando** em vez de fechar ·
-o follow real encerra na hora · abre VISÍVEL · Parar responde na hora) + **38 asserções de
-paridade** (base idêntica ao spider + os 4 headers medidos chegam ao POST, também no
-fallback `/web/` e no unfollow) + regressão **264 asserções** do motor.
+**Validado:** py_compile + `node --check` em todo JS injetado + **26 asserções usando a
+captura REAL como fixture** (corpo com container_module/friction/user_id/jazoest/fb_dtsg e os
+`:` percent-encoded como no real · `nav_chain` omitido · sem tokens não inventa campos · o
+jazoest comprovadamente não deriva · tráfego vence a página · as duas fontes se combinam ·
+espão extrai e URL-decodifica os tokens do corpo real · requisição sem tokens não zera os
+colhidos) + **39 de paridade** + **15 do capture** (sem follow real ele **continua
+esperando** em vez de fechar) + **16 do espão no node** + regressão total de **291
+asserções, 0 falhas**.
 
 **Pendente, planejado e NÃO implementado (usuário pediu para esperar):** disparos de
 WhatsApp — ver a seção "DISPAROS WHATSAPP" abaixo. Decisões já travadas: **Evolution API
