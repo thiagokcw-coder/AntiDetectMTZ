@@ -4,26 +4,57 @@ cd /d "%~dp0"
 title Monitor MTZ
 
 set "VENV_DIR=venv"
-set "PY_CMD=python"
+set "PY_CMD="
 
 :: ── Detecta Python ───────────────────────────────────────────────────────────
-where python >nul 2>nul
-if not errorlevel 1 goto :found_python
+:: Nao basta "where python": o Windows deixa um ATALHO da Microsoft Store em
+:: %LocalAppData%\Microsoft\WindowsApps\python.exe que aparece no PATH mas NAO e
+:: Python (so abre a Store e retorna erro). Por isso cada candidato e testado
+:: rodando de verdade + checando a versao (3.10+).
+call :try_py python
+call :try_py "%LocalAppData%\Programs\Python\Python313\python.exe"
+call :try_py "%LocalAppData%\Programs\Python\Python312\python.exe"
+call :try_py "%LocalAppData%\Programs\Python\Python311\python.exe"
+call :try_py "%ProgramFiles%\Python313\python.exe"
+call :try_py "%ProgramFiles%\Python312\python.exe"
+call :try_py "%ProgramFiles%\Python311\python.exe"
+call :try_py py
+if defined PY_CMD goto :found_python
 
-if exist "%LocalAppData%\Programs\Python\Python311\python.exe" (
-    set "PY_CMD=%LocalAppData%\Programs\Python\Python311\python.exe"
-    goto :found_python
-)
-if exist "%LocalAppData%\Programs\Python\Python312\python.exe" (
-    set "PY_CMD=%LocalAppData%\Programs\Python\Python312\python.exe"
-    goto :found_python
-)
-where py >nul 2>nul
-if not errorlevel 1 ( set "PY_CMD=py" & goto :found_python )
+:: ── Sem Python: instala sozinho via winget (vem no Windows 10/11) ────────────
+winget --version >nul 2>nul
+if errorlevel 1 goto :no_python
 
 echo.
-echo  ERRO: Python nao encontrado.
-echo  Instale Python 3.10+ em python.org e marque "Add to PATH".
+echo [0/4] Python nao encontrado. Instalando Python 3.12 automaticamente...
+echo       (leva alguns minutos; pode aparecer um pedido de permissao do Windows)
+echo.
+winget install -e --id Python.Python.3.12 --scope user --silent --accept-package-agreements --accept-source-agreements
+
+echo.
+echo  Verificando a instalacao...
+call :try_py "%LocalAppData%\Programs\Python\Python312\python.exe"
+call :try_py "%ProgramFiles%\Python312\python.exe"
+call :try_py python
+call :try_py py
+if defined PY_CMD goto :found_python
+
+echo.
+echo  Python instalado, mas esta janela ainda nao o enxerga (o PATH so atualiza
+echo  em terminais novos). FECHE esta janela e rode o MonitorMtzWin.bat de novo.
+echo.
+goto :fim
+
+:no_python
+echo.
+echo  ERRO: Python 3.10+ nao encontrado e o winget nao esta disponivel.
+echo.
+echo  Baixe em https://www.python.org/downloads/windows/ e no instalador
+echo  MARQUE a caixa "Add python.exe to PATH".
+echo.
+echo  OBS: o atalho "python" da Microsoft Store NAO serve (ele so abre a Store).
+echo  Se o instalador nao resolver, desligue o alias em:
+echo  Configuracoes ^> Aplicativos ^> Configuracoes avancadas ^> Aliases de execucao.
 echo.
 goto :fim
 
@@ -117,3 +148,11 @@ echo.
 pause
 endlocal
 exit
+
+:: ── Sub-rotina: aceita o candidato so se ele EXECUTAR e for 3.10+ ────────────
+:try_py
+if defined PY_CMD goto :eof
+%1 -c "import sys; sys.exit(0 if sys.version_info >= (3,10) else 1)" >nul 2>nul
+if errorlevel 1 goto :eof
+set "PY_CMD=%~1"
+goto :eof
