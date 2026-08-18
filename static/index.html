@@ -1332,6 +1332,7 @@
           <button id="fw-harvest" class="btn btn-primary" onclick="followHarvest()">🔎 Coletar para a fila</button>
           <button id="fw-newqueue" class="btn btn-ghost btn-sm" onclick="followNewQueue()" style="display:none">🗑 Começar fila nova</button>
           <button id="fw-discard" class="btn btn-danger btn-sm" onclick="followDiscardQueue()" title="Apaga a fila atual e a execução — não fica no histórico">🗑️ Zerar fila (sem salvar)</button>
+          <button id="fw-capture" class="btn btn-sm" onclick="followCapture(this)" title="Abre o perfil e captura a requisição real que o Instagram manda ao seguir — diagnóstico do 404">🔬 Capturar requisição real</button>
         </div>
         <div class="form-hint" style="margin-top:8px">Esta etapa só <b>lê</b> listas — nada é seguido aqui. Coletar de novo <b>acumula</b> na mesma fila (dá pra juntar várias fontes); quem já está na fila, no histórico global ou na blacklist não entra duas vezes.</div>
       </div>
@@ -4280,6 +4281,31 @@ function followNewQueue() {
   document.getElementById('fw-newqueue').style.display = 'none';
   loadFollowHistory();
   toast('Fila zerada — colete de uma fonte para começar', 'success');
+}
+
+// DIAGNOSTICO do 404 no follow: abre o perfil e captura o que a INTERFACE do Instagram
+// manda ao seguir. Cinco hipoteses (body, id, sessao, conta, rota) morreram no teste; a
+// interface consegue seguir, entao ela e a fonte da verdade sobre a requisicao.
+async function followCapture(btn) {
+  const sel = document.querySelectorAll('.fw-pool-chk:checked');
+  const pid = sel.length ? sel[0].value : null;
+  if (!pid) { toast('Marque uma conta primeiro (a captura usa o perfil dela).'); return; }
+  if (!confirm('Vou abrir o navegador desse perfil. La, entre no perfil de alguem que voce NAO segue e clique em Seguir (vai seguir de verdade). O app captura a requisicao exata. Continuar?')) return;
+  const parar = runBtnCountdown(btn, 300);
+  try {
+    const r = await api('POST', '/follow/capture', { profile_id: pid, timeout: 300 }, 320000);
+    const cx = document.getElementById('fw-log');
+    if (cx) {
+      const partes = (r.log || []).concat(['', JSON.stringify(r.capturas || [], null, 2)]);
+      cx.textContent = partes.join(String.fromCharCode(10));
+    }
+    toast(r.ok ? ('Capturei ' + (r.capturas || []).length + ' requisicao(oes) — veja o terminal')
+               : ('Nao capturei: ' + (r.erro || 'sem detalhe')));
+  } catch (e) {
+    toast('Falha na captura: ' + e.message);
+  } finally {
+    if (parar) parar();
+  }
 }
 
 async function followDiscardQueue() {

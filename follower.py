@@ -582,6 +582,156 @@ async def _session_ok(page, user_id=None) -> dict:
     return {"ok": True, "status": 200, "quem": quem, "ctx": ctx, "motivo": None}
 
 
+# Espião de requisições: embrulha fetch e XHR e guarda no localStorage o que a PRÓPRIA
+# interface do Instagram manda ao seguir alguém. Serve para parar de adivinhar o formato
+# da requisição de escrita — a UI consegue seguir, então ela é a fonte da verdade.
+#
+# Filtra com cuidado para não afogar no tráfego normal: POST em friendships/follow, OU
+# POST no /graphql/query cujo corpo mencione follow (se o follow virou mutação GraphQL,
+# a URL não tem "friendship" — é por isso que este segundo caso existe).
+_SPY_BODY = r"""
+  if (window.__ifSpy) return true;
+  window.__ifSpy = true;
+  const guardar = (reg) => {
+    try {
+      const atual = JSON.parse(localStorage.getItem('__if_cap') || '[]');
+      atual.push(reg);
+      localStorage.setItem('__if_cap', JSON.stringify(atual.slice(-20)));
+    } catch (e) {}
+  };
+  const interessa = (u, m, corpo) => {
+    if (String(m || 'GET').toUpperCase() !== 'POST') return false;
+    const url = String(u || '');
+    if (/friendship|\/follow/i.test(url)) return true;
+    if (/graphql/i.test(url) && /follow/i.test(String(corpo || ''))) return true;
+    return false;
+  };
+  const cabecalhos = (h) => {
+    const out = {};
+    try {
+      if (!h) return out;
+      if (typeof h.forEach === 'function') h.forEach((v, k) => { out[k] = String(v); });
+      else Object.keys(h).forEach((k) => { out[k] = String(h[k]); });
+    } catch (e) {}
+    return out;
+  };
+
+  const origFetch = window.fetch;
+  window.fetch = function (input, init) {
+    try {
+      const url = typeof input === 'string' ? input : (input && input.url) || '';
+      const m = (init && init.method) || (input && input.method) || 'GET';
+      let corpo = '';
+      const b = init && init.body;
+      if (typeof b === 'string') corpo = b;
+      else if (b && typeof b.toString === 'function') corpo = String(b);
+      if (interessa(url, m, corpo)) {
+        guardar({ via: 'fetch', method: String(m).toUpperCase(), url: String(url),
+                  headers: cabecalhos((init && init.headers) || (input && input.headers)),
+                  body: corpo.slice(0, 600) });
+      }
+    } catch (e) {}
+    return origFetch.apply(this, arguments);
+  };
+
+  const xOpen = XMLHttpRequest.prototype.open;
+  const xSend = XMLHttpRequest.prototype.send;
+  const xHead = XMLHttpRequest.prototype.setRequestHeader;
+  XMLHttpRequest.prototype.open = function (m, u) {
+    this.__m = m; this.__u = u; this.__h = {};
+    return xOpen.apply(this, arguments);
+  };
+  XMLHttpRequest.prototype.setRequestHeader = function (k, v) {
+    try { (this.__h = this.__h || {})[String(k)] = String(v); } catch (e) {}
+    return xHead.apply(this, arguments);
+  };
+  XMLHttpRequest.prototype.send = function (b) {
+    try {
+      const corpo = typeof b === 'string' ? b : '';
+      if (interessa(this.__u, this.__m, corpo)) {
+        guardar({ via: 'xhr', method: String(this.__m).toUpperCase(),
+                  url: String(this.__u), headers: this.__h || {},
+                  body: corpo.slice(0, 600) });
+      }
+    } catch (e) {}
+    return xSend.apply(this, arguments);
+  };
+  return true;
+"""
+
+_SPY_INIT = "(() => {" + _SPY_BODY + "})()"
+_SPY_EVAL = "() => {" + _SPY_BODY + "}"
+_LER_CAP = ("() => { try { const v = localStorage.getItem('__if_cap');"
+            " return v ? JSON.parse(v) : []; } catch (e) { return []; } }")
+_LIMPAR_CAP = "() => { try { localStorage.removeItem('__if_cap'); } catch (e) {} }"
+
+
+async def capture_follow(profile, log=None, should_stop=None, timeout=300) -> dict:
+    """Abre o perfil VISÍVEL e captura a requisição de follow que a interface manda.
+
+    Por que existe: o POST que montamos (`/api/v1/friendships/create/`) devolve 404 mesmo
+    com o perfil logado, a família v1 respondendo 200 para leitura e os headers idênticos
+    à chamada que funcionou em 2026-06-21. Sucessivas hipóteses (body, id, sessão, rota)
+    morreram no teste. A interface web CONSEGUE seguir — então ela sabe o formato certo,
+    e medir é mais barato que continuar adivinhando header por header.
+
+    O usuário segue alguém na mão; o espião registra método/URL/headers/corpo."""
+    achado = {"ok": False, "capturas": [], "erro": None}
+
+    async def _job(page):
+        # Reinstala em CADA documento: o usuário vai navegar até o perfil do alvo, e um
+        # wrapper preso ao documento atual morreria nessa navegação.
+        try:
+            await page.add_init_script(_SPY_INIT)
+        except Exception:
+            pass
+        await page.goto(IG + "/", wait_until="domcontentloaded")
+        try:
+            await page.evaluate(_LIMPAR_CAP)
+            await page.evaluate(_SPY_EVAL)
+        except Exception as e:
+            achado["erro"] = f"não consegui instalar o espião: {e}"
+            return
+        if log:
+            log("🔬 espião instalado. AGORA, nesta janela do navegador:")
+            log("   1) vá até o perfil de alguém que você NÃO segue")
+            log("   2) clique em Seguir (de verdade — vai seguir mesmo)")
+            log(f"   esperando até {timeout}s… (não feche a janela)")
+        esperou = 0
+        while esperou < timeout:
+            if should_stop and should_stop():
+                achado["erro"] = "cancelado"
+                return
+            try:
+                caps = await page.evaluate(_LER_CAP)
+            except Exception:
+                caps = []
+            if caps:
+                achado["capturas"] = caps
+                achado["ok"] = True
+                if log:
+                    log(f"✓ capturei {len(caps)} requisição(ões) de follow da interface:")
+                    for c in caps[:3]:
+                        log(f"   ▸ {c.get('method')} {c.get('url')}")
+                        log(f"     corpo: {(c.get('body') or '(vazio)')[:200]}")
+                        for k, v in sorted((c.get("headers") or {}).items()):
+                            log(f"     {k}: {v[:90]}")
+                return
+            if await spider._sleep_stop(3, should_stop):
+                achado["erro"] = "cancelado"
+                return
+            esperou += 3
+        achado["erro"] = "tempo esgotado — nenhum follow foi clicado na janela"
+        if log:
+            log(f"✖ {achado['erro']}")
+
+    try:
+        await sm.run_profile_task(profile, _job, headless=False)
+    except Exception as e:
+        achado["erro"] = str(e)
+    return achado
+
+
 async def _diag_rotas(page, alvo_id=None) -> dict:
     """A família de rotas `/api/v1/` está VIVA nesta superfície?
 

@@ -8,46 +8,54 @@
 (3.793 contatos coletados de 7 alvos). O que **não** funciona ainda: o **follow em si**
 devolve **404 em tudo**.
 
-**Estado do diagnóstico do 404 (a coisa mais importante em aberto):**
-1. **✗ DESCARTADO — não é sessão/deslogado.** A sonda nova (zero requisição, lê a classe do
-   `<html>` + cookie `ds_user_id`) logou ao vivo **`✓ perfil logado (ds_user_id
-   33868094898)`** e o follow AINDA deu 404. A hipótese que eu tinha levantado como nº1
-   morreu — mas morreu **em uma execução e sem queimar a fila**, que era o objetivo.
-2. **✗ DESCARTADO — não é conta específica:** o ródízio testou as 3, todas 404.
-3. **✗ DESCARTADO — não é header nem body:** medido campo a campo; o POST é idêntico ao
-   `spider._follow`, que seguiu ao vivo em 2026-06-21.
-4. **✗ DESCARTADO — não é dado corrompido:** cookie jar medido no `cookies.sqlite` real.
-5. **✗ DESCARTADO — não é regressão nossa:** `follower.py` tem 3 commits e **nasceu em
-   2026-08-18**; nunca houve versão do follow que funcionasse. E a base do porte (a extensão
-   local `InstaFollow`) diz no próprio HANDOFF §11: *"nunca rodou contra a API real do
-   Instagram nem foi carregado no Chrome"*. **O GrowBot não foi a base do follow** — entrou
-   só como referência de FUNCIONALIDADE do unfollow (teto de 7.500, mútuos, whitelist), lida
-   da página da loja. Nunca tivemos o código dele. Ou seja: **o follow nunca funcionou**, não
-   houve "começou funcionando e parou".
-6. **→ HIPÓTESE VIVA (a que sobrou): a família de rotas `/api/v1/` morreu nesta superfície.**
-   O padrão nos dados: **tudo em `/api/v1/*` e `/web/*` falha** (`friendships/create` 404 ·
-   `users/web_profile_info` falhou dentro do `_resolve_user` · `web/search/topsearch`
-   idem), enquanto **`/graphql/query` funciona** (a coleta trouxe 1000 contas com ele).
-   Um 404 de **corpo vazio** é a assinatura de rota que não casa. Isso explica TODAS as
-   observações de uma vez, inclusive o `spider._follow` ter funcionado em 2026-06-21 (**2
-   meses atrás**, antes da mudança) e as 3 contas caírem juntas.
+**Estado do diagnóstico do 404 — 6 hipóteses MORTAS, medição cercou o culpado:**
+1. **✗ sessão/deslogado:** a sonda logou ao vivo `✓ perfil logado (ds_user_id 33868094898)`
+   e o follow ainda deu 404.
+2. **✗ conta específica:** o ródízio testou as 3, todas 404.
+3. **✗ header ou body:** medido campo a campo; o POST é idêntico ao `spider._follow`.
+4. **✗ dado corrompido:** cookie jar medido no `cookies.sqlite` real.
+5. **✗ regressão nossa:** `follower.py` tem 3 commits e **nasceu em 2026-08-18**; o follow
+   **nunca funcionou**. A base do porte (extensão local `InstaFollow`) diz no próprio
+   HANDOFF §11: *"nunca rodou contra a API real do Instagram nem foi carregado no Chrome"*.
+   **O GrowBot não foi a base do follow** — entrou só como referência de FUNCIONALIDADE do
+   unfollow (teto 7.500, mútuos, whitelist), lida da página da loja; nunca tivemos o
+   código. Logo, **não houve "começou funcionando e parou"**.
+6. **✗ família de rotas `/api/v1/` morta:** o `_diag_rotas` mediu ao vivo
+   `web_profile_info: status 200 com usuário · GraphQL: status 200 com usuário`. **A v1
+   está VIVA para leitura.**
 
-**→ PRÓXIMO PASSO CONCRETO:** rodar de novo. No primeiro 404 o motor agora roda
-**`_diag_rotas`** — **duas LEITURAS, zero escrita**: um GET em `/api/v1/users/
-web_profile_info/?username=instagram` (canário da família v1) contra o GraphQL que
-comprovadamente funciona. O terminal imprime `🔬 leitura /api/v1/ ... · GraphQL ...` e
-uma conclusão em português:
-- **"as rotas /api/v1/ NÃO respondem (o GraphQL responde)"** → causa achada: é a rota. O
-  conserto é migrar o follow para o que a interface web usa hoje — e o jeito honesto de
-  descobrir isso é **capturar a requisição real**: abrir o perfil, seguir alguém NA MÃO com
-  o DevTools na aba Network e ler URL/headers/body (candidato provável: mutação GraphQL com
-  `doc_id`, que substituiu várias rotas v1 no cliente web).
-- **"/api/v1/ responde para LEITURA"** → a família v1 está viva e o 404 é específico da rota
-  de ESCRITA; aí o candidato volta a ser header (`x-ig-www-claim`) ou permissão.
-- **"inconclusivo"** → alguma leitura não respondeu (rede/IP); repetir.
-A sonda de sucesso agora também mostra **`csrftoken=sim/NÃO`** — a extensão original se
-RECUSA a agir sem esse cookie, enquanto o nosso `_POST_JS` mandaria `x-csrftoken: ''` em
-silêncio, o que sozinho explicaria falha em toda escrita com leitura intacta.
+**→ O que restou, cercado:** perfil logado · v1 viva · leituras 200 · headers e body idênticos
+ao que funcionou · 3 contas iguais → **só a rota de ESCRITA `friendships/create` devolve 404
+(corpo vazio)**. Candidatos restantes: a rota de escrita mudou no cliente web (provável:
+**mutação GraphQL com `doc_id`**, que substituiu várias rotas v1), ou falta um header que só
+a escrita exige (`x-ig-www-claim`, `x-instagram-ajax` — note que o `_GQL_JS`, que funciona,
+manda `x-instagram-ajax` e o `_POST_JS` **não**).
+
+**→ PRÓXIMO PASSO: PARAR DE ADIVINHAR E MEDIR (feito, aguardando 1 clique seu).** Botão
+**"🔬 Capturar requisição real"** na aba InstaFollow (ao lado de "Zerar fila").
+`follower.capture_follow` + `POST /follow/capture`: abre o perfil **visível**, instala um
+espão via `page.add_init_script` (reinstala em CADA documento — um wrapper preso ao
+documento morreria na navegação até o perfil do alvo) que embrulha `fetch` **e** XHR,
+guarda em `localStorage` e mostra **método/URL/headers/corpo** no terminal + salva em
+`data/_analise/follow_capture.json`. **Você segue alguém na mão e o app diz exatamente o que
+o Instagram de 2026-08 espera** — encerrando o ciclo de hipótese/teste.
+Filtro cuidadoso para não afogar no tráfego: POST em `friendship|/follow`, **ou** POST em
+`/graphql/query` cujo corpo mencione follow (se virou mutação GraphQL a URL não tem
+"friendship" — é por isso que este segundo caso existe).
+**Validado:** `node --check` nos 4 trechos de JS injetado + **16 asserções rodando o espão
+no node** com fetch/XHR/localStorage simulados (captura v1 com `x-ig-www-claim` e
+`x-instagram-ajax` · captura mutação GraphQL · **ignora** graphql sem follow, feed e GET ·
+lê headers no formato Headers/Map · caminho XHR · teto de 20 · **a fetch e o send ORIGINAIS
+seguem sendo chamados e a Promise é devolvida — não quebra o navegador** · instalar 2x é
+idempotente) + UI conferida ao vivo na instância do usuário (botão presente, função ligada,
+0 erro de console).
+**⚠ O bug de 2026-08-18 REPETIU e o `node --check` pegou:** patch por heredoc transformou
+`
+` em quebra de linha literal dentro de string JS. Restaurei do backup e refiz o patch
+como **arquivo `.py`** (nenhuma camada de shell toca nos escapes) + mensagem de uma linha.
+Dois erros meus também pegos na revisão antes de rodar: classe `fw-prof-chk` **inventada**
+(a real é `fw-pool-chk`) e a ordem dos argumentos de `api()` invertida (é
+`api(method, path, body, timeout)`).
 
 **Pendente, planejado e NÃO implementado (usuário pediu para esperar):** disparos de
 WhatsApp — ver a seção "DISPAROS WHATSAPP" abaixo. Decisões já travadas: **Evolution API

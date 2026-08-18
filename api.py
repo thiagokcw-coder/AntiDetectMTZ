@@ -3046,6 +3046,56 @@ class FollowDiscardRequest(BaseModel):
     run_id: str = ""
 
 
+class FollowCaptureRequest(BaseModel):
+    profile_id: str
+    timeout: int = 300
+
+
+@app.post("/follow/capture")
+async def follow_capture(body: FollowCaptureRequest):
+    """DIAGNÓSTICO: captura a requisição de follow que a INTERFACE do Instagram manda.
+
+    Existe porque o nosso POST devolve 404 mesmo com o perfil logado, a família /api/v1/
+    respondendo 200 para leitura e headers idênticos à chamada que funcionou em
+    2026-06-21. Cinco hipóteses (body, id, sessão, conta, rota) morreram no teste. A
+    interface consegue seguir — então medir o que ELA manda é mais barato e mais honesto
+    que adivinhar o próximo header.
+
+    Abre o perfil VISÍVEL, instala um espião no fetch/XHR e espera o usuário seguir
+    alguém na mão. Devolve método/URL/headers/corpo e salva um relatório em disco."""
+    p = db.get_profile(body.profile_id)
+    if not p:
+        raise HTTPException(404, "perfil não encontrado")
+    # Mesma guarda do launch: não roubar o perfil de uma extração/campanha em andamento.
+    for j in list(_spider_jobs.values()):
+        if j.get("status") == "running" and body.profile_id in (j.get("profile_ids") or []):
+            raise HTTPException(409, "há uma extração rodando com este perfil — pare antes")
+    for j in list(_follow_jobs.values()):
+        if j.get("status") in ("running", "harvesting") and body.profile_id in (j.get("profile_ids") or []):
+            raise HTTPException(409, "há uma campanha rodando com este perfil — pare antes")
+
+    linhas = []
+    def _log(m):
+        linhas.append(m)
+        print(f"[capture] {m}", flush=True)
+
+    res = await follower.capture_follow(p, log=_log,
+                                        timeout=max(30, min(900, int(body.timeout or 300))))
+    relatorio = {"perfil": p.get("name"), "ok": res.get("ok"),
+                 "erro": res.get("erro"), "capturas": res.get("capturas"),
+                 "log": linhas}
+    try:
+        d = SPIDER_DATA_DIR / "_analise"
+        d.mkdir(parents=True, exist_ok=True)
+        alvo = d / "follow_capture.json"
+        alvo.write_text(json.dumps(relatorio, ensure_ascii=False, indent=2),
+                        encoding="utf-8")
+        relatorio["salvo_em"] = str(alvo)
+    except Exception as e:
+        relatorio["salvo_em"] = f"(não consegui salvar: {e})"
+    return relatorio
+
+
 @app.post("/follow/queue/discard")
 def follow_queue_discard(body: FollowDiscardRequest):
     """ZERA a fila atual SEM SALVAR: para o job, apaga a execução do banco (ela não
