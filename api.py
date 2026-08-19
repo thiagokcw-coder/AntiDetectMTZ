@@ -2559,12 +2559,24 @@ def _follow_save(job: dict):
         logger.exception("falha ao salvar follow run")
 
 
+def _follow_dry_padrao() -> bool:
+    """Simulacao conforme a configuracao salva. Em duvida, True: melhor um job
+    nascer marcado como simulacao e o `follow_start` liberar do que o contrario."""
+    try:
+        return (_follow_config()["settings"].get("dryRun") is True)
+    except Exception:
+        return True
+
+
 def _follow_new_job(profile: dict, *, source_type="", source_target="", use_local=False,
                     job_id=None, queue=None, started_at=None) -> dict:
     job = {"id": job_id or uuid.uuid4().hex[:12],
            "status": "idle", "profile": profile.get("name"), "profile_id": profile.get("id"),
            "account_id": None, "account_key": _follow_account_key(profile),
-           "use_local": use_local, "dry_run": True, "mode": "follow",
+           # Nasce com o valor REAL da config. Antes era True chumbado, e entre a
+           # coleta e o inicio do follow o painel anunciava "SIMULACAO" numa
+           # execucao que ia seguir de verdade.
+           "use_local": use_local, "dry_run": _follow_dry_padrao(), "mode": "follow",
            "source_type": source_type, "source_target": source_target,
            "queue": queue or [], "log": [], "error": None, "stop": False,
            "stats": {"followed": 0, "requested": 0, "skipped": 0, "failed": 0, "simulated": 0},
@@ -2886,6 +2898,14 @@ _follow_cycle = {"running": False, "stop": False, "rodada": 0, "job_id": None,
                  "total_seguidas": 0, "total_coletadas": 0, "proxima_em": None}
 
 
+def _acoes_do_job(job) -> int:
+    """Acoes efetivadas: seguidas + solicitadas + simuladas. As SOLICITADAS entram
+    porque conta privada recebe pedido de follow -- e acao gasta, e a tela mostra."""
+    st = (job or {}).get("stats") or {}
+    return (int(st.get("followed") or 0) + int(st.get("requested") or 0)
+            + int(st.get("simulated") or 0))
+
+
 def _cycle_log(msg: str):
     _follow_cycle["log"].append(f"[{time.strftime('%H:%M:%S')}] {msg}")
     if len(_follow_cycle["log"]) > 300:
@@ -2991,10 +3011,8 @@ async def follow_cycle_start(body: FollowCycleRequest):
 
                 # ── 2. seguir a fila ────────────────────────────────────────
                 _follow_cycle["fase"] = "seguindo"
-                antes = 0
-                if _follow_jobs.get(run_id):
-                    st = _follow_jobs[run_id].get("stats") or {}
-                    antes = int(st.get("followed", 0)) + int(st.get("simulated", 0))
+                antes = _acoes_do_job(_follow_jobs.get(run_id))
+                _follow_cycle["_antes"] = antes
                 try:
                     await follow_start(FollowStartRequest(
                         profile_id=body.profile_id, profile_ids=body.profile_ids,
@@ -3006,13 +3024,18 @@ async def follow_cycle_start(body: FollowCycleRequest):
                     break
                 j = await _esperar_job(run_id)
                 if _follow_cycle["stop"]:
-                    _cycle_log("parado por voce durante o follow")
+                    # Credita o que a rodada JA fez antes de sair, senao o resumo
+                    # anuncia 0 depois de dezenas de follows reais.
+                    parcial = max(0, _acoes_do_job(j or _follow_jobs.get(run_id)) - antes)
+                    _follow_cycle["total_seguidas"] += parcial
+                    _follow_cycle["_antes"] = None
+                    _cycle_log(f"parado por voce durante o follow "
+                               f"({parcial} nesta rodada)")
                     break
 
-                st = j.get("stats") or {}
-                agora = int(st.get("followed", 0)) + int(st.get("simulated", 0))
-                feitos = max(0, agora - antes)
+                feitos = max(0, _acoes_do_job(j) - antes)
                 _follow_cycle["total_seguidas"] += feitos
+                _follow_cycle["_antes"] = None
                 restam = len([a for a in (j.get("queue") or [])
                               if a.get("status") == "pending"])
                 _cycle_log(f"rodada {rodada}: +{feitos} seguida(s) - {restam} na fila")
@@ -3068,6 +3091,12 @@ async def follow_cycle_start(body: FollowCycleRequest):
             _follow_cycle["erro"] = str(e)
             _cycle_log(f"x erro: {e}")
         finally:
+            # Rede de seguranca: qualquer saida que tenha deixado uma rodada pela
+            # metade ainda credita o que ela produziu.
+            pend = _follow_cycle.pop("_antes", None)
+            if pend is not None:
+                _follow_cycle["total_seguidas"] += max(
+                    0, _acoes_do_job(_follow_jobs.get(_follow_cycle.get("job_id"))) - pend)
             _follow_cycle["running"] = False
             _follow_cycle["fase"] = "parado"
             _follow_cycle["proxima_em"] = None

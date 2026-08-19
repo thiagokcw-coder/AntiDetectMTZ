@@ -4417,7 +4417,11 @@ async function followPoll() {
     const map = { idle: '⏸ Pronto', harvesting: '🔎 Coletando…', running: '⏳ Em andamento',
                   done: '✅ Concluído', stopped: '⏹ Parado', error: '⚠️ Erro' };
     document.getElementById('fw-state').textContent = map[j.status] || j.status;
-    document.getElementById('fw-mode').textContent = j.dry_run ? '· SIMULAÇÃO (nada é seguido)' : '';
+    // So anuncia simulacao quando o job esta AGINDO. Parado/coletando, o valor
+    // ainda pode ser o provisorio, e o rotulo errado ja custou duas desconfiancas.
+    const agindo = j.status === 'running' || j.status === 'done';
+    document.getElementById('fw-mode').textContent =
+      (j.dry_run && agindo) ? '· SIMULAÇÃO (nada é seguido)' : '';
     const s = j.stats || {}, c = j.counts || {};
     const ehUnfollow = j.mode === 'unfollow';
     const acoes = ehUnfollow

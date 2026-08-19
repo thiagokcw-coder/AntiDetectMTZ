@@ -304,6 +304,38 @@ Porte do projeto **InstaFollow** (`C:\Users\thiag\OneDrive\Documents\GitHub\Inst
 - **Aba renomeada p/ "InstaFollow"** (era "Seguir") no menu e no título — a pedido do usuário, 2026-08-16. Só rótulo: rota (`follow`), endpoints (`/follow/*`) e `follower.py` inalterados.
 - **🎯 COLETA MULTI-ALVO RASA (2026-08-16, decisão do usuário: "alternar entre contas alvo, não tem necessidade de ir muito afundo na paginação").** A coleta deixou de paginar fundo num alvo só e passou a **alternar entre vários alvos, pegando só o TOPO de cada**. Duas razões, ambas alinhadas ao aprendizado do projeto: (1) **risco** — paginar fundo é o que queima conta (no Spider a lista profunda só abre se a conta SEGUE o alvo, e ainda assim derruba); o topo da lista é a leitura mais banal que existe, é o que qualquer usuário vê ao abrir o perfil; (2) **qualidade** — o topo traz os seguidores MAIS RECENTES (contas ativas agora), o fundo é gente que seguiu há anos e pode estar morta. N alvos rasos dão o mesmo volume que um alvo fundo, com fração do risco e material melhor. **Implementação:** `follower.harvest(profile, source_type, targets, per_target)` aceita string OU lista, abre o perfil UMA vez e percorre os alvos na mesma sessão (`_harvest_one` por alvo), com **dedup entre alvos** (seguidor em comum entra uma vez só), pausa humana entre alvos, e erro em um alvo **não derruba os outros** (vai pro próximo e reporta em `erros`). Retorno ganhou `por_alvo` e `erros`. **API:** `FollowHarvestRequest.targets[]` + `per_target` (o `target` antigo continua aceito); o teto total (`limit`) **divide** a fatia entre os alvos (10 alvos/teto 200 → 20 de cada, nunca 0). **UI:** o campo de alvo virou **textarea (um por linha)** + "Quantas por alvo" + "Teto total", com dica ao vivo ("🎯 3 alvo(s) × 50 do topo de cada = até 150 contas"). Validado: 8 asserções (guardas de alvo vazio/espaços/None + a divisão do teto) + endpoint ao vivo com perfil temporário (alvo vazio → erro claro; `target` antigo aceito; 3 alvos → job com rótulo "3 alvos") + UI no navegador (textarea, dica recalculando, likers vs followers, 0 erro de console).
 
+## 🏷 RÓTULOS FALSOS: três vezes o painel mentiu sobre um motor que funcionava (2026-08-19)
+Padrão que se repetiu e custou confiança: **o motor certo, a tela errada**. Em todos os casos
+a verdade veio de consultar `/follow/cycle/status` e `/follow/jobs/{id}` ao vivo.
+
+1. **Terminal vazio.** A UI não adotava o job do ciclo e mostrava o log de uma execução
+   manual anterior. Corrigido: `followCyclePoll` adota `s.job_id` e segue colado (o job
+   **muda a cada rodada**).
+2. **"SIMULAÇÃO (nada é seguido)" numa execução real.** `_follow_new_job` criava todo job com
+   `dry_run: True` chumbado, e só o `follow_start` corrigia — no intervalo entre a coleta
+   terminar e o follow começar, o painel anunciava simulação. Corrigido: o job nasce com o
+   valor real (`_follow_dry_padrao()`, fallback `True` por segurança) e a tela só fala em
+   simulação quando o job está **agindo**.
+3. **"0 seguida(s)" depois de 16 follows reais.** O contador do ciclo (a) só somava ao FIM da
+   rodada, então parar no meio perdia tudo, e (b) ignorava as **solicitadas** (conta privada
+   recebe pedido — é ação gasta e a tela conta). Corrigido: `_acoes_do_job` soma
+   seguidas + solicitadas + simuladas, a parada credita o parcial, e o `finally` tem rede de
+   segurança.
+
+**O motor, medido em produção, estava impecável:** coleta fechou **1000/1000 novas de 12
+alvos** (83-84 por alvo, 215 já conhecidas puladas) e o follow rodou a ~12s de intervalo
+(`✓ @rau3aura — seguida · 10/100 no turno`). As duas paradas foram **o usuário clicando em
+Parar**, por achar que estava quebrado — e na segunda vez o log já disse isso
+(`parado por voce durante o follow`), porque o conserto anterior tinha entrado.
+
+**Lição registrada:** trabalho invisível é indistinguível de trabalho quebrado. Num processo
+longo, o feedback na tela **é parte da funcionalidade** — e rótulo derivado de valor
+provisório (como `dry_run` antes do start) mente com cara de verdade.
+
+- **Validado:** py_compile + `node --check` + asserções novas reproduzindo o caso real
+  (9 seguidas + 7 solicitadas têm de virar ≥16; o resumo não pode anunciar 0 depois de ação
+  real; o log nomeia quem parou) + regressão **333 asserções, 0 falhas**.
+
 ## 🖥 O CICLO FUNCIONAVA — quem estava quebrado era a TELA (2026-08-19)
 Relato: *"terminal não mostra nada, não sei se funciona ou não"*. Medido na instância dele
 (`GET /follow/cycle/status` + `GET /follow/jobs/{id}`): o ciclo tinha coletado **419 contas
