@@ -305,26 +305,35 @@ Porte do projeto **InstaFollow** (`C:\Users\thiag\OneDrive\Documents\GitHub\Inst
 - **🎯 COLETA MULTI-ALVO RASA (2026-08-16, decisão do usuário: "alternar entre contas alvo, não tem necessidade de ir muito afundo na paginação").** A coleta deixou de paginar fundo num alvo só e passou a **alternar entre vários alvos, pegando só o TOPO de cada**. Duas razões, ambas alinhadas ao aprendizado do projeto: (1) **risco** — paginar fundo é o que queima conta (no Spider a lista profunda só abre se a conta SEGUE o alvo, e ainda assim derruba); o topo da lista é a leitura mais banal que existe, é o que qualquer usuário vê ao abrir o perfil; (2) **qualidade** — o topo traz os seguidores MAIS RECENTES (contas ativas agora), o fundo é gente que seguiu há anos e pode estar morta. N alvos rasos dão o mesmo volume que um alvo fundo, com fração do risco e material melhor. **Implementação:** `follower.harvest(profile, source_type, targets, per_target)` aceita string OU lista, abre o perfil UMA vez e percorre os alvos na mesma sessão (`_harvest_one` por alvo), com **dedup entre alvos** (seguidor em comum entra uma vez só), pausa humana entre alvos, e erro em um alvo **não derruba os outros** (vai pro próximo e reporta em `erros`). Retorno ganhou `por_alvo` e `erros`. **API:** `FollowHarvestRequest.targets[]` + `per_target` (o `target` antigo continua aceito); o teto total (`limit`) **divide** a fatia entre os alvos (10 alvos/teto 200 → 20 de cada, nunca 0). **UI:** o campo de alvo virou **textarea (um por linha)** + "Quantas por alvo" + "Teto total", com dica ao vivo ("🎯 3 alvo(s) × 50 do topo de cada = até 150 contas"). Validado: 8 asserções (guardas de alvo vazio/espaços/None + a divisão do teto) + endpoint ao vivo com perfil temporário (alvo vazio → erro claro; `target` antigo aceito; 3 alvos → job com rótulo "3 alvos") + UI no navegador (textarea, dica recalculando, likers vs followers, 0 erro de console).
 
 ## 🖥 O CICLO FUNCIONAVA — quem estava quebrado era a TELA (2026-08-19)
-Relato: *"terminal nao mostra nada, nao sei se funciona ou nao"*. Medido na instancia dele:
-o ciclo tinha coletado **419 contas novas de 12 alvos em 70 segundos** e o job guardava **31
-linhas** de log (pagina a pagina, por alvo). Ele parou o ciclo achando que estava quebrado.
+Relato: *"terminal não mostra nada, não sei se funciona ou não"*. Medido na instância dele
+(`GET /follow/cycle/status` + `GET /follow/jobs/{id}`): o ciclo tinha coletado **419 contas
+novas de 12 alvos em 70 segundos** e o job guardava **31 linhas** de log — página a página,
+por alvo. Ele parou o ciclo achando que estava quebrado.
 
 **Dois furos, os dois meus:**
-1. **A UI nunca ADOTAVA o job do ciclo.** O painel seguia preso ao  de uma
-   execucao manual anterior (1999 itens, 316 seguidas), entao exibia o log daquele job. O
-   dado estava certo — so nao na tela. Agora o  adota , chama
-    e continua colado enquanto o ciclo vive (**o job muda a cada rodada**).
-2. **O ciclo saia sem dizer por que:** o log pulava de "rodada 1: coletando" para "ciclo
-   encerrado", porque o  do stop era silencioso. Agora todo caminho de saida nomeia o
-   motivo, e o encerramento diz o desfecho.
+1. **A UI nunca ADOTAVA o job do ciclo.** O painel seguia preso ao `_followJob` de uma
+   execução manual anterior (1999 itens, 316 seguidas), então exibia o log **daquele** job.
+   O dado estava certo — só não na tela. Agora o `followCyclePoll` adota `s.job_id`, chama
+   `followPoll()` e continua colado enquanto o ciclo vive (**o job muda a cada rodada**, e
+   sem isso o painel descolaria de novo na rodada seguinte).
+2. **O ciclo saía sem dizer por quê:** o log pulava de "rodada 1: coletando" para "ciclo
+   encerrado", porque o `break` do stop era silencioso. Agora todo caminho de saída nomeia o
+   motivo (`parado por você durante a coleta` / `durante o follow`) e o encerramento diz o
+   desfecho: *"encerrado por você após N rodada(s) — X seguida(s) no total"*, ou o erro, ou
+   o bloqueio.
 
-**Licao:** o sintoma ("nao funciona") apontava para o motor, e o motor estava certo. Foi a
-consulta ao estado ao vivo ( + ) que mostrou o
-trabalho acontecendo — de novo, medir antes de mexer.
+**O que o log do job revelou de bom, de brinde:** a coleta multi-alvo está exatamente como
+projetada — 84 novas de `radiogaucha`, 83 de `portoalegre24horastv` (35 já conhecidas
+puladas), alternando entre os 12 alvos e contando só gente nova rumo aos 1000.
 
-- **Validado:** 4 asseracoes novas (o log diz que foi o usuario quem parou, diz quantas
-  rodadas, bloqueio nomeia a causa, o status expoe o ) + regressao **331 asseracoes,
-  0 falhas**.
+**Lição:** o sintoma ("não funciona") apontava para o motor, e o motor estava certo. Foi
+consultar o estado ao vivo que mostrou o trabalho acontecendo — de novo, medir antes de
+mexer. E vale a recíproca: **trabalho invisível é indistinguível de trabalho quebrado**, então
+o feedback na tela é parte da funcionalidade, não enfeite.
+
+- **Validado:** py_compile + `node --check` + **4 asserções novas** (o log diz que foi o
+  usuário quem parou · diz quantas rodadas · bloqueio nomeia a causa · o status expõe o
+  `job_id` que a tela precisa) + regressão **331 asserções, 0 falhas**.
 
 ## 😴 DESCANSO EXTRA ao fechar a volta — padrão 1 hora (2026-08-19)
 Pedido: *"bote uma opção de tempo extra de descanso quando todas as contas tiverem feito
