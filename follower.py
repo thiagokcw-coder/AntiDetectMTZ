@@ -809,6 +809,9 @@ async def capture_follow(profile, log=None, should_stop=None, timeout=300) -> di
             log(f"✖ {achado['erro']}")
 
     try:
+        if log:
+            log("\U0001f310 abrindo a janela do perfil — "
+                "pode levar alguns segundos…")
         await sm.run_profile_task(profile, _job, headless=False)
     except Exception as e:
         achado["erro"] = str(e)
@@ -1029,6 +1032,9 @@ async def checar_seguiram_de_volta(profile, candidatos: list, *, log=None,
             saida["erro"] = r.get("erro")
 
     try:
+        if log:
+            log("\U0001f310 abrindo o navegador do perfil (headless) — "
+                "pode levar alguns segundos…")
         await sm.run_profile_task(profile, _job, headless=True)
     except Exception as e:
         saida["erro"] = str(e)
@@ -1263,6 +1269,9 @@ async def run_unfollow(profile: dict, candidatos: list, settings: dict, *,
                 pass
 
     try:
+        if log:
+            log("\U0001f310 abrindo o navegador do perfil (headless) — "
+                "pode levar alguns segundos…")
         await sm.run_profile_task(profile, _run, headless=True)
     except Exception as e:
         meta["error"] = meta["error"] or f"erro ao abrir o perfil: {e}"
@@ -1588,6 +1597,9 @@ async def harvest(profile: dict, source_type: str, targets, per_target: int = 50
                 "; ".join(f"{k}: {v}" for k, v in list(out["erros"].items())[:3])
 
     try:
+        if log:
+            log("\U0001f310 abrindo o navegador do perfil (headless) — "
+                "pode levar alguns segundos…")
         await sm.run_profile_task(profile, _run, headless=True)
     except Exception as e:
         out["error"] = f"erro ao abrir o perfil: {e}"
@@ -1959,6 +1971,9 @@ async def run(profile: dict, queue: list, settings: dict, filters: dict, *,
                 break
 
     try:
+        if log:
+            log("\U0001f310 abrindo o navegador do perfil (headless) — "
+                "pode levar alguns segundos…")
         await sm.run_profile_task(profile, _run, headless=True)
     except Exception as e:
         meta["error"] = meta["error"] or f"erro ao abrir o perfil: {e}"
