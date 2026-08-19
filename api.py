@@ -2784,7 +2784,12 @@ async def follow_start(body: FollowStartRequest):
                 log(f"😴 todas as {len(pool)} contas passaram a vez — descanso extra de "
                     f"{extra} min antes de recomeçar")
                 job["descansou_volta"] = True
-                if await spider._sleep_stop(extra * 60, lambda: job.get("stop", False)):
+                # Publica ATE QUANDO vai dormir: sem isto a tela fica uma hora muda,
+                # que e o que faz parecer travado.
+                job["descanso_ate"] = int(time.time() + extra * 60)
+                parado = await spider._sleep_stop(extra * 60, lambda: job.get("stop", False))
+                job["descanso_ate"] = None
+                if parado:
                     break
 
             p = pool[idx % len(pool)]
@@ -3218,6 +3223,10 @@ def follow_job(job_id: str):
             "queue_total": len(q),
             "queue_pending": sum(1 for a in q if a.get("status") == "pending"),
             "queue": q[:200],                       # amostra p/ a tabela da UI
+            # Quantos segundos faltam do descanso de fim de volta (None = não está
+            # descansando). A tela usa para a contagem regressiva.
+            "descanso_faltam_s": (max(0, int(j["descanso_ate"] - time.time()))
+                                  if j.get("descanso_ate") else None),
             "log": j.get("log", [])[-300:]}
 
 

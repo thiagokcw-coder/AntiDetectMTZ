@@ -3868,6 +3868,8 @@ async function createProfileForAccount(id, btn) {
 function fmtCountdown(secs) {
   secs = Math.max(0, parseInt(secs, 10) || 0);
   const m = Math.floor(secs / 60), s = secs % 60;
+  // Acima de uma hora, "60m 00s" fica ilegivel — o descanso de fim de volta usa isto.
+  if (m >= 60) return `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, '0')}m`;
   return `${m}m ${String(s).padStart(2, '0')}s`;
 }
 
@@ -4416,7 +4418,11 @@ async function followPoll() {
     const j = await api('GET', `/follow/jobs/${_followJob}`);
     const map = { idle: '⏸ Pronto', harvesting: '🔎 Coletando…', running: '⏳ Em andamento',
                   done: '✅ Concluído', stopped: '⏹ Parado', error: '⚠️ Erro' };
-    document.getElementById('fw-state').textContent = map[j.status] || j.status;
+    // Descansando: mostra a contagem no lugar do status, senao a tela fica muda
+    // por uma hora e parece travada.
+    document.getElementById('fw-state').textContent = j.descanso_faltam_s
+      ? `😴 Descansando — volta em ${fmtCountdown(j.descanso_faltam_s)}`
+      : (map[j.status] || j.status);
     // So anuncia simulacao quando o job esta AGINDO. Parado/coletando, o valor
     // ainda pode ser o provisorio, e o rotulo errado ja custou duas desconfiancas.
     const agindo = j.status === 'running' || j.status === 'done';
@@ -4447,7 +4453,9 @@ async function followPoll() {
     if (atBottom) log.scrollTop = log.scrollHeight;
     followRenderQueue(j);
 
-    if (j.status === 'running' || j.status === 'harvesting') { _followTimer = setTimeout(followPoll, 2000); return; }
+    if (j.status === 'running' || j.status === 'harvesting' || j.descanso_faltam_s) {
+      _followTimer = setTimeout(followPoll, 2000); return;
+    }
     document.getElementById('fw-start').disabled = false;
     document.getElementById('fw-harvest').disabled = false;
     document.getElementById('fw-unfollow-start').disabled = false;
@@ -4643,7 +4651,7 @@ async function followCyclePoll() {
                   iniciando: '… iniciando' };
   document.getElementById('fw-cycle-state').textContent =
     (s.running ? 'Ciclo ativo — ' : 'Ciclo parado — ') + (fases[s.fase] || s.fase || '');
-  const espera = s.faltam_s ? ` · volta em ${fmtCountdown(s.faltam_s)}` : '';
+  const espera = s.faltam_s ? ` · 😴 volta em ${fmtCountdown(s.faltam_s)}` : '';
   document.getElementById('fw-cycle-sub').textContent =
     `rodada ${s.rodada || 0} · ${s.total_seguidas || 0} seguida(s) no ciclo${espera}`
     + (s.erro ? ` · ${s.erro}` : '');
