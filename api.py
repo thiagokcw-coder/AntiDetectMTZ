@@ -2772,11 +2772,18 @@ async def follow_start(body: FollowStartRequest):
             job["profile_atual"] = p.get("name")
 
             acoes = db.list_follow_actions(key, int((time.time() - 86400) * 1000))
-            cabe, motivo, _espera = follower.limiter_check(acoes, settings)
+            cabe, motivo, espera = follower.limiter_check(acoes, settings)
             if not cabe:
-                log(f"⏭ conta {key} já está no teto {motivo} — passando para a próxima")
+                # Guarda QUANTO falta para esta conta voltar. O ciclo usa o menor
+                # valor entre as contas para dormir exatamente ate a primeira
+                # liberar, em vez de acordar de tempo em tempo no escuro.
+                ate = job.get("espera_teto_s")
+                job["espera_teto_s"] = espera if ate is None else min(ate, espera)
+                log(f"⏭ conta {key} descansando — no teto {motivo}, "
+                    f"volta em {follower.human_duration(int(espera))}")
                 sem_progresso += 1
                 continue
+            job["espera_teto_s"] = None
 
             turno += 1
             if len(pool) > 1:
@@ -3004,14 +3011,22 @@ async def follow_cycle_start(body: FollowCycleRequest):
                     break
 
                 # ── 3. teto: dorme em vez de martelar ───────────────────────
-                # Sem teto por hora/dia, isto deixa de ser "bateu o limite" e passa a
-                # ser "ninguem conseguiu seguir" -- recusa do IG, sessao instavel ou
-                # fila so com gente filtrada. Dormir e o certo nos tres casos.
+                # Ninguem seguiu com fila cheia: ou as contas estao descansando (teto
+                # diario) ou houve recusa. Se o motor disse quanto falta para a
+                # primeira conta voltar, dorme exatamente isso -- e o "descanso ate
+                # retornar". Senao, cai no intervalo configurado.
                 if feitos == 0 and restam > 0:
-                    _cycle_log(f"nenhuma conta conseguiu seguir nesta rodada - "
-                               f"dormindo {body.espera_teto_min} min antes de tentar de novo")
-                    if await _dormir_ciclo(int(body.espera_teto_min)):
-                        break
+                    ate = j.get("espera_teto_s")
+                    if ate:
+                        _cycle_log(f"contas descansando - voltando em "
+                                   f"{follower.human_duration(int(ate))}")
+                        if await _dormir_ciclo_s(float(ate) + 5):
+                            break
+                    else:
+                        _cycle_log(f"nenhuma conta conseguiu seguir nesta rodada - "
+                                   f"dormindo {body.espera_teto_min} min antes de tentar de novo")
+                        if await _dormir_ciclo(int(body.espera_teto_min)):
+                            break
 
                 # Respiro entre rodadas. Alem de nao martelar, garante um ponto de
                 # yield: sem ele o supervisor segurava o event loop e o Parar nao

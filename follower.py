@@ -38,11 +38,12 @@ DEFAULT_SETTINGS = {
     "jitterPercent": 0.5,           # ±50% → nenhum par de follows equidistante
     "skipDelayMs": 2000,
     "enrichDelayMs": 5000,
-    # 0 = SEM TETO. Quem governa o ritmo e o intervalo entre follows; o ciclo
-    # mantem o trabalho continuo. Os contadores por hora/dia seguem sendo
-    # gravados como METRICA (quanto a conta aguentou), nao como trava.
+    # Teto/HORA fora: era redundante com o intervalo (intervalo ~ 60/maxPerHour).
+    # Teto/DIA presente com outra funcao: nao e freio de velocidade, e DESCANSO.
+    # Ao bater 100 a conta para, espera a acao mais antiga sair da janela de 24h
+    # (janela deslizante real, nao "zera a meia-noite") e volta sozinha.
     "maxPerHour": 0,
-    "maxPerDay": 0,
+    "maxPerDay": 100,
     "backoff429Ms": 60000,          # 1 min
     "backoff403Ms": 600000,         # 10 min (limite leve)
     "backoff400Ms": 3600000,        # 1 h (limite duro)
@@ -95,9 +96,9 @@ DEFAULT_FILTERS = {
 # Intervalo e teto/hora descrevem a MESMA velocidade: intervalo_min ≈ 60/maxPerHour.
 # Baixar só o intervalo não aumenta a produção — gera rajada + ociosidade.
 PRESETS = {
-    "conservador": {"baseDelayMs": 180000, "maxPerHour": 0, "maxPerDay": 0},
-    "equilibrado": {"baseDelayMs": 90000, "maxPerHour": 0, "maxPerDay": 0},
-    "rapido": {"baseDelayMs": 60000, "maxPerHour": 0, "maxPerDay": 0},
+    "conservador": {"baseDelayMs": 180000, "maxPerHour": 0, "maxPerDay": 100},
+    "equilibrado": {"baseDelayMs": 90000, "maxPerHour": 0, "maxPerDay": 100},
+    "rapido": {"baseDelayMs": 60000, "maxPerHour": 0, "maxPerDay": 100},
 }
 
 HOUR_MS = 3600000
