@@ -38,12 +38,13 @@ DEFAULT_SETTINGS = {
     "jitterPercent": 0.5,           # ±50% → nenhum par de follows equidistante
     "skipDelayMs": 2000,
     "enrichDelayMs": 5000,
-    # Teto/HORA fora: era redundante com o intervalo (intervalo ~ 60/maxPerHour).
-    # Teto/DIA presente com outra funcao: nao e freio de velocidade, e DESCANSO.
-    # Ao bater 100 a conta para, espera a acao mais antiga sair da janela de 24h
-    # (janela deslizante real, nao "zera a meia-noite") e volta sozinha.
+    # Sem teto por hora nem por dia. O teto/hora era redundante com o intervalo,
+    # e o teto/dia travaria a conta por 24h -- o oposto do que se quer: o DESCANSO
+    # de cada conta e o tempo em que as OUTRAS trabalham (ver `followsPerAccount`).
+    # Travar por dia impediria a conta de voltar quando o rodizio fechasse a volta.
+    # O limitador continua no codigo: por um numero aqui e a trava volta.
     "maxPerHour": 0,
-    "maxPerDay": 100,
+    "maxPerDay": 0,
     "backoff429Ms": 60000,          # 1 min
     "backoff403Ms": 600000,         # 10 min (limite leve)
     "backoff400Ms": 3600000,        # 1 h (limite duro)
@@ -96,9 +97,9 @@ DEFAULT_FILTERS = {
 # Intervalo e teto/hora descrevem a MESMA velocidade: intervalo_min ≈ 60/maxPerHour.
 # Baixar só o intervalo não aumenta a produção — gera rajada + ociosidade.
 PRESETS = {
-    "conservador": {"baseDelayMs": 180000, "maxPerHour": 0, "maxPerDay": 100},
-    "equilibrado": {"baseDelayMs": 90000, "maxPerHour": 0, "maxPerDay": 100},
-    "rapido": {"baseDelayMs": 60000, "maxPerHour": 0, "maxPerDay": 100},
+    "conservador": {"baseDelayMs": 180000, "maxPerHour": 0, "maxPerDay": 0},
+    "equilibrado": {"baseDelayMs": 90000, "maxPerHour": 0, "maxPerDay": 0},
+    "rapido": {"baseDelayMs": 60000, "maxPerHour": 0, "maxPerDay": 0},
 }
 
 HOUR_MS = 3600000

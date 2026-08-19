@@ -1291,7 +1291,7 @@
           <label>Contas que vão SEGUIR — marque para dividirem a fila</label>
           <div id="fw-pool" style="max-height:130px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;padding:6px 8px;background:var(--surface)"></div>
           <div class="form-hint">Vazio = usa só a conta acima. Marcando várias, elas <b>se revezam na mesma fila</b>, com <b>IP novo</b> a cada troca. O histórico é global, então <b>duas contas nunca seguem a mesma pessoa</b>.</div>
-          <label style="margin-top:10px">Trocar de conta a cada quantos follows</label>
+          <label style="margin-top:10px">Trocar de conta a cada quantos follows <span style="font-weight:400;color:var(--muted)">— é isto que dá o descanso</span></label>
           <input id="fw-followsPerAccount" type="number" min="1" value="100" style="max-width:160px" oninput="followPoolHint()">
           <div class="form-hint" id="fw-pool-hint"></div>
         </div>
@@ -1538,14 +1538,15 @@
           </select>
         </div>
         <div class="form-row">
-          <div class="form-group"><label>Intervalo entre follows (min)</label><input id="fw-interval" type="number" min="0.2" step="0.1" onchange="document.getElementById('fw-preset').value='custom'"></div>
+          <div class="form-group"><label>Intervalo entre follows (min)</label><input id="fw-interval" type="number" min="0.2" step="0.1" onchange="document.getElementById('fw-preset').value='custom'" oninput="followPoolHint()"></div>
         </div>
         <!-- Teto/HORA fora da tela: era redundante com o intervalo. -->
         <input id="fw-maxPerHour" type="hidden" value="0">
-        <div class="form-row">
-          <div class="form-group"><label>Descanso: máximo por conta por dia</label><input id="fw-maxPerDay" type="number" min="0" value="100" onchange="document.getElementById('fw-preset').value='custom'"></div>
-        </div>
-        <div class="form-hint"><b>O intervalo é o freio; o teto diário é o descanso.</b> Ao chegar em 100, a conta para e o ciclo passa para a próxima; quando não sobra nenhuma, ele dorme e <b>volta sozinho</b> assim que a primeira liberar. A janela é <b>deslizante real</b> — conta as últimas 24h, não "zera à meia-noite". Com 3 contas isso dá 300/dia. Use <b>0</b> para não descansar nunca.</div>
+        <!-- Teto/DIA fora: o descanso de cada conta é o tempo em que as OUTRAS
+             trabalham (bloco por turno, na seção 1). Travar por dia impediria a conta
+             de voltar quando o rodízio fechasse a volta. Fica oculto em 0. -->
+        <input id="fw-maxPerDay" type="hidden" value="0">
+        <div class="form-hint"><b>O intervalo é o único freio aqui.</b> O <b>descanso</b> de cada conta é o rodízio: ela faz o bloco dela, passa a vez e só volta quando as outras já trabalharam — configure isso em <b>"Trocar de conta a cada quantos follows"</b>, na seção 1.</div>
       </div>
 
       <!-- 4. UNFOLLOW -->
@@ -4116,9 +4117,18 @@ function followPoolHint() {
   const n = document.querySelectorAll('.fw-pool-chk:checked').length || 1;
   const bloco = parseInt(document.getElementById('fw-followsPerAccount').value, 10) || 100;
   const fila = _followJob ? (window._followPendentes || 0) : 0;
-  el.innerHTML = `👥 ${n} conta(s) × ${bloco} = <b>${n * bloco}</b> follow(s) por ciclo`
+  // Descanso real = tempo em que as OUTRAS contas trabalham antes de voltar a vez
+  // desta. E o que o usuario quer dizer com "descanso ate retornar".
+  const intMin = parseFloat((document.getElementById('fw-interval') || {}).value) || 3;
+  const descansoMin = (n - 1) * bloco * intMin;
+  const legivel = descansoMin >= 60
+    ? `${(descansoMin / 60).toFixed(1).replace('.0', '')}h`
+    : `${Math.round(descansoMin)}min`;
+  el.innerHTML = `👥 ${n} conta(s) × ${bloco} = <b>${n * bloco}</b> follow(s) por volta`
     + (fila ? ` · fila atual: ${fila}` : '')
-    + ` <span style="color:var(--muted)">— o teto por hora/dia da conta também vale (o que vier primeiro)</span>`;
+    + (n > 1
+        ? ` · cada conta descansa <b>~${legivel}</b> até voltar a vez dela`
+        : ` <span style="color:var(--muted)">— com uma conta só não há descanso: marque mais contas</span>`);
   followAutoSave();
 }
 
@@ -4142,7 +4152,6 @@ function followApplyPreset() {
   const presets = (window._followCfg && window._followCfg.presets) || {};
   if (p === 'custom' || !presets[p]) return;
   document.getElementById('fw-interval').value = (presets[p].baseDelayMs / 60000).toFixed(1);
-  document.getElementById('fw-maxPerDay').value = presets[p].maxPerDay;
 }
 
 function followReadConfig() {
@@ -4155,9 +4164,9 @@ function followReadConfig() {
   FW_TEXTS.forEach(k => filters[k] = document.getElementById('fw-' + k).value.trim());
   const settings = {
     baseDelayMs: Math.round((parseFloat(document.getElementById('fw-interval').value) || 3) * 60000),
-    // Teto/hora fora (redundante com o intervalo). Teto/dia = descanso por conta.
+    // Sem tetos: o freio é o intervalo e o descanso é o rodízio entre as contas.
     maxPerHour: 0,
-    maxPerDay: parseInt(document.getElementById('fw-maxPerDay').value, 10) || 0,
+    maxPerDay: 0,
     dryRun: document.getElementById('fw-dryRun').checked,
     harvestLimit: parseInt(document.getElementById('fw-limit').value, 10) || 200,
     // O que estava na tela — para reabrir o app e encontrar tudo como deixou.
@@ -4551,9 +4560,8 @@ function followPrefsResumo() {
   if (!el) return;
   const v = id => { const e = document.getElementById(id); return e ? e.value : ''; };
   const on = id => { const e = document.getElementById(id); return !!(e && e.checked); };
-  const teto = parseInt(v('fw-maxPerDay'), 10) || 0;
   const partes = [`1 follow a cada ${v('fw-interval') || '?'} min`,
-                  teto ? `descanso a cada ${teto}/dia por conta` : 'sem descanso (contínuo)'];
+                  `troca de conta a cada ${v('fw-followsPerAccount') || '?'} follows`];
   const filtros = [];
   if (on('fw-skipPrivate')) filtros.push('sem privadas');
   if (on('fw-skipVerified')) filtros.push('sem verificadas');

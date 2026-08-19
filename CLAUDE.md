@@ -304,46 +304,43 @@ Porte do projeto **InstaFollow** (`C:\Users\thiag\OneDrive\Documents\GitHub\Inst
 - **Aba renomeada p/ "InstaFollow"** (era "Seguir") no menu e no título — a pedido do usuário, 2026-08-16. Só rótulo: rota (`follow`), endpoints (`/follow/*`) e `follower.py` inalterados.
 - **🎯 COLETA MULTI-ALVO RASA (2026-08-16, decisão do usuário: "alternar entre contas alvo, não tem necessidade de ir muito afundo na paginação").** A coleta deixou de paginar fundo num alvo só e passou a **alternar entre vários alvos, pegando só o TOPO de cada**. Duas razões, ambas alinhadas ao aprendizado do projeto: (1) **risco** — paginar fundo é o que queima conta (no Spider a lista profunda só abre se a conta SEGUE o alvo, e ainda assim derruba); o topo da lista é a leitura mais banal que existe, é o que qualquer usuário vê ao abrir o perfil; (2) **qualidade** — o topo traz os seguidores MAIS RECENTES (contas ativas agora), o fundo é gente que seguiu há anos e pode estar morta. N alvos rasos dão o mesmo volume que um alvo fundo, com fração do risco e material melhor. **Implementação:** `follower.harvest(profile, source_type, targets, per_target)` aceita string OU lista, abre o perfil UMA vez e percorre os alvos na mesma sessão (`_harvest_one` por alvo), com **dedup entre alvos** (seguidor em comum entra uma vez só), pausa humana entre alvos, e erro em um alvo **não derruba os outros** (vai pro próximo e reporta em `erros`). Retorno ganhou `por_alvo` e `erros`. **API:** `FollowHarvestRequest.targets[]` + `per_target` (o `target` antigo continua aceito); o teto total (`limit`) **divide** a fatia entre os alvos (10 alvos/teto 200 → 20 de cada, nunca 0). **UI:** o campo de alvo virou **textarea (um por linha)** + "Quantas por alvo" + "Teto total", com dica ao vivo ("🎯 3 alvo(s) × 50 do topo de cada = até 150 contas"). Validado: 8 asserções (guardas de alvo vazio/espaços/None + a divisão do teto) + endpoint ao vivo com perfil temporário (alvo vazio → erro claro; `target` antigo aceito; 3 alvos → job com rótulo "3 alvos") + UI no navegador (textarea, dica recalculando, likers vs followers, 0 erro de console).
 
-## ⚡ RITMO: teto/hora fora, teto/dia vira DESCANSO de 100 por conta (2026-08-19)
-Duas decisões do usuário no mesmo dia, e a segunda refinou a primeira:
+## ⚡ RITMO: intervalo é o freio, RODÍZIO é o descanso (2026-08-19)
+Três mensagens do usuário no mesmo dia, e a terceira é a que define o desenho:
 1. *"retire o máximo por dia e hora, o controle já está na velocidade e no ciclo"*
 2. *"mantenha o teto de 100 por conta, seria um descanso até retornar"*
+3. *"o descanso é para ser o tempo de passar todas as contas e retornar para a primeira"*
 
-**Estado final:** teto/**hora** removido, teto/**dia** = **100 por conta**.
+**Estado final: sem teto por hora e sem teto por dia.** O freio é o **intervalo**; o descanso
+é o **ródizio**.
 
-**Por que o teto/hora saiu e não volta:** a própria UI dizia que *"intervalo e teto/hora
-descrevem a MESMA velocidade (intervalo ≈ 60 ÷ máx/hora)"*. Era redundância declarada —
-tirar não muda comportamento nenhum.
+**Por que o teto diário de 100 (que cheguei a implementar no passo 2) estava ERRADO para o
+que ele queria:** com `maxPerDay=100`, a conta A bateria o teto e ficaria **travada 24h** —
+ela **não voltaria** quando B e C terminassem seus turnos. O que ele descreve é o oposto: A
+faz seu bloco, descansa **enquanto as outras trabalham**, e volta quando o ródizio fecha a
+volta. Travar por dia mataria exatamente esse retorno.
 
-**Por que o teto/dia ficou, com outro papel:** deixou de ser freio de velocidade e virou
-**descanso**. Ao chegar em 100 a conta para, o ródizio passa para a próxima, e quando não
-sobra nenhuma o ciclo dorme e **volta sozinho**. Com 3 contas dá 300/dia. `0` = nunca
-descansa (a opção continua).
+**A peça certa já existia:** `followsPerAccount` (o bloco por turno, default 100). O
+`_dividir` percorre o pool com `idx % len(pool)`, então **volta na 1ª conta** depois da volta
+— comportamento coberto por `test_rodizio` desde antes (`seq[3] == "perfil1"`).
 
-**A janela é DESLIZANTE, e isso é o coração do "até retornar":** a conta volta quando a ação
-mais antiga completa 24h — **não "zera à meia-noite"**. Testado: 100 follows feitos há 23h
-devolvem espera de ~1h; quando a mais antiga passa das 24h, a vaga abre.
+**Descanso real = (n_contas − 1) × bloco × intervalo.** A tela passou a calcular e mostrar
+isso ao vivo, porque era invisível: com 3 contas × 100 × 3 min o hint diz
+*"cada conta descansa ~10h até voltar a vez dela"*; com 2 × 50 × 1 min, *"~50min"*; com **1
+conta marcada** ele avisa que **não há descanso** — que é a armação que o usuário precisa ver.
+O rótulo do campo virou "Trocar de conta a cada quantos follows — é isto que dá o descanso".
 
-**Refinamento que o código já permitia e estava sendo jogado fora:** `limiter_check` devolve
-**quanto falta** para liberar, e o `_dividir` descartava esse valor (`_espera`). Agora ele
-sobe para o job (`espera_teto_s`, o **menor** entre as contas) e o ciclo dorme **exatamente
-até a primeira conta voltar**, em vez do chute fixo de 20 min. O log passou a dizer
-`contas descansando - voltando em 47min`.
+**O limitador continua no código, dormente:** `limiter_check` trata 0 como sem teto; basta
+pôr um número em `maxPerDay` e a trava volta (útil se uma conta começar a cair). Os
+contadores por hora/24h **seguem sendo gravados** e aparecem nas Métricas — agora como
+**medida** de quanto cada conta aguenta, não como freio.
 
-**Verificado e não óbvio:** o pré-check de teto **já existia** no `_dividir`
-([api.py](api.py), antes do `follower.run`), então conta em descanso é pulada **sem abrir
-navegador**. Cheguei a suspeitar do contrário (o `limiter_check` de dentro do `run` roda
-depois do `run_profile_task`) — medi antes de "consertar" o que não estava quebrado.
-
-- **Validado:** py_compile + `node --check` + **10 asserções do descanso** (99 passa, 100
-  descansa, motivo diz `100/100`, janela deslizante devolve ~1h em vez de meia-noite, vaga
-  abre quando a mais antiga faz 24h, `0` = sem descanso, teto é **por conta** e uma no limite
-  não trava as outras) + **19** do arquivo de ritmo + UI ao vivo (campo visível rotulado
-  "Descanso: máximo por conta por dia", teto/hora `hidden`, preset preenche, resumo diz
-  "descanso a cada 100/dia por conta") + regressão **320 asserções, 0 falhas**.
-- **Testes velhos atualizados duas vezes no mesmo dia** — primeiro para "sem teto", depois
-  para "descanso 100". É o custo de codificar número de negócio em asserção; em compensação
-  foi o teste que pegou o `ZeroDivisionError` quando os tetos foram a zero.
+- **Validado:** py_compile + `node --check` + regressão **320 asserções, 0 falhas** (inclui
+  `test_rodizio` provando o retorno à 1ª conta, e `test_descanso` provando que o limitador
+  ainda funciona se alguém repuser um teto) + UI ao vivo nos 3 cenários de cálculo do
+  descanso (3×100×3min = ~10h · 2×50×1min = ~50min · 1 conta = aviso de sem descanso).
+- **Lição:** implementei o teto diário no passo 2 lendo "100 por conta" ao pé da letra. A
+  frase seguinte mostrou que "descanso" significava **tempo de volta do ródizio**, não cota
+  diária. Valia ter perguntado o que "até retornar" media antes de escolher o mecanismo.
 
 ## 🔁 CICLO AUTOMÁTICO + aba reorganizada (FEITO, 2026-08-19)
 Pedido: *"a aba do instafollow está muito poluída, vamos botar todas as preferências em uma
