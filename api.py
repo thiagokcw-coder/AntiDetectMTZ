@@ -2892,6 +2892,7 @@ class FollowCycleRequest(BaseModel):
     settings: Optional[dict] = None
     filters: Optional[dict] = None
     fila_minima: int = 20                 # abaixo disto, coleta mais antes de seguir
+    run_id: Optional[str] = None          # APROVEITA a fila ja coletada, em vez de refazer
     espera_teto_min: int = 20             # quanto dormir quando todas as contas no teto
     piso_entre_rodadas_s: float = 10      # respiro minimo entre uma rodada e a proxima
 
@@ -2957,7 +2958,19 @@ async def follow_cycle_start(body: FollowCycleRequest):
                           "started_at": time.strftime("%Y-%m-%d %H:%M:%S")})
 
     async def _supervisor():
-        run_id = None
+        # Aproveita a fila que ja existe. Sem isto o ciclo ignorava 1000 contas
+        # coletadas e saia colhendo outras 1000 do zero -- regressao reportada.
+        run_id = body.run_id or None
+        if run_id and not _follow_jobs.get(run_id):
+            reidratado = _follow_job_from_db(run_id)
+            if reidratado:
+                _follow_jobs[run_id] = reidratado
+            else:
+                run_id = None
+        if run_id:
+            pendentes = len([x for x in (_follow_jobs[run_id].get("queue") or [])
+                             if x.get("status") == "pending"])
+            _cycle_log(f"aproveitando a fila ja coletada: {pendentes} pendente(s)")
         secas = 0
         try:
             _cycle_log(f"ciclo ligado - {len(alvos)} alvo(s), {body.limit} nova(s) por coleta")

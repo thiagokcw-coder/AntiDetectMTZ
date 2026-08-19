@@ -4608,6 +4608,8 @@ async function followCycleStart(btn) {
   try {
     await api('POST', '/follow/cycle/start', {
       profile_id: pool[0], profile_ids: pool,
+      // Aproveita a fila JA coletada em vez de recomecar do zero.
+      run_id: _followJob || null,
       source_type: document.getElementById('fw-source').value,
       targets: alvos,
       limit: parseInt(document.getElementById('fw-limit').value || '200', 10),

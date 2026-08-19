@@ -124,11 +124,19 @@ def _sample_ips(n: int = 6, pause: float = 0.3) -> list:
     return sorted(seen)
 
 
-def _wait_online(timeout: float = 45) -> float:
+def _wait_online(timeout: float = 45, log=None) -> float:
+    """Espera a internet voltar, NARRANDO. Antes ficava ate 45s em silencio, e um
+    silencio longo no meio do processo e indistinguivel de travamento."""
     t0 = time.time()
+    ultimo_aviso = 0.0
     while time.time() - t0 < timeout:
         if _public_ip(IP_SERVICES[0], timeout=5):
             return round(time.time() - t0, 1)
+        decorrido = time.time() - t0
+        if log and decorrido - ultimo_aviso >= 8:
+            ultimo_aviso = decorrido
+            log(f"   … sem internet ainda ({int(decorrido)}s de {int(timeout)}s) — "
+                f"isto e esperado enquanto o modem re-registra")
         time.sleep(2)
     return -1.0
 
@@ -185,8 +193,10 @@ def _rotate_sync(method: str, wait_seconds: int, log=None, avoid=None) -> dict:
             # "reboot" é LITERAL de propósito: o mesmo comando aceita "freset"
             # (reset de fábrica) e isso jamais pode vir de configuração.
             _post(cfg, "rebootcmd", "reboot", sid)
-            _log("↻ modem reiniciando (~60s)…")
-            time.sleep(20)                       # deixa cair antes de sondar
+            _log("↻ modem reiniciando (~60s) — a internet vai cair, isto e esperado")
+            for _ in range(4):                   # deixa cair antes de sondar
+                time.sleep(5)
+                _log("   … aguardando o modem subir")
         else:
             # Troca de modo: re-registra na torre e renova o IP em segundos.
             # Dois passos (auto → 4G) garantem o re-attach e terminam em 4G puro.
@@ -204,7 +214,7 @@ def _rotate_sync(method: str, wait_seconds: int, log=None, avoid=None) -> dict:
         # esperado e não significa que o comando não foi aplicado.
         _log(f"(a conexão caiu ao enviar o comando, o que é esperado: {str(e)[:60]})")
 
-    waited = _wait_online(timeout=wait_seconds)
+    waited = _wait_online(timeout=wait_seconds, log=_log)
     if waited < 0:
         res["error"] = f"a internet não voltou em {wait_seconds}s"
         _log(f"✖ {res['error']}")
