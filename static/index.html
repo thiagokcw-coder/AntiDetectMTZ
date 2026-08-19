@@ -4624,6 +4624,16 @@ async function followCyclePoll() {
   if (bStart) bStart.style.display = s.running ? 'none' : '';
   if (bStop) bStop.style.display = s.running ? '' : 'none';
 
+  // ADOTA o job do ciclo: sem isto o painel e o terminal continuavam presos a uma
+  // execucao manual anterior, e o ciclo parecia nao produzir nada (medido: 419
+  // contas coletadas com o terminal mostrando "sem saida ainda").
+  if (s.job_id && s.job_id !== _followJob) {
+    _followJob = s.job_id;
+    const st = document.getElementById('fw-status');
+    if (st) st.style.display = '';
+    followPoll();
+  }
+
   const fases = { coletando: '🔎 coletando', seguindo: '➕ seguindo',
                   esperando: '⏳ esperando abrir vaga', parado: '⏹ parado',
                   iniciando: '… iniciando' };
@@ -4634,6 +4644,10 @@ async function followCyclePoll() {
     `rodada ${s.rodada || 0} · ${s.total_seguidas || 0} seguida(s) no ciclo${espera}`
     + (s.erro ? ` · ${s.erro}` : '');
   document.getElementById('fw-cycle-log').textContent = (s.log || []).slice(-12).join('\n');
+
+  // O job muda a cada rodada; enquanto o ciclo estiver vivo, manter o painel
+  // colado nele mesmo depois que uma rodada termina.
+  if (s.running && _followJob && !_followTimer) followPoll();
 
   clearTimeout(_cicloTimer);
   if (s.running) _cicloTimer = setTimeout(followCyclePoll, 4000);

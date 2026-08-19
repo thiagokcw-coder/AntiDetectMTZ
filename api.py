@@ -2938,6 +2938,7 @@ async def follow_cycle_start(body: FollowCycleRequest):
             _cycle_log(f"ciclo ligado - {len(alvos)} alvo(s), {body.limit} nova(s) por coleta")
             while not _follow_cycle["stop"]:
                 _follow_cycle["rodada"] += 1
+                _follow_cycle["job_id"] = run_id or _follow_cycle.get("job_id")
                 rodada = _follow_cycle["rodada"]
 
                 # ── 1. garantir fila ────────────────────────────────────────
@@ -2961,6 +2962,7 @@ async def follow_cycle_start(body: FollowCycleRequest):
                     _follow_cycle["job_id"] = run_id
                     jh = await _esperar_job(run_id)
                     if _follow_cycle["stop"]:
+                        _cycle_log("parado por voce durante a coleta")
                         break
                     novos = len([a for a in (jh.get("queue") or [])
                                  if a.get("status") == "pending"])
@@ -3004,6 +3006,7 @@ async def follow_cycle_start(body: FollowCycleRequest):
                     break
                 j = await _esperar_job(run_id)
                 if _follow_cycle["stop"]:
+                    _cycle_log("parado por voce durante o follow")
                     break
 
                 st = j.get("stats") or {}
@@ -3068,7 +3071,15 @@ async def follow_cycle_start(body: FollowCycleRequest):
             _follow_cycle["running"] = False
             _follow_cycle["fase"] = "parado"
             _follow_cycle["proxima_em"] = None
-            _cycle_log("ciclo encerrado")
+            # Sempre dizer COMO terminou: um "encerrado" seco fez o usuario achar
+            # que estava quebrado quando tinha acabado de coletar 419 contas.
+            if _follow_cycle.get("erro"):
+                _cycle_log(f"ciclo encerrado: {_follow_cycle['erro']}")
+            elif _follow_cycle["stop"]:
+                _cycle_log(f"ciclo encerrado por voce apos {_follow_cycle['rodada']} rodada(s) "
+                           f"- {_follow_cycle['total_seguidas']} seguida(s) no total")
+            else:
+                _cycle_log("ciclo encerrado")
 
     asyncio.create_task(_supervisor())
     return {"ok": True, "alvos": len(alvos)}
