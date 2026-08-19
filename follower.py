@@ -45,6 +45,10 @@ DEFAULT_SETTINGS = {
     # O limitador continua no codigo: por um numero aqui e a trava volta.
     "maxPerHour": 0,
     "maxPerDay": 0,
+    # Respiro depois que TODAS as contas passaram a vez. O descanso normal de
+    # cada conta e o tempo das outras; isto e um extra no fim da volta, para a
+    # frota inteira nao ficar em atividade ininterrupta. 0 = sem extra.
+    "restAfterRoundMin": 60,
     "backoff429Ms": 60000,          # 1 min
     "backoff403Ms": 600000,         # 10 min (limite leve)
     "backoff400Ms": 3600000,        # 1 h (limite duro)

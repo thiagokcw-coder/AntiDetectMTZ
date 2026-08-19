@@ -2765,6 +2765,16 @@ async def follow_start(body: FollowStartRequest):
                 log("⏹ todas as contas estão no teto — nada a fazer agora")
                 break
 
+            # Fechou uma volta (todas as contas ja tiveram a vez) e ainda ha fila:
+            # respiro extra antes de recomecar pela primeira.
+            extra = max(0, int(settings.get("restAfterRoundMin") or 0))
+            if extra and idx and len(pool) > 1 and idx % len(pool) == 0:
+                log(f"😴 todas as {len(pool)} contas passaram a vez — descanso extra de "
+                    f"{extra} min antes de recomeçar")
+                job["descansou_volta"] = True
+                if await spider._sleep_stop(extra * 60, lambda: job.get("stop", False)):
+                    break
+
             p = pool[idx % len(pool)]
             idx += 1
             key = _follow_account_key(p)
@@ -3027,6 +3037,23 @@ async def follow_cycle_start(body: FollowCycleRequest):
                                    f"dormindo {body.espera_teto_min} min antes de tentar de novo")
                         if await _dormir_ciclo(int(body.espera_teto_min)):
                             break
+
+                # Descanso extra de fim de volta. No ciclo, uma rodada normalmente E
+                # uma volta (a fila acaba quando todas passaram), entao o respiro cai
+                # aqui. Se o `_dividir` ja descansou na virada da volta, nao repete.
+                # NAO usar `or` aqui: 0 e um valor VALIDO (desliga o descanso) e
+                # `0 or 60` devolveria 60, ignorando quem pediu para emendar as voltas.
+                extra = (body.settings or {}).get("restAfterRoundMin")
+                if extra is None:
+                    extra = follower.DEFAULT_SETTINGS.get("restAfterRoundMin", 0)
+                extra = int(extra or 0)
+                if extra and feitos and not j.get("descansou_volta"):
+                    _cycle_log(f"todas as contas passaram a vez - descanso extra de "
+                               f"{extra} min")
+                    if await _dormir_ciclo(extra):
+                        break
+                if j:
+                    j["descansou_volta"] = False
 
                 # Respiro entre rodadas. Alem de nao martelar, garante um ponto de
                 # yield: sem ele o supervisor segurava o event loop e o Parar nao

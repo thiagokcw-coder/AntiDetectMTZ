@@ -304,6 +304,41 @@ Porte do projeto **InstaFollow** (`C:\Users\thiag\OneDrive\Documents\GitHub\Inst
 - **Aba renomeada p/ "InstaFollow"** (era "Seguir") no menu e no título — a pedido do usuário, 2026-08-16. Só rótulo: rota (`follow`), endpoints (`/follow/*`) e `follower.py` inalterados.
 - **🎯 COLETA MULTI-ALVO RASA (2026-08-16, decisão do usuário: "alternar entre contas alvo, não tem necessidade de ir muito afundo na paginação").** A coleta deixou de paginar fundo num alvo só e passou a **alternar entre vários alvos, pegando só o TOPO de cada**. Duas razões, ambas alinhadas ao aprendizado do projeto: (1) **risco** — paginar fundo é o que queima conta (no Spider a lista profunda só abre se a conta SEGUE o alvo, e ainda assim derruba); o topo da lista é a leitura mais banal que existe, é o que qualquer usuário vê ao abrir o perfil; (2) **qualidade** — o topo traz os seguidores MAIS RECENTES (contas ativas agora), o fundo é gente que seguiu há anos e pode estar morta. N alvos rasos dão o mesmo volume que um alvo fundo, com fração do risco e material melhor. **Implementação:** `follower.harvest(profile, source_type, targets, per_target)` aceita string OU lista, abre o perfil UMA vez e percorre os alvos na mesma sessão (`_harvest_one` por alvo), com **dedup entre alvos** (seguidor em comum entra uma vez só), pausa humana entre alvos, e erro em um alvo **não derruba os outros** (vai pro próximo e reporta em `erros`). Retorno ganhou `por_alvo` e `erros`. **API:** `FollowHarvestRequest.targets[]` + `per_target` (o `target` antigo continua aceito); o teto total (`limit`) **divide** a fatia entre os alvos (10 alvos/teto 200 → 20 de cada, nunca 0). **UI:** o campo de alvo virou **textarea (um por linha)** + "Quantas por alvo" + "Teto total", com dica ao vivo ("🎯 3 alvo(s) × 50 do topo de cada = até 150 contas"). Validado: 8 asserções (guardas de alvo vazio/espaços/None + a divisão do teto) + endpoint ao vivo com perfil temporário (alvo vazio → erro claro; `target` antigo aceito; 3 alvos → job com rótulo "3 alvos") + UI no navegador (textarea, dica recalculando, likers vs followers, 0 erro de console).
 
+## 😴 DESCANSO EXTRA ao fechar a volta — padrão 1 hora (2026-08-19)
+Pedido: *"bote uma opção de tempo extra de descanso quando todas as contas tiverem feito
+suas vez, bote 1 hora de descanso inicial padrão"*.
+
+`restAfterRoundMin` (default **60**). Depois que **todas** as contas passaram a vez, a frota
+inteira para por esse tempo antes de recomeçar pela primeira. `0` emenda as voltas.
+
+**Dois pontos de aplicação, porque a volta fecha em dois lugares:** dentro do `_dividir`
+quando o índice dá a volta no pool e ainda há fila (caso do "Seguir a fila" com fila grande),
+e entre rodadas do ciclo (caso normal — cada rodada é ~uma volta). Para não descansar duas
+vezes, o `_dividir` marca `descansou_volta` no job e o ciclo pula o próprio descanso.
+
+**🐞 Bug que o teste pegou:** `int(settings.get(...) or DEFAULT or 0)` — com `0` válido
+(desligar), `0 or 60` devolvia **60**. Quem pedisse para emendar as voltas levaria 1h de
+descanso mesmo assim. Trocado por checagem explícita de `None`. Clássico do `or` com zero,
+e só apareceu porque o teste cobriu o caso "desligado".
+
+**A tela mostra o descanso somado**, que antes era invisível: 6 contas × 100 × 3 min + 1h
+= *"cada conta descansa ~26h até voltar (25h do ródizio + 1h de descanso extra)"*. Com **1
+conta**, o extra vira o único descanso e o hint diz isso; sem extra e com 1 conta, avisa que
+ela segue sem parar.
+
+- **Validado:** py_compile + `node --check` + **7 asserções** (padrão 60 · o ciclo descansa ao
+  fechar a volta · **não descansa duas vezes** quando o `_dividir` já descansou · `0`
+  realmente emenda · rodada sem follow nenhum não conta como volta fechada · Parar durante o
+  descanso encerra) + UI ao vivo nos 4 cenários + regressão **327 asserções, 0 falhas**.
+- **`test_rodizio` isolado:** ele consumia uma fila de 500 numa passada, o que deixou de
+  acontecer (agora pausa ao fechar a volta — comportamento pedido). Recebeu
+  `restAfterRoundMin: 0` para voltar a medir só a mecânica do ródizio.
+
+**Contexto da frota (medido no banco, 2026-08-19):** 71h de histórico, 200-500 follows por
+conta/dia, **zero suspensões**. A conta `cap.martim.poa.2026` (1.121 follows, a de maior
+volume) sumiu do cadastro — **foi ROUBADA, não banida** (informação do usuário). Ou seja o
+track record de "sem queda por bloqueio" se mantém. Hoje são **6 contas** cadastradas.
+
 ## ⚡ RITMO: intervalo é o freio, RODÍZIO é o descanso (2026-08-19)
 Três mensagens do usuário no mesmo dia, e a terceira é a que define o desenho:
 1. *"retire o máximo por dia e hora, o controle já está na velocidade e no ciclo"*
