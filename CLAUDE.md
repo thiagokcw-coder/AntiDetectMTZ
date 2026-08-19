@@ -304,6 +304,44 @@ Porte do projeto **InstaFollow** (`C:\Users\thiag\OneDrive\Documents\GitHub\Inst
 - **Aba renomeada p/ "InstaFollow"** (era "Seguir") no menu e no título — a pedido do usuário, 2026-08-16. Só rótulo: rota (`follow`), endpoints (`/follow/*`) e `follower.py` inalterados.
 - **🎯 COLETA MULTI-ALVO RASA (2026-08-16, decisão do usuário: "alternar entre contas alvo, não tem necessidade de ir muito afundo na paginação").** A coleta deixou de paginar fundo num alvo só e passou a **alternar entre vários alvos, pegando só o TOPO de cada**. Duas razões, ambas alinhadas ao aprendizado do projeto: (1) **risco** — paginar fundo é o que queima conta (no Spider a lista profunda só abre se a conta SEGUE o alvo, e ainda assim derruba); o topo da lista é a leitura mais banal que existe, é o que qualquer usuário vê ao abrir o perfil; (2) **qualidade** — o topo traz os seguidores MAIS RECENTES (contas ativas agora), o fundo é gente que seguiu há anos e pode estar morta. N alvos rasos dão o mesmo volume que um alvo fundo, com fração do risco e material melhor. **Implementação:** `follower.harvest(profile, source_type, targets, per_target)` aceita string OU lista, abre o perfil UMA vez e percorre os alvos na mesma sessão (`_harvest_one` por alvo), com **dedup entre alvos** (seguidor em comum entra uma vez só), pausa humana entre alvos, e erro em um alvo **não derruba os outros** (vai pro próximo e reporta em `erros`). Retorno ganhou `por_alvo` e `erros`. **API:** `FollowHarvestRequest.targets[]` + `per_target` (o `target` antigo continua aceito); o teto total (`limit`) **divide** a fatia entre os alvos (10 alvos/teto 200 → 20 de cada, nunca 0). **UI:** o campo de alvo virou **textarea (um por linha)** + "Quantas por alvo" + "Teto total", com dica ao vivo ("🎯 3 alvo(s) × 50 do topo de cada = até 150 contas"). Validado: 8 asserções (guardas de alvo vazio/espaços/None + a divisão do teto) + endpoint ao vivo com perfil temporário (alvo vazio → erro claro; `target` antigo aceito; 3 alvos → job com rótulo "3 alvos") + UI no navegador (textarea, dica recalculando, likers vs followers, 0 erro de console).
 
+## ⚡ TETOS POR HORA/DIA REMOVIDOS — o freio agora é só o intervalo (2026-08-19)
+Pedido do usuário: *"retire o máximo por dia e hora, o controle já está na velocidade e no
+ciclo; a intenção é estar sempre seguindo sem parar"*.
+
+**Metade já era redundância declarada:** a própria UI dizia que *"intervalo e teto/hora
+descrevem a MESMA velocidade (intervalo ≈ 60 ÷ máx/hora)"*. Tirar o teto/hora não muda
+comportamento nenhum.
+
+**O teto/DIA muda, e o número foi dito na hora da decisão:** era ele que parava a conta em
+100/dia. Sem ele, a 3 min de intervalo com o ciclo ligado, a conta roda **~480/dia**.
+Decisão do dono, tomada com o número à vista.
+
+**Implementação — nada de lógica nova:** `limiter_check` **já** tratava 0 como "sem teto"
+(`if max_day > 0`, `if max_hour > 0`), então bastou zerar defaults e presets e tirar os dois
+campos da tela (viraram `hidden` com 0, para nada que os lê quebrar). **O código do
+limitador fica**: por um número no lugar do 0 e a trava volta — útil se uma conta cair.
+
+**O contador por hora/24h continua sendo gravado** (`follow_actions`): deixou de ser trava e
+virou **medida**. É exatamente o dado que responde "quanto essa conta aguentou até cair" — o
+mesmo raciocínio que recomendei ao Mobiliza.
+
+**Consequência não óbvia, verificada:** o ródizio trocava de conta ao **bater o teto**
+(`yield_on_cap`). Sem teto isso nunca dispara, então a troca passa a depender **só** do bloco
+`followsPerAccount` — testado que esse caminho segue funcionando (bloco de 10 corta em 10 e
+sinaliza `turno_cheio`). Se ele estivesse quebrado, uma conta só levaria a fila inteira.
+A mensagem do ciclo também mudou: "as contas bateram o teto" virou "nenhuma conta conseguiu
+seguir nesta rodada", que é o que a condição realmente significa agora.
+
+- **Validado:** py_compile + `node --check` + **16 asserções** (5.000 ações numa hora e o
+  limitador libera · com teto explícito ainda barra, ou seja nada foi apagado · defaults e os
+  3 presets zerados · contadores seguem medindo · bloco corta em 10 e passa a vez · sem bloco
+  segue a fila toda · nunca reporta teto atingido) + UI ao vivo (campos `hidden`, intervalo
+  visível, `followReadConfig` mandando 0/0, presets e resumo sem citar teto) + regressão
+  **304 asserções, 0 falhas**.
+- **Teste velho atualizado:** `test_follower` afirmava `intervalo ≈ 60/maxPerHour` e passou a
+  dar `ZeroDivisionError` — era a invariante antiga, removida de propósito. Virou "presets
+  sem teto e ordenados do mais lento ao mais rápido".
+
 ## 🔁 CICLO AUTOMÁTICO + aba reorganizada (FEITO, 2026-08-19)
 Pedido: *"a aba do instafollow está muito poluída, vamos botar todas as preferências em uma
 janela e deixar a principal mais prática"* e *"o ciclo automático onde irá pegar a fila de

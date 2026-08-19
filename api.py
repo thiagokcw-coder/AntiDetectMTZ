@@ -3004,9 +3004,12 @@ async def follow_cycle_start(body: FollowCycleRequest):
                     break
 
                 # ── 3. teto: dorme em vez de martelar ───────────────────────
+                # Sem teto por hora/dia, isto deixa de ser "bateu o limite" e passa a
+                # ser "ninguem conseguiu seguir" -- recusa do IG, sessao instavel ou
+                # fila so com gente filtrada. Dormir e o certo nos tres casos.
                 if feitos == 0 and restam > 0:
-                    _cycle_log(f"as contas bateram o teto - dormindo "
-                               f"{body.espera_teto_min} min ate abrir vaga")
+                    _cycle_log(f"nenhuma conta conseguiu seguir nesta rodada - "
+                               f"dormindo {body.espera_teto_min} min antes de tentar de novo")
                     if await _dormir_ciclo(int(body.espera_teto_min)):
                         break
 

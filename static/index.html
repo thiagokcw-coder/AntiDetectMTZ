@@ -1531,18 +1531,21 @@
         <div class="form-group">
           <label>Preset</label>
           <select id="fw-preset" onchange="followApplyPreset()">
-            <option value="conservador">🛡️ Conservador — 3 min · 20/h · 100/dia (padrão)</option>
-            <option value="equilibrado">⚖ Equilibrado — 1,5 min · 40/h · 150/dia</option>
-            <option value="rapido">🚀 Rápido — 1 min · 60/h · 200/dia</option>
+            <option value="conservador">🛡️ Conservador — 1 follow a cada 3 min (padrão)</option>
+            <option value="equilibrado">⚖ Equilibrado — 1 a cada 1,5 min</option>
+            <option value="rapido">🚀 Rápido — 1 a cada 1 min</option>
             <option value="custom">✎ Personalizado</option>
           </select>
         </div>
         <div class="form-row">
-          <div class="form-group"><label>Intervalo (min)</label><input id="fw-interval" type="number" min="0.2" step="0.1" onchange="document.getElementById('fw-preset').value='custom'"></div>
-          <div class="form-group"><label>Máx por hora</label><input id="fw-maxPerHour" type="number" min="1" onchange="document.getElementById('fw-preset').value='custom'"></div>
-          <div class="form-group"><label>Máx por dia</label><input id="fw-maxPerDay" type="number" min="1" onchange="document.getElementById('fw-preset').value='custom'"></div>
+          <div class="form-group"><label>Intervalo entre follows (min)</label><input id="fw-interval" type="number" min="0.2" step="0.1" onchange="document.getElementById('fw-preset').value='custom'"></div>
         </div>
-        <div class="form-hint">Intervalo e teto/hora descrevem a <b>mesma</b> velocidade (intervalo ≈ 60 ÷ máx/hora). Baixar só o intervalo não produz mais: gera rajada e depois ociosidade. Os tetos usam <b>janela deslizante real</b> — não "zeram à meia-noite".</div>
+        <!-- Tetos por hora/dia REMOVIDOS da tela a pedido: quem governa o ritmo é o
+             intervalo, e a continuidade é o ciclo. Os campos viram 0 (= sem teto) no
+             motor, que já trata 0 assim. Ficam ocultos para não quebrar quem lê. -->
+        <input id="fw-maxPerHour" type="hidden" value="0">
+        <input id="fw-maxPerDay" type="hidden" value="0">
+        <div class="form-hint"><b>O intervalo é o único freio.</b> Sem teto por hora ou por dia: com o ciclo ligado a conta segue continuamente nesse ritmo (3 min ≈ 480/dia). O contador por hora/24h nas Métricas continua sendo gravado — agora como <b>medida</b> de quanto cada conta aguenta, não como trava.</div>
       </div>
 
       <!-- 4. UNFOLLOW -->
@@ -4139,8 +4142,6 @@ function followApplyPreset() {
   const presets = (window._followCfg && window._followCfg.presets) || {};
   if (p === 'custom' || !presets[p]) return;
   document.getElementById('fw-interval').value = (presets[p].baseDelayMs / 60000).toFixed(1);
-  document.getElementById('fw-maxPerHour').value = presets[p].maxPerHour;
-  document.getElementById('fw-maxPerDay').value = presets[p].maxPerDay;
 }
 
 function followReadConfig() {
@@ -4153,8 +4154,9 @@ function followReadConfig() {
   FW_TEXTS.forEach(k => filters[k] = document.getElementById('fw-' + k).value.trim());
   const settings = {
     baseDelayMs: Math.round((parseFloat(document.getElementById('fw-interval').value) || 3) * 60000),
-    maxPerHour: parseInt(document.getElementById('fw-maxPerHour').value, 10) || 20,
-    maxPerDay: parseInt(document.getElementById('fw-maxPerDay').value, 10) || 100,
+    // 0 = sem teto. Os campos saíram da tela; quem freia é o intervalo.
+    maxPerHour: 0,
+    maxPerDay: 0,
     dryRun: document.getElementById('fw-dryRun').checked,
     harvestLimit: parseInt(document.getElementById('fw-limit').value, 10) || 200,
     // O que estava na tela — para reabrir o app e encontrar tudo como deixou.
@@ -4548,8 +4550,7 @@ function followPrefsResumo() {
   if (!el) return;
   const v = id => { const e = document.getElementById(id); return e ? e.value : ''; };
   const on = id => { const e = document.getElementById(id); return !!(e && e.checked); };
-  const partes = [`${v('fw-interval') || '?'} min entre follows`,
-                  `${v('fw-maxPerHour') || '?'}/h`, `${v('fw-maxPerDay') || '?'}/dia`];
+  const partes = [`1 follow a cada ${v('fw-interval') || '?'} min`, 'sem teto por hora/dia'];
   const filtros = [];
   if (on('fw-skipPrivate')) filtros.push('sem privadas');
   if (on('fw-skipVerified')) filtros.push('sem verificadas');
