@@ -1337,109 +1337,31 @@
         <div class="form-hint" style="margin-top:8px">Esta etapa só <b>lê</b> listas — nada é seguido aqui. Coletar de novo <b>acumula</b> na mesma fila (dá pra juntar várias fontes); quem já está na fila, no histórico global ou na blacklist não entra duas vezes.</div>
       </div>
 
-      <!-- 2. FILTROS -->
+      <!-- AÇÃO -->
       <div class="form-card" style="max-width:600px;margin-top:16px">
-        <div style="font-weight:600;margin-bottom:12px">2 · Filtros — quem qualifica</div>
-        <div style="font-size:12px;color:var(--muted);margin-bottom:10px">Grátis (não custam requisição):</div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px 14px;margin-bottom:14px">
-          <label style="display:flex;gap:8px;align-items:center;font-weight:400;cursor:pointer;font-size:13px"><input type="checkbox" id="fw-skipPrivate"> Pular privadas</label>
-          <label style="display:flex;gap:8px;align-items:center;font-weight:400;cursor:pointer;font-size:13px"><input type="checkbox" id="fw-skipVerified"> Pular verificadas</label>
-          <label style="display:flex;gap:8px;align-items:center;font-weight:400;cursor:pointer;font-size:13px"><input type="checkbox" id="fw-skipNoProfilePic"> Exigir foto de perfil</label>
-          <label style="display:flex;gap:8px;align-items:center;font-weight:400;cursor:pointer;font-size:13px"><input type="checkbox" id="fw-skipFollowedByViewer"> Pular quem já sigo</label>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+          <div style="font-weight:600">2 · Rodar</div>
+          <button class="btn btn-ghost btn-sm" onclick="openFollowPrefs()">⚙ Preferências</button>
         </div>
-        <div style="font-size:12px;color:var(--muted);margin-bottom:10px">Custam <b>1 requisição extra por conta</b> (leitura de perfil) — só mexa se precisar:</div>
-        <div class="form-row">
-          <div class="form-group"><label>Seguidores (mín)</label><input id="fw-followersMin" type="number" min="0"></div>
-          <div class="form-group"><label>Seguidores (máx)</label><input id="fw-followersMax" type="number" min="0"></div>
-        </div>
-        <div class="form-row">
-          <div class="form-group"><label>Seguindo (mín)</label><input id="fw-followingMin" type="number" min="0"></div>
-          <div class="form-group"><label>Seguindo (máx)</label><input id="fw-followingMax" type="number" min="0"></div>
-        </div>
-        <div class="form-row">
-          <div class="form-group"><label>Posts (mín)</label><input id="fw-postsMin" type="number" min="0"></div>
-          <div class="form-group"><label>Ratio mín (seg/segue)</label><input id="fw-ratioMin" type="number" min="0" step="0.1"></div>
-        </div>
-        <div class="form-row">
-          <div class="form-group"><label>Postou nos últimos (dias, 0=off)</label><input id="fw-lastPostMaxDays" type="number" min="0"></div>
-          <div class="form-group" style="display:flex;align-items:flex-end;padding-bottom:8px">
-            <label style="display:flex;gap:8px;align-items:center;font-weight:400;cursor:pointer;font-size:13px"><input type="checkbox" id="fw-skipBusiness"> Pular business</label>
-          </div>
-        </div>
-        <div class="form-group"><label>Bio contém (separe por vírgula)</label><input id="fw-requireBioText" type="text" placeholder="ex.: moda, sp"></div>
-        <div class="form-group"><label>Bio NÃO contém</label><input id="fw-excludeBioText" type="text" placeholder="ex.: loja, promo"></div>
-        <div class="form-hint" id="fw-enrich-warn" style="display:none;color:var(--accent2)"></div>
-      </div>
-
-      <!-- 3. RITMO -->
-      <div class="form-card" style="max-width:600px;margin-top:16px">
-        <div style="font-weight:600;margin-bottom:12px">3 · Ritmo e tetos</div>
-        <div class="form-group">
-          <label>Preset</label>
-          <select id="fw-preset" onchange="followApplyPreset()">
-            <option value="conservador">🛡️ Conservador — 3 min · 20/h · 100/dia (padrão)</option>
-            <option value="equilibrado">⚖ Equilibrado — 1,5 min · 40/h · 150/dia</option>
-            <option value="rapido">🚀 Rápido — 1 min · 60/h · 200/dia</option>
-            <option value="custom">✎ Personalizado</option>
-          </select>
-        </div>
-        <div class="form-row">
-          <div class="form-group"><label>Intervalo (min)</label><input id="fw-interval" type="number" min="0.2" step="0.1" onchange="document.getElementById('fw-preset').value='custom'"></div>
-          <div class="form-group"><label>Máx por hora</label><input id="fw-maxPerHour" type="number" min="1" onchange="document.getElementById('fw-preset').value='custom'"></div>
-          <div class="form-group"><label>Máx por dia</label><input id="fw-maxPerDay" type="number" min="1" onchange="document.getElementById('fw-preset').value='custom'"></div>
-        </div>
-        <div class="form-hint">Intervalo e teto/hora descrevem a <b>mesma</b> velocidade (intervalo ≈ 60 ÷ máx/hora). Baixar só o intervalo não produz mais: gera rajada e depois ociosidade. Os tetos usam <b>janela deslizante real</b> — não "zeram à meia-noite".</div>
-        <label style="display:flex;align-items:flex-start;gap:8px;margin-top:12px;font-weight:400;cursor:pointer">
+        <label style="display:flex;align-items:flex-start;gap:8px;font-weight:400;cursor:pointer">
           <input type="checkbox" id="fw-dryRun" checked style="margin-top:3px">
-          <span style="font-size:12px;color:var(--muted)"><b>Modo simulação</b> — decide tudo (coleta, filtros, fila) e mostra quem <i>seria</i> seguido, <b>sem seguir de verdade</b>. Deixe ligado no primeiro teste.</span>
+          <span style="font-size:12px;color:var(--muted)"><b>Modo simulação</b> — decide tudo e mostra quem <i>seria</i> seguido, <b>sem seguir de verdade</b>. Deixe ligado no primeiro teste.</span>
         </label>
-        <div style="display:flex;gap:8px;align-items:center;margin-top:14px">
-          <button id="fw-start" class="btn btn-primary" onclick="followStart()">▶ Iniciar</button>
+        <div id="fw-prefs-resumo" style="font-size:11.5px;color:var(--muted);margin-top:8px"></div>
+        <div style="display:flex;gap:8px;align-items:center;margin-top:14px;flex-wrap:wrap">
+          <button id="fw-cycle-start" class="btn btn-primary" onclick="followCycleStart(this)"
+                  title="Coleta uma fila, segue, coleta de novo e segue — até você mandar parar">🔁 Ciclo automático</button>
+          <button id="fw-cycle-stop" class="btn btn-danger" onclick="followCycleStop()" style="display:none">⏹ Parar ciclo</button>
+          <span style="width:1px;height:22px;background:var(--border)"></span>
+          <button id="fw-start" class="btn btn-sm" onclick="followStart()" title="Segue só a fila que já está coletada, uma vez">▶ Seguir a fila</button>
           <button id="fw-stop" class="btn btn-danger btn-sm" onclick="followStop()" style="display:none">⏹ Parar</button>
-          <button class="btn btn-ghost btn-sm" onclick="followSaveConfig(this)">💾 Salvar ajustes</button>
+        </div>
+        <div id="fw-cycle-box" style="display:none;margin-top:12px;padding:10px 12px;background:var(--surface);border:1px solid var(--border);border-radius:8px;font-size:12px">
+          <div><b id="fw-cycle-state">—</b> <span id="fw-cycle-sub" style="color:var(--muted)"></span></div>
+          <pre id="fw-cycle-log" style="margin:8px 0 0;max-height:120px;overflow:auto;font-size:11px;color:var(--muted);white-space:pre-wrap"></pre>
         </div>
       </div>
 
-      <!-- 4. UNFOLLOW -->
-      <div class="form-card" style="max-width:600px;margin-top:16px">
-        <div style="font-weight:600;margin-bottom:4px">4 · Deixar de seguir</div>
-        <div class="form-hint" style="margin-bottom:12px">
-          O Instagram limita cada conta a seguir <b>7.500 perfis</b>. Sem desfazer follows a campanha
-          trava nesse teto — por isso o unfollow não é opcional a longo prazo, é o que mantém espaço.
-        </div>
-        <div id="fw-quota" style="margin-bottom:14px;font-size:13px"></div>
-        <div class="form-row">
-          <div class="form-group">
-            <label>Desfazer após (dias)</label>
-            <input id="fw-unfollowAfterDays" type="number" min="1" max="90" value="3">
-          </div>
-          <div class="form-group">
-            <label>Quantos nesta execução</label>
-            <input id="fw-unfollow-limit" type="number" min="1" value="200">
-          </div>
-        </div>
-        <label style="display:flex;align-items:flex-start;gap:8px;font-weight:400;cursor:pointer;margin-bottom:6px">
-          <input type="checkbox" id="fw-protectMutuals" checked style="margin-top:3px">
-          <span style="font-size:12px;color:var(--muted)"><b>Não desfazer quem te seguiu de volta</b> — mantém os mútuos (custa 1 requisição por conta para checar).</span>
-        </label>
-        <div class="form-hint" style="margin-bottom:12px">
-          🔒 Só desfaz o que <b>o app seguiu com esta conta</b> — follows que você fez na mão nunca são tocados.
-          A <b>whitelist</b> abaixo protege contas específicas para sempre.
-        </div>
-        <div class="form-group">
-          <label>Whitelist — nunca deixar de seguir</label>
-          <div style="display:flex;gap:6px">
-            <input id="fw-white-input" type="text" placeholder="@usuario" style="flex:1">
-            <button class="btn btn-ghost btn-sm" onclick="followWhitelistAdd()">+ Proteger</button>
-          </div>
-          <div id="fw-whitelist" style="margin-top:8px;font-size:12px;color:var(--muted)"></div>
-        </div>
-        <div style="display:flex;gap:8px;align-items:center;margin-top:6px">
-          <button id="fw-unfollow-start" class="btn btn-primary" onclick="unfollowStart()">▶ Deixar de seguir</button>
-          <button class="btn btn-ghost btn-sm" onclick="loadUnfollowQuota(true)">↻ Recalcular</button>
-        </div>
-        <div class="form-hint" style="margin-top:8px">Usa o <b>mesmo ritmo e os mesmos tetos</b> do passo 3 — desfazer follow gasta o mesmo orçamento de ações da conta que seguir. O <b>modo simulação</b> também vale aqui.</div>
-      </div>
 
       <!-- STATUS -->
       <div id="fw-status" style="display:none;margin-top:16px;max-width:820px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:14px 16px;font-size:13px">
@@ -1565,6 +1487,112 @@
 </div>
 
 <!-- Modal de adicionar conta manualmente -->
+<div class="modal-backdrop" id="modal-fw-prefs">
+  <div class="modal" style="max-width:680px">
+    <h2>⚙ Preferências do InstaFollow</h2>
+    <div class="form-hint" style="margin-bottom:4px">Filtros, ritmo e regras de unfollow. O que muda aqui vale para a fila e para o ciclo automático.</div>
+      <!-- 2. FILTROS -->
+      <div class="form-card" style="margin-top:14px">
+        <div style="font-weight:600;margin-bottom:12px">Filtros — quem qualifica</div>
+        <div style="font-size:12px;color:var(--muted);margin-bottom:10px">Grátis (não custam requisição):</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px 14px;margin-bottom:14px">
+          <label style="display:flex;gap:8px;align-items:center;font-weight:400;cursor:pointer;font-size:13px"><input type="checkbox" id="fw-skipPrivate"> Pular privadas</label>
+          <label style="display:flex;gap:8px;align-items:center;font-weight:400;cursor:pointer;font-size:13px"><input type="checkbox" id="fw-skipVerified"> Pular verificadas</label>
+          <label style="display:flex;gap:8px;align-items:center;font-weight:400;cursor:pointer;font-size:13px"><input type="checkbox" id="fw-skipNoProfilePic"> Exigir foto de perfil</label>
+          <label style="display:flex;gap:8px;align-items:center;font-weight:400;cursor:pointer;font-size:13px"><input type="checkbox" id="fw-skipFollowedByViewer"> Pular quem já sigo</label>
+        </div>
+        <div style="font-size:12px;color:var(--muted);margin-bottom:10px">Custam <b>1 requisição extra por conta</b> (leitura de perfil) — só mexa se precisar:</div>
+        <div class="form-row">
+          <div class="form-group"><label>Seguidores (mín)</label><input id="fw-followersMin" type="number" min="0"></div>
+          <div class="form-group"><label>Seguidores (máx)</label><input id="fw-followersMax" type="number" min="0"></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label>Seguindo (mín)</label><input id="fw-followingMin" type="number" min="0"></div>
+          <div class="form-group"><label>Seguindo (máx)</label><input id="fw-followingMax" type="number" min="0"></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label>Posts (mín)</label><input id="fw-postsMin" type="number" min="0"></div>
+          <div class="form-group"><label>Ratio mín (seg/segue)</label><input id="fw-ratioMin" type="number" min="0" step="0.1"></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label>Postou nos últimos (dias, 0=off)</label><input id="fw-lastPostMaxDays" type="number" min="0"></div>
+          <div class="form-group" style="display:flex;align-items:flex-end;padding-bottom:8px">
+            <label style="display:flex;gap:8px;align-items:center;font-weight:400;cursor:pointer;font-size:13px"><input type="checkbox" id="fw-skipBusiness"> Pular business</label>
+          </div>
+        </div>
+        <div class="form-group"><label>Bio contém (separe por vírgula)</label><input id="fw-requireBioText" type="text" placeholder="ex.: moda, sp"></div>
+        <div class="form-group"><label>Bio NÃO contém</label><input id="fw-excludeBioText" type="text" placeholder="ex.: loja, promo"></div>
+        <div class="form-hint" id="fw-enrich-warn" style="display:none;color:var(--accent2)"></div>
+      </div>
+
+      <!-- 3. RITMO -->
+      <div class="form-card" style="margin-top:14px">
+        <div style="font-weight:600;margin-bottom:12px">Ritmo e tetos</div>
+        <div class="form-group">
+          <label>Preset</label>
+          <select id="fw-preset" onchange="followApplyPreset()">
+            <option value="conservador">🛡️ Conservador — 3 min · 20/h · 100/dia (padrão)</option>
+            <option value="equilibrado">⚖ Equilibrado — 1,5 min · 40/h · 150/dia</option>
+            <option value="rapido">🚀 Rápido — 1 min · 60/h · 200/dia</option>
+            <option value="custom">✎ Personalizado</option>
+          </select>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label>Intervalo (min)</label><input id="fw-interval" type="number" min="0.2" step="0.1" onchange="document.getElementById('fw-preset').value='custom'"></div>
+          <div class="form-group"><label>Máx por hora</label><input id="fw-maxPerHour" type="number" min="1" onchange="document.getElementById('fw-preset').value='custom'"></div>
+          <div class="form-group"><label>Máx por dia</label><input id="fw-maxPerDay" type="number" min="1" onchange="document.getElementById('fw-preset').value='custom'"></div>
+        </div>
+        <div class="form-hint">Intervalo e teto/hora descrevem a <b>mesma</b> velocidade (intervalo ≈ 60 ÷ máx/hora). Baixar só o intervalo não produz mais: gera rajada e depois ociosidade. Os tetos usam <b>janela deslizante real</b> — não "zeram à meia-noite".</div>
+      </div>
+
+      <!-- 4. UNFOLLOW -->
+      <div class="form-card" style="margin-top:14px">
+        <div style="font-weight:600;margin-bottom:4px">Deixar de seguir</div>
+        <div class="form-hint" style="margin-bottom:12px">
+          O Instagram limita cada conta a seguir <b>7.500 perfis</b>. Sem desfazer follows a campanha
+          trava nesse teto — por isso o unfollow não é opcional a longo prazo, é o que mantém espaço.
+        </div>
+        <div id="fw-quota" style="margin-bottom:14px;font-size:13px"></div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Desfazer após (dias)</label>
+            <input id="fw-unfollowAfterDays" type="number" min="1" max="90" value="3">
+          </div>
+          <div class="form-group">
+            <label>Quantos nesta execução</label>
+            <input id="fw-unfollow-limit" type="number" min="1" value="200">
+          </div>
+        </div>
+        <label style="display:flex;align-items:flex-start;gap:8px;font-weight:400;cursor:pointer;margin-bottom:6px">
+          <input type="checkbox" id="fw-protectMutuals" checked style="margin-top:3px">
+          <span style="font-size:12px;color:var(--muted)"><b>Não desfazer quem te seguiu de volta</b> — mantém os mútuos (custa 1 requisição por conta para checar).</span>
+        </label>
+        <div class="form-hint" style="margin-bottom:12px">
+          🔒 Só desfaz o que <b>o app seguiu com esta conta</b> — follows que você fez na mão nunca são tocados.
+          A <b>whitelist</b> abaixo protege contas específicas para sempre.
+        </div>
+        <div class="form-group">
+          <label>Whitelist — nunca deixar de seguir</label>
+          <div style="display:flex;gap:6px">
+            <input id="fw-white-input" type="text" placeholder="@usuario" style="flex:1">
+            <button class="btn btn-ghost btn-sm" onclick="followWhitelistAdd()">+ Proteger</button>
+          </div>
+          <div id="fw-whitelist" style="margin-top:8px;font-size:12px;color:var(--muted)"></div>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;margin-top:6px">
+          <button id="fw-unfollow-start" class="btn btn-primary" onclick="unfollowStart()">▶ Deixar de seguir</button>
+          <button class="btn btn-ghost btn-sm" onclick="loadUnfollowQuota(true)">↻ Recalcular</button>
+        </div>
+        <div class="form-hint" style="margin-top:8px">Usa o <b>mesmo ritmo e os mesmos tetos</b> do passo 3 — desfazer follow gasta o mesmo orçamento de ações da conta que seguir. O <b>modo simulação</b> também vale aqui.</div>
+      </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="followCapture(this)" title="Abre o perfil e captura a requisição real que o Instagram manda ao seguir — diagnóstico">🔬 Capturar requisição real</button>
+      <button class="btn btn-primary" onclick="followSaveConfig(this)">💾 Salvar</button>
+      <button class="btn" onclick="closeModal('modal-fw-prefs')">Fechar</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-backdrop" id="modal-add-account">
   <div class="modal">
     <h2 id="aa-title">Adicionar conta</h2>
@@ -4204,6 +4232,8 @@ async function loadFollow() {
     loadFollowWhitelist();
     loadUnfollowQuota();
     loadFollowMetrics();
+  followPrefsResumo();
+  followCyclePoll();
     followReattach();
   } catch (e) { toast(e.message || 'Erro ao carregar a aba InstaFollow', 'error'); }
 }
@@ -4504,6 +4534,86 @@ async function followCheckBack(btn) {
   } finally {
     if (parar) parar();
   }
+}
+
+// ── Preferencias em janela: a tela principal fica so com o que se usa toda hora ──
+function openFollowPrefs() {
+  document.getElementById('modal-fw-prefs').classList.add('open');
+}
+
+// Resumo do que esta configurado, para a principal nao virar caixa-preta depois
+// que os controles foram para o modal.
+function followPrefsResumo() {
+  const el = document.getElementById('fw-prefs-resumo');
+  if (!el) return;
+  const v = id => { const e = document.getElementById(id); return e ? e.value : ''; };
+  const on = id => { const e = document.getElementById(id); return !!(e && e.checked); };
+  const partes = [`${v('fw-interval') || '?'} min entre follows`,
+                  `${v('fw-maxPerHour') || '?'}/h`, `${v('fw-maxPerDay') || '?'}/dia`];
+  const filtros = [];
+  if (on('fw-skipPrivate')) filtros.push('sem privadas');
+  if (on('fw-skipVerified')) filtros.push('sem verificadas');
+  if (on('fw-skipNoProfilePic')) filtros.push('com foto');
+  if (on('fw-skipBusiness')) filtros.push('sem business');
+  el.textContent = '⚙ ' + partes.join(' · ')
+    + (filtros.length ? ' · filtros: ' + filtros.join(', ') : ' · sem filtros extras');
+}
+
+// ── Ciclo automatico ────────────────────────────────────────────────────────
+let _cicloTimer = null;
+
+async function followCycleStart(btn) {
+  const alvos = (document.getElementById('fw-target').value || '')
+    .split('\n').map(s => s.trim()).filter(Boolean);
+  if (!alvos.length) { toast('Escreva pelo menos um alvo para o ciclo coletar.'); return; }
+  const pool = [...document.querySelectorAll('.fw-pool-chk:checked')].map(c => c.value);
+  if (!pool.length) { toast('Marque pelo menos uma conta.'); return; }
+  const { settings, filters } = followReadConfig();
+  if (!settings.dryRun && !confirm('O ciclo vai seguir DE VERDADE, e continua ate voce mandar parar. Continuar?')) return;
+  try {
+    await api('POST', '/follow/cycle/start', {
+      profile_id: pool[0], profile_ids: pool,
+      source_type: document.getElementById('fw-source').value,
+      targets: alvos,
+      limit: parseInt(document.getElementById('fw-limit').value || '200', 10),
+      use_local: document.getElementById('fw-ipmode').value === 'local',
+      settings, filters,
+    });
+    toast('Ciclo ligado — coleta, segue e repete até você parar.');
+    followCyclePoll();
+  } catch (e) { toast('Não consegui ligar o ciclo: ' + e.message); }
+}
+
+async function followCycleStop() {
+  try { await api('POST', '/follow/cycle/stop'); toast('Parando o ciclo…'); }
+  catch (e) { toast('Falha ao parar: ' + e.message); }
+  followCyclePoll();
+}
+
+async function followCyclePoll() {
+  let s;
+  try { s = await api('GET', '/follow/cycle/status'); } catch (e) { return; }
+  const box = document.getElementById('fw-cycle-box');
+  const bStart = document.getElementById('fw-cycle-start');
+  const bStop = document.getElementById('fw-cycle-stop');
+  if (!box) return;
+  box.style.display = (s.running || s.rodada) ? 'block' : 'none';
+  if (bStart) bStart.style.display = s.running ? 'none' : '';
+  if (bStop) bStop.style.display = s.running ? '' : 'none';
+
+  const fases = { coletando: '🔎 coletando', seguindo: '➕ seguindo',
+                  esperando: '⏳ esperando abrir vaga', parado: '⏹ parado',
+                  iniciando: '… iniciando' };
+  document.getElementById('fw-cycle-state').textContent =
+    (s.running ? 'Ciclo ativo — ' : 'Ciclo parado — ') + (fases[s.fase] || s.fase || '');
+  const espera = s.faltam_s ? ` · volta em ${fmtCountdown(s.faltam_s)}` : '';
+  document.getElementById('fw-cycle-sub').textContent =
+    `rodada ${s.rodada || 0} · ${s.total_seguidas || 0} seguida(s) no ciclo${espera}`
+    + (s.erro ? ` · ${s.erro}` : '');
+  document.getElementById('fw-cycle-log').textContent = (s.log || []).slice(-12).join('\n');
+
+  clearTimeout(_cicloTimer);
+  if (s.running) _cicloTimer = setTimeout(followCyclePoll, 4000);
 }
 
 async function followExportCsv(btn) {

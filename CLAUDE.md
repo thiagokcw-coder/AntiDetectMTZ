@@ -304,6 +304,49 @@ Porte do projeto **InstaFollow** (`C:\Users\thiag\OneDrive\Documents\GitHub\Inst
 - **Aba renomeada p/ "InstaFollow"** (era "Seguir") no menu e no título — a pedido do usuário, 2026-08-16. Só rótulo: rota (`follow`), endpoints (`/follow/*`) e `follower.py` inalterados.
 - **🎯 COLETA MULTI-ALVO RASA (2026-08-16, decisão do usuário: "alternar entre contas alvo, não tem necessidade de ir muito afundo na paginação").** A coleta deixou de paginar fundo num alvo só e passou a **alternar entre vários alvos, pegando só o TOPO de cada**. Duas razões, ambas alinhadas ao aprendizado do projeto: (1) **risco** — paginar fundo é o que queima conta (no Spider a lista profunda só abre se a conta SEGUE o alvo, e ainda assim derruba); o topo da lista é a leitura mais banal que existe, é o que qualquer usuário vê ao abrir o perfil; (2) **qualidade** — o topo traz os seguidores MAIS RECENTES (contas ativas agora), o fundo é gente que seguiu há anos e pode estar morta. N alvos rasos dão o mesmo volume que um alvo fundo, com fração do risco e material melhor. **Implementação:** `follower.harvest(profile, source_type, targets, per_target)` aceita string OU lista, abre o perfil UMA vez e percorre os alvos na mesma sessão (`_harvest_one` por alvo), com **dedup entre alvos** (seguidor em comum entra uma vez só), pausa humana entre alvos, e erro em um alvo **não derruba os outros** (vai pro próximo e reporta em `erros`). Retorno ganhou `por_alvo` e `erros`. **API:** `FollowHarvestRequest.targets[]` + `per_target` (o `target` antigo continua aceito); o teto total (`limit`) **divide** a fatia entre os alvos (10 alvos/teto 200 → 20 de cada, nunca 0). **UI:** o campo de alvo virou **textarea (um por linha)** + "Quantas por alvo" + "Teto total", com dica ao vivo ("🎯 3 alvo(s) × 50 do topo de cada = até 150 contas"). Validado: 8 asserções (guardas de alvo vazio/espaços/None + a divisão do teto) + endpoint ao vivo com perfil temporário (alvo vazio → erro claro; `target` antigo aceito; 3 alvos → job com rótulo "3 alvos") + UI no navegador (textarea, dica recalculando, likers vs followers, 0 erro de console).
 
+## 🔁 CICLO AUTOMÁTICO + aba reorganizada (FEITO, 2026-08-19)
+Pedido: *"a aba do instafollow está muito poluída, vamos botar todas as preferências em uma
+janela e deixar a principal mais prática"* e *"o ciclo automático onde irá pegar a fila de
+pessoas para seguir dar follow e depois pegar a fila novamente e dar follow até eu mandar
+parar"*.
+
+**Aba reorganizada.** A principal tinha 4 cartões de formulário; agora tem **2**:
+`1 · Coletar` e `2 · Rodar`. Filtros, ritmo/tetos e unfollow foram para a janela
+**⚙ Preferências** (`#modal-fw-prefs`), junto com o botão de captura (diagnóstico). Ficaram
+na tela o que se usa toda hora: **simulação**, os botões e um **resumo em uma linha** do que
+está configurado (`followPrefsResumo`) — sem ele a principal viraria caixa-preta depois que
+os controles saíram de vista. Conferido no navegador: **0 ids duplicados** (o risco real de
+mover HTML) e o modal abre/fecha.
+
+**Ciclo automático.** `POST /follow/cycle/start` · `/stop` · `/status`. O ciclo é um
+**supervisor** que dirige os endpoints que já funcionam (`/follow/harvest` e
+`/follow/start`) e espera cada um terminar olhando o status do job — **de propósito não
+reimplementa** coleta nem ródizio, que são justamente as partes que custaram dias.
+
+Três paradas espertas, para não virar laço ocupado:
+- **Teto:** rodada que não seguiu ninguém **com fila cheia** = as contas bateram o limite →
+  dorme `espera_teto_min` (20 por padrão) em vez de martelar o Instagram.
+- **Alvos secos:** duas coletas seguidas sem gente nova **e** fila vazia → para e diz
+  *"os alvos secaram"*, em vez de girar relendo as mesmas listas.
+- **Bloqueio/sessão caída:** encerra na hora, sem insistir.
+
+**🐞 Bug que o teste pegou e que teria ido para produção:** sem piso entre rodadas, o
+supervisor deu **337 mil rodadas em 40s** — e pior, `await` em corotina que não aguarda nada
+**não cede o event loop**, então nem o Parar era processado. Fix: `_dormir_ciclo_s` com
+`await asyncio.sleep(0)` inicial (cede sempre, mesmo com piso zero) + piso de 10s entre
+rodadas. Em produção coleta e follow levam minutos, mas a ausência do piso era uma bomba
+para o caso em que os dois retornam rápido (ex.: os dois falhando).
+
+- **Validado:** py_compile + `node --check` + **22 asserções** do supervisor com os endpoints
+  dublados (alterna coleta→follow várias vezes · começa coletando · Parar encerra no meio ·
+  teto faz dormir o tempo configurado · alvos secos param sozinhos com o motivo · bloqueio
+  encerra e não re-tenta · recusa 2º ciclo simultâneo · exige alvo · status expõe o que a tela
+  precisa) + UI conferida ao vivo (0 id duplicado, modal abre/fecha, resumo preenchido,
+  único erro de console é o 404 do endpoint novo antes do restart, tratado sem quebrar) +
+  regressão **272 asserções, 0 falhas**.
+- **⚠ O ciclo vive na memória do processo** (como os jobs): fechar o app o encerra. A fila em
+  si sobrevive (`queue_json`), então é só religar.
+
 ## 🤝 MÉTRICA "seguiram de volta" por perfil (FEITO, 2026-08-18)
 Pedido: *"bote nas métricas também o número de pessoas que seguiram de volta"* — esclarecido
 como **"as pessoas que seguiram os meus 3 perfis de volta"**, ou seja, retribuição por conta.

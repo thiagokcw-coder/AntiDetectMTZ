@@ -2848,6 +2848,235 @@ async def follow_start(body: FollowStartRequest):
             "contas": [_follow_account_key(p) for p in pool]}
 
 
+class FollowCycleRequest(BaseModel):
+    profile_id: str
+    profile_ids: Optional[list] = None
+    source_type: str = "followers"
+    targets: Optional[list] = None
+    limit: int = 200                      # quantas contas NOVAS por coleta
+    use_local: bool = False
+    settings: Optional[dict] = None
+    filters: Optional[dict] = None
+    fila_minima: int = 20                 # abaixo disto, coleta mais antes de seguir
+    espera_teto_min: int = 20             # quanto dormir quando todas as contas no teto
+    piso_entre_rodadas_s: float = 10      # respiro minimo entre uma rodada e a proxima
+
+
+# Estado do ciclo. Um por processo: rodar dois em paralelo brigaria pelos mesmos
+# perfis e pelo mesmo teto por conta.
+_follow_cycle = {"running": False, "stop": False, "rodada": 0, "job_id": None,
+                 "log": [], "started_at": None, "erro": None, "fase": "",
+                 "total_seguidas": 0, "total_coletadas": 0, "proxima_em": None}
+
+
+def _cycle_log(msg: str):
+    _follow_cycle["log"].append(f"[{time.strftime('%H:%M:%S')}] {msg}")
+    if len(_follow_cycle["log"]) > 300:
+        del _follow_cycle["log"][:len(_follow_cycle["log"]) - 300]
+    print(f"[ciclo] {msg}", flush=True)
+
+
+async def _esperar_job(job_id: str, *, timeout_s=86400) -> dict:
+    """Espera um job de follow/coleta terminar. O ciclo precisa disso porque os
+    endpoints devolvem na hora e o trabalho roda em background."""
+    esperou = 0.0
+    while esperou < timeout_s:
+        j = _follow_jobs.get(job_id)
+        if not j:
+            return {}
+        if j.get("status") not in ("running", "harvesting"):
+            return j
+        if _follow_cycle["stop"]:
+            j["stop"] = True
+            j["stopped_by_user"] = True
+        await asyncio.sleep(2)
+        esperou += 2
+    return _follow_jobs.get(job_id) or {}
+
+
+@app.post("/follow/cycle/start")
+async def follow_cycle_start(body: FollowCycleRequest):
+    """Liga o ciclo automatico: coleta, segue, volta a coletar, ate voce parar."""
+    if _follow_cycle["running"]:
+        raise HTTPException(409, "O ciclo automatico ja esta rodando.")
+    busy = [j for j in _follow_jobs.values() if j.get("status") in ("running", "harvesting")]
+    if busy:
+        raise HTTPException(409, "Ha uma operacao de follow em andamento. Pare antes.")
+    prof = get_profile(body.profile_id)
+    if not prof:
+        raise HTTPException(404, "Perfil nao encontrado")
+    alvos = [t.strip() for t in (body.targets or []) if t and t.strip()]
+    if not alvos:
+        raise HTTPException(400, "Informe pelo menos um alvo para o ciclo coletar.")
+
+    _follow_cycle.update({"running": True, "stop": False, "rodada": 0, "job_id": None,
+                          "log": [], "erro": None, "fase": "iniciando",
+                          "total_seguidas": 0, "total_coletadas": 0, "proxima_em": None,
+                          "started_at": time.strftime("%Y-%m-%d %H:%M:%S")})
+
+    async def _supervisor():
+        run_id = None
+        secas = 0
+        try:
+            _cycle_log(f"ciclo ligado - {len(alvos)} alvo(s), {body.limit} nova(s) por coleta")
+            while not _follow_cycle["stop"]:
+                _follow_cycle["rodada"] += 1
+                rodada = _follow_cycle["rodada"]
+
+                # ── 1. garantir fila ────────────────────────────────────────
+                pend = 0
+                if run_id and _follow_jobs.get(run_id):
+                    pend = len([a for a in _follow_jobs[run_id]["queue"]
+                                if a.get("status") == "pending"])
+                if pend < max(1, int(body.fila_minima)):
+                    _follow_cycle["fase"] = "coletando"
+                    _cycle_log(f"rodada {rodada}: coletando (fila com {pend})")
+                    try:
+                        h = await follow_harvest(FollowHarvestRequest(
+                            profile_id=body.profile_id, source_type=body.source_type,
+                            targets=alvos, limit=int(body.limit),
+                            use_local=body.use_local, run_id=run_id))
+                    except HTTPException as e:
+                        _follow_cycle["erro"] = f"coleta recusada: {e.detail}"
+                        _cycle_log(f"x {_follow_cycle['erro']}")
+                        break
+                    run_id = h.get("job_id") or run_id
+                    _follow_cycle["job_id"] = run_id
+                    jh = await _esperar_job(run_id)
+                    if _follow_cycle["stop"]:
+                        break
+                    novos = len([a for a in (jh.get("queue") or [])
+                                 if a.get("status") == "pending"])
+                    _follow_cycle["total_coletadas"] += max(0, novos - pend)
+                    if novos <= pend:
+                        secas += 1
+                        _cycle_log(f"rodada {rodada}: a coleta nao trouxe gente nova "
+                                   f"({secas}/2)")
+                        # Alvos secos E fila vazia: girar de novo so gastaria
+                        # requisicao relendo as mesmas listas.
+                        if secas >= 2 and novos == 0:
+                            _follow_cycle["erro"] = (
+                                "os alvos secaram - ja seguimos praticamente todo mundo "
+                                "deles. Acrescente alvos novos e ligue o ciclo de novo.")
+                            _cycle_log(f"x {_follow_cycle['erro']}")
+                            break
+                    else:
+                        secas = 0
+                    pend = novos
+
+                if pend <= 0:
+                    _cycle_log(f"rodada {rodada}: fila vazia, tentando coletar de novo")
+                    if await _dormir_ciclo(2):
+                        break
+                    continue
+
+                # ── 2. seguir a fila ────────────────────────────────────────
+                _follow_cycle["fase"] = "seguindo"
+                antes = 0
+                if _follow_jobs.get(run_id):
+                    st = _follow_jobs[run_id].get("stats") or {}
+                    antes = int(st.get("followed", 0)) + int(st.get("simulated", 0))
+                try:
+                    await follow_start(FollowStartRequest(
+                        profile_id=body.profile_id, profile_ids=body.profile_ids,
+                        run_id=run_id, use_local=body.use_local,
+                        settings=body.settings, filters=body.filters))
+                except HTTPException as e:
+                    _follow_cycle["erro"] = f"nao consegui iniciar o follow: {e.detail}"
+                    _cycle_log(f"x {_follow_cycle['erro']}")
+                    break
+                j = await _esperar_job(run_id)
+                if _follow_cycle["stop"]:
+                    break
+
+                st = j.get("stats") or {}
+                agora = int(st.get("followed", 0)) + int(st.get("simulated", 0))
+                feitos = max(0, agora - antes)
+                _follow_cycle["total_seguidas"] += feitos
+                restam = len([a for a in (j.get("queue") or [])
+                              if a.get("status") == "pending"])
+                _cycle_log(f"rodada {rodada}: +{feitos} seguida(s) - {restam} na fila")
+
+                # Bloqueio/sessao: nao insiste.
+                if j.get("blocked") or (j.get("error") and not j.get("stopped_by_user")):
+                    _follow_cycle["erro"] = j.get("error") or "bloqueio detectado"
+                    _cycle_log(f"x ciclo encerrado: {_follow_cycle['erro']}")
+                    break
+
+                # ── 3. teto: dorme em vez de martelar ───────────────────────
+                if feitos == 0 and restam > 0:
+                    _cycle_log(f"as contas bateram o teto - dormindo "
+                               f"{body.espera_teto_min} min ate abrir vaga")
+                    if await _dormir_ciclo(int(body.espera_teto_min)):
+                        break
+
+                # Respiro entre rodadas. Alem de nao martelar, garante um ponto de
+                # yield: sem ele o supervisor segurava o event loop e o Parar nao
+                # chegava a ser processado.
+                if await _dormir_ciclo_s(body.piso_entre_rodadas_s):
+                    break
+        except Exception as e:
+            logger.exception("ciclo de follow")
+            _follow_cycle["erro"] = str(e)
+            _cycle_log(f"x erro: {e}")
+        finally:
+            _follow_cycle["running"] = False
+            _follow_cycle["fase"] = "parado"
+            _follow_cycle["proxima_em"] = None
+            _cycle_log("ciclo encerrado")
+
+    asyncio.create_task(_supervisor())
+    return {"ok": True, "alvos": len(alvos)}
+
+
+async def _dormir_ciclo_s(segundos: float) -> bool:
+    """Espera interrompivel, em segundos. O `sleep(0)` inicial CEDE o controle mesmo
+    com piso zero: sem ele, um supervisor cujas etapas retornam na hora monopoliza o
+    event loop e nem o Parar consegue rodar (medido: 337 mil rodadas em 40s)."""
+    await asyncio.sleep(0)
+    fim = time.time() + max(0.0, float(segundos or 0))
+    while time.time() < fim:
+        if _follow_cycle["stop"]:
+            return True
+        await asyncio.sleep(min(1.0, max(0.05, fim - time.time())))
+    return _follow_cycle["stop"]
+
+
+async def _dormir_ciclo(minutos: int) -> bool:
+    """Dorme em fatias para o Parar responder na hora. True = pararam."""
+    fim = time.time() + max(0, minutos) * 60
+    _follow_cycle["proxima_em"] = int(fim)
+    _follow_cycle["fase"] = "esperando"
+    while time.time() < fim:
+        if _follow_cycle["stop"]:
+            _follow_cycle["proxima_em"] = None
+            return True
+        await asyncio.sleep(2)
+    _follow_cycle["proxima_em"] = None
+    return _follow_cycle["stop"]
+
+
+@app.post("/follow/cycle/stop")
+def follow_cycle_stop():
+    """Para o ciclo E o trabalho em andamento (o supervisor propaga o stop)."""
+    _follow_cycle["stop"] = True
+    jid = _follow_cycle.get("job_id")
+    j = _follow_jobs.get(jid) if jid else None
+    if j:
+        j["stop"] = True
+        j["stopped_by_user"] = True
+    return {"ok": True}
+
+
+@app.get("/follow/cycle/status")
+def follow_cycle_status():
+    faltam = None
+    if _follow_cycle.get("proxima_em"):
+        faltam = max(0, int(_follow_cycle["proxima_em"] - time.time()))
+    return {**{k: v for k, v in _follow_cycle.items() if k != "log"},
+            "log": _follow_cycle["log"][-60:], "faltam_s": faltam}
+
+
 @app.post("/follow/stop/{job_id}")
 def follow_stop(job_id: str):
     j = _follow_jobs.get(job_id)
