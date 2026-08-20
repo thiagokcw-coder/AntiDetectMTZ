@@ -4420,9 +4420,14 @@ async function followPoll() {
                   done: '✅ Concluído', stopped: '⏹ Parado', error: '⚠️ Erro' };
     // Descansando: mostra a contagem no lugar do status, senao a tela fica muda
     // por uma hora e parece travada.
+    // Com o ciclo ativo, o fim de um job é o fim da RODADA — não do trabalho.
+    const fimDeRodada = window._cicloAtivo
+      && ['done', 'stopped', 'idle'].includes(j.status) && !j.descanso_faltam_s;
     document.getElementById('fw-state').textContent = j.descanso_faltam_s
       ? `😴 Descansando — volta em ${fmtCountdown(j.descanso_faltam_s)}`
-      : (map[j.status] || j.status);
+      : fimDeRodada
+        ? `✅ Rodada ${window._cicloRodada || ''} concluída — o ciclo continua`
+        : (map[j.status] || j.status);
     // So anuncia simulacao quando o job esta AGINDO. Parado/coletando, o valor
     // ainda pode ser o provisorio, e o rotulo errado ja custou duas desconfiancas.
     const agindo = j.status === 'running' || j.status === 'done';
@@ -4453,7 +4458,8 @@ async function followPoll() {
     if (atBottom) log.scrollTop = log.scrollHeight;
     followRenderQueue(j);
 
-    if (j.status === 'running' || j.status === 'harvesting' || j.descanso_faltam_s) {
+    if (j.status === 'running' || j.status === 'harvesting' || j.descanso_faltam_s
+        || window._cicloAtivo) {
       _followTimer = setTimeout(followPoll, 2000); return;
     }
     document.getElementById('fw-start').disabled = false;
@@ -4630,6 +4636,11 @@ async function followCycleStop() {
 async function followCyclePoll() {
   let s;
   try { s = await api('GET', '/follow/cycle/status'); } catch (e) { return; }
+  // O painel do job precisa saber que existe um ciclo por tras: sem isso ele
+  // anuncia "Concluido" no fim de cada rodada e parece que tudo acabou.
+  window._cicloAtivo = !!s.running;
+  window._cicloRodada = s.rodada || 0;
+
   const box = document.getElementById('fw-cycle-box');
   const bStart = document.getElementById('fw-cycle-start');
   const bStop = document.getElementById('fw-cycle-stop');
