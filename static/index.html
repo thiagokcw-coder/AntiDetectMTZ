@@ -1590,6 +1590,65 @@
         </div>
         <div class="form-hint" style="margin-top:8px">Usa o <b>mesmo ritmo e os mesmos tetos</b> do passo 3 — desfazer follow gasta o mesmo orçamento de ações da conta que seguir. O <b>modo simulação</b> também vale aqui.</div>
       </div>
+
+      <!-- 5. COMPORTAMENTO HUMANO -->
+      <div class="form-card" style="max-width:820px">
+        <div style="font-weight:600;margin-bottom:6px">5 · Comportamento humano <span style="font-weight:400;color:var(--muted)">— o que a conta faz além de seguir</span></div>
+        <div class="form-hint" style="margin-bottom:14px;border-left:3px solid #22c55e;padding:8px 12px;background:var(--surface2);border-radius:0 8px 8px 0">
+          🧬 <b>Medido no banco em 21/08:</b> as contas tinham 6.894 ações e <b>um verbo só</b> (seguir); 99,9% dos intervalos
+          caíam entre 7 e 30s; e seguiam às 2h da manhã no mesmo ritmo das 15h. Pior: o pedido de follow declara
+          <code>container_module=profile</code> — <b>uma tela que a sessão nunca abria</b>. Tudo o que é padronizado é lido como robô.
+          Estes ajustes quebram esse padrão <b>sem mudar como se segue</b>.
+        </div>
+        <label style="display:flex;align-items:flex-start;gap:8px;font-weight:400;cursor:pointer;margin-bottom:14px">
+          <input type="checkbox" id="fw-humanoAtivo" checked style="margin-top:3px" onchange="followHumanoHint()">
+          <span style="font-size:12px;color:var(--muted)"><b>Ligado</b> — desmarcar volta ao comportamento antigo (só follow, intervalo de régua).</span>
+        </label>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Ler o perfil antes de seguir (%)</label>
+            <input id="fw-verPerfilPct" type="number" min="0" max="100" value="100" oninput="followHumanoHint()">
+            <div class="form-hint">É o que torna <b>verdadeira</b> a origem que o pedido já declara.</div>
+          </div>
+          <div class="form-group">
+            <label>Dessas, quantas abrem a página inteira (%)</label>
+            <input id="fw-verPerfilCompletoPct" type="number" min="0" max="100" value="25" oninput="followHumanoHint()">
+            <div class="form-hint">O resto usa a leitura leve (dezenas de KB em vez de alguns MB — <b>importa no chip 4G</b>).</div>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Curtir depois de seguir (%)</label>
+            <input id="fw-curtirPct" type="number" min="0" max="100" value="12" oninput="followHumanoHint()">
+            <div class="form-hint">Curte <b>clicando na interface</b>, então quem monta o pedido é o próprio Instagram. Só vale quando a página foi aberta.</div>
+          </div>
+          <div class="form-group">
+            <label>Passar pelo feed / explorar / busca (%)</label>
+            <input id="fw-leituraPct" type="number" min="0" max="100" value="22" oninput="followHumanoHint()">
+            <div class="form-hint">Acontece <b>dentro</b> do intervalo que já existe — não custa volume.</div>
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Variação no tamanho do turno (%)</label>
+          <input id="fw-blocoVariacaoPct" type="number" min="0" max="90" value="25" style="max-width:160px" oninput="followHumanoHint()">
+          <div class="form-hint" id="fw-bloco-hint"></div>
+        </div>
+        <label style="display:flex;align-items:flex-start;gap:8px;font-weight:400;cursor:pointer;margin:14px 0 6px">
+          <input type="checkbox" id="fw-sonoAtivo" style="margin-top:3px" onchange="followHumanoHint()">
+          <span style="font-size:12px;color:var(--muted)"><b>Horário de dormir</b> — a conta para de agir de madrugada. Cada conta recebe um horário próprio (desvio de até 70 min), senão a frota inteira dormiria no mesmo minuto e isso viraria outra assinatura.</span>
+        </label>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Dorme às</label>
+            <input id="fw-sonoInicio" type="number" min="0" max="23" value="1" oninput="followHumanoHint()">
+          </div>
+          <div class="form-group">
+            <label>Acorda às</label>
+            <input id="fw-sonoFim" type="number" min="0" max="23" value="8" oninput="followHumanoHint()">
+          </div>
+        </div>
+        <div class="form-hint" id="fw-humano-hint" style="margin-top:10px"></div>
+      </div>
     <div class="modal-actions">
       <button class="btn btn-ghost" onclick="followCapture(this)" title="Abre o perfil e captura a requisição real que o Instagram manda ao seguir — diagnóstico">🔬 Capturar requisição real</button>
       <button class="btn btn-primary" onclick="followSaveConfig(this)">💾 Salvar</button>
@@ -4186,8 +4245,28 @@ function followReadConfig() {
     protectMutuals: document.getElementById('fw-protectMutuals').checked,
     followsPerAccount: parseInt(document.getElementById('fw-followsPerAccount').value, 10) || 100,
     restAfterRoundMin: parseInt(document.getElementById('fw-restAfterRoundMin').value, 10) || 0,
+    // Comportamento humano (ver comportamento.py). Números vão como 0 legítimo —
+    // por isso `?? padrão` e não `|| padrão`, que trataria 0 como "não informado".
+    humanoAtivo: document.getElementById('fw-humanoAtivo').checked,
+    verPerfilPct: fwNum('fw-verPerfilPct', 100),
+    verPerfilCompletoPct: fwNum('fw-verPerfilCompletoPct', 25),
+    curtirPct: fwNum('fw-curtirPct', 12),
+    leituraPct: fwNum('fw-leituraPct', 22),
+    blocoVariacaoPct: fwNum('fw-blocoVariacaoPct', 25),
+    sonoAtivo: document.getElementById('fw-sonoAtivo').checked,
+    sonoInicio: fwNum('fw-sonoInicio', 1),
+    sonoFim: fwNum('fw-sonoFim', 8),
   };
   return { settings, filters };
+}
+
+// Lê um número da tela preservando o ZERO. `parseInt(x) || padrão` devolveria o
+// padrão quando o usuário digita 0 — foi exatamente esse bug (`0 or 60`) que fazia
+// "desligar o descanso extra" ser silenciosamente ignorado.
+function fwNum(id, padrao) {
+  const el = document.getElementById(id);
+  const n = el ? parseInt(el.value, 10) : NaN;
+  return Number.isFinite(n) ? n : padrao;
 }
 
 function followFillConfig(cfg) {
@@ -4209,6 +4288,16 @@ function followFillConfig(cfg) {
   if (s.harvestLimit) document.getElementById('fw-limit').value = s.harvestLimit;
   document.getElementById('fw-followsPerAccount').value = s.followsPerAccount ?? 100;
   document.getElementById('fw-restAfterRoundMin').value = s.restAfterRoundMin ?? 60;
+  document.getElementById('fw-humanoAtivo').checked = s.humanoAtivo !== false;
+  document.getElementById('fw-verPerfilPct').value = s.verPerfilPct ?? 100;
+  document.getElementById('fw-verPerfilCompletoPct').value = s.verPerfilCompletoPct ?? 25;
+  document.getElementById('fw-curtirPct').value = s.curtirPct ?? 12;
+  document.getElementById('fw-leituraPct').value = s.leituraPct ?? 22;
+  document.getElementById('fw-blocoVariacaoPct').value = s.blocoVariacaoPct ?? 25;
+  document.getElementById('fw-sonoAtivo').checked = s.sonoAtivo === true;
+  document.getElementById('fw-sonoInicio').value = s.sonoInicio ?? 1;
+  document.getElementById('fw-sonoFim').value = s.sonoFim ?? 8;
+  followHumanoHint();
   // Reconhece o preset pelos valores atuais (senão marca Personalizado).
   const presets = cfg.presets || {};
   const hit = Object.keys(presets).find(k => presets[k].baseDelayMs === s.baseDelayMs
@@ -4582,6 +4671,44 @@ function openFollowPrefs() {
 
 // Resumo do que esta configurado, para a principal nao virar caixa-preta depois
 // que os controles foram para o modal.
+// Dica ao vivo do cartão de comportamento: mostra o que os números significam na
+// prática, incl. o custo de dados (decisivo num chip 4G) e o preço do sono.
+function followHumanoHint() {
+  const el = document.getElementById('fw-humano-hint');
+  if (!el) return;
+  const ligado = document.getElementById('fw-humanoAtivo').checked;
+  const bloco = fwNum('fw-followsPerAccount', 100);
+  const varia = fwNum('fw-blocoVariacaoPct', 25);
+  const bh = document.getElementById('fw-bloco-hint');
+  if (bh) {
+    bh.innerHTML = (ligado && varia)
+      ? `Turno de <b>${Math.max(1, Math.round(bloco * (1 - varia / 100)))}–${Math.round(bloco * (1 + varia / 100))}</b> follows `
+        + `em vez de <b>${bloco}</b> exatos — terminar sempre no mesmo número redondo é assinatura.`
+      : `Turno de <b>${bloco}</b> follows exatos, sempre — <b>é um padrão perfeito</b>, fácil de detectar.`;
+  }
+  if (!ligado) {
+    el.innerHTML = '⚠️ <b>Desligado:</b> a conta volta a só seguir, em intervalo de régua. '
+      + 'Era assim quando a primeira conta da frota foi suspensa.';
+    return;
+  }
+  const ler = fwNum('fw-verPerfilPct', 100), cheio = fwNum('fw-verPerfilCompletoPct', 25);
+  // Estimativa grosseira: leitura leve ~50KB, página inteira ~3MB.
+  const mbPorFollow = (ler / 100) * ((cheio / 100) * 3 + (1 - cheio / 100) * 0.05);
+  const porDia = mbPorFollow * 2000;
+  const partes = [];
+  partes.push(ler >= 100
+    ? '✅ <b>todo</b> follow é precedido da leitura do perfil — a origem declarada passa a ser verdade'
+    : `⚠️ só <b>${ler}%</b> dos follows leem o perfil antes; nos outros ${100 - ler}% a origem declarada continua falsa`);
+  partes.push(`📶 ~<b>${mbPorFollow.toFixed(2)} MB</b> por follow (~<b>${(porDia / 1024).toFixed(1)} GB</b> a cada 2.000 follows) — `
+    + 'baixe "abrem a página inteira" se o chip 4G apertar');
+  const sono = document.getElementById('fw-sonoAtivo').checked;
+  partes.push(sono
+    ? `🌙 dorme das <b>${fwNum('fw-sonoInicio', 1)}h às ${fwNum('fw-sonoFim', 8)}h</b> (±70 min por conta) — `
+      + 'no seu histórico, esse período concentrava <b>~35% dos follows</b>, então espere perder perto disso em volume'
+    : '🌙 <b>sem horário de dormir</b> — a conta continua agindo de madrugada, que é o sinal mais visível que sobrou');
+  el.innerHTML = partes.join('<br>');
+}
+
 function followPrefsResumo() {
   const el = document.getElementById('fw-prefs-resumo');
   if (!el) return;
@@ -4589,8 +4716,9 @@ function followPrefsResumo() {
   const on = id => { const e = document.getElementById(id); return !!(e && e.checked); };
   const ext = parseInt(v('fw-restAfterRoundMin'), 10) || 0;
   const partes = [`1 follow a cada ${v('fw-interval') || '?'} min`,
-                  `troca de conta a cada ${v('fw-followsPerAccount') || '?'} follows`,
-                  ext ? `+${ext}min de descanso ao fechar a volta` : 'sem descanso extra'];
+                  `troca de conta a cada ~${v('fw-followsPerAccount') || '?'} follows`,
+                  ext ? `+${ext}min de descanso ao fechar a volta` : 'sem descanso extra',
+                  on('fw-humanoAtivo') ? 'comportamento humano ligado' : '⚠️ comportamento humano DESLIGADO'];
   const filtros = [];
   if (on('fw-skipPrivate')) filtros.push('sem privadas');
   if (on('fw-skipVerified')) filtros.push('sem verificadas');

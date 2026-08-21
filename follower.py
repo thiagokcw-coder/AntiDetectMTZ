@@ -24,6 +24,7 @@ import re
 import time
 from urllib.parse import quote
 
+import comportamento as comp
 import session_manager as sm
 import spider
 
@@ -75,6 +76,13 @@ DEFAULT_SETTINGS = {
     # 100 aqui, uma fila de 300 sai 100/100/100. O teto por hora/dia da conta
     # continua valendo — vale o que vier primeiro.
     "followsPerAccount": 100,
+    # ── Comportamento humano (ver comportamento.py) ──────────────────────────
+    # Medido no nosso banco em 2026-08-21: 6.894 ações e UM verbo só (follow),
+    # intervalos 99,9% dentro de 7-30s, e o corpo do POST declarando
+    # `container_module=profile` para uma tela que a sessão nunca carregava.
+    # Estes ajustes existem para quebrar esse padrão. Os valores efetivos moram
+    # em comportamento.PADROES; aqui ficam só as chaves que a UI edita.
+    **comp.PADROES,
 }
 
 # Teto rígido do Instagram para "seguindo". Não é configurável: é da plataforma.
@@ -1614,7 +1622,7 @@ async def run(profile: dict, queue: list, settings: dict, filters: dict, *,
               history: dict = None, blacklist=None, actions: list = None,
               use_local: bool = False, should_stop=None, log=None,
               on_action=None, on_counts=None, max_actions: int = 0,
-              yield_on_cap: bool = False) -> dict:
+              yield_on_cap: bool = False, chave_conta: str = "") -> dict:
     """Consome a fila: teto → pré-checagens locais → enriquecimento → filtros →
     follow → intervalo com jitter. Muta os itens da fila (status/note/attempts).
 
@@ -1634,6 +1642,12 @@ async def run(profile: dict, queue: list, settings: dict, filters: dict, *,
     blacklist = set(blacklist or [])
     actions = actions if actions is not None else []
     dry = s.get("dryRun") is True
+    # Ruído humano em volta do follow: leitura do perfil antes de escrever nele,
+    # intervalo com cauda, curtida ocasional, janela de sono. A chave da CONTA (não
+    # o nome do perfil) é o que dá a cada conta um horário de dormir próprio — sem
+    # isso a frota inteira dormiria no mesmo minuto, trocando uma assinatura por outra.
+    humano = comp.Comportamento(s, chave_conta=chave_conta or profile.get("name") or "",
+                                log=log)
 
     if use_local:
         profile = {**profile, "proxy": None}
@@ -1727,6 +1741,24 @@ async def run(profile: dict, queue: list, settings: dict, filters: dict, *,
                     log("✓ fila sem contas pendentes")
                 break
 
+            # ── janela de sono da conta ──
+            # Medido: a frota seguia às 02h no mesmo ritmo das 15h, 35h seguidas.
+            # Vem DESLIGADA (custa ~35% do volume); ligada, cada conta tem o seu
+            # horário — o desvio é derivado do nome, então a frota não dorme junto.
+            falta_dormir = 0.0 if dry else humano.dormindo()
+            if falta_dormir > 0:
+                if yield_on_cap:
+                    meta["cap_atingido"] = True
+                    if log:
+                        log(f"🌙 esta conta está no horário de dormir — passando a vez "
+                            f"(acorda em {human_duration(falta_dormir)})")
+                    break
+                if log:
+                    log(f"🌙 horário de dormir — retomando em {human_duration(falta_dormir)}")
+                if await spider._sleep_stop(falta_dormir, should_stop):
+                    break
+                continue
+
             # ── tetos (só valem para ação real) ──
             if not dry:
                 ok, reason, wait = limiter_check(actions, s)
@@ -1804,6 +1836,24 @@ async def run(profile: dict, queue: list, settings: dict, filters: dict, *,
                 if await spider._sleep_stop(jitter(s["skipDelayMs"], s["jitterPercent"]), should_stop):
                     break
                 continue
+
+            # ── contexto: LER o perfil antes de escrever nele ──
+            # O nosso POST declara `container_module=profile` e um referer da página
+            # do perfil — uma tela que a sessão nunca carregava. A Meta tem os dois
+            # lados (o que a sessão leu e o que ela escreveu); esta leitura faz a
+            # declaração virar verdade. `ja_leu` evita pagar a requisição duas vezes
+            # quando o enriquecimento dos filtros já leu esse perfil.
+            ctx_perfil = await humano.antes_de_seguir(
+                page, acct["username"], ja_leu=bool(acct.get("enriched")))
+            if ctx_perfil.get("ok") and ctx_perfil.get("tipo") == "completo":
+                # Documento novo = tokens novos. O `fb_dtsg` é por documento, e foi
+                # justamente a falta dele que devolvia 404 no follow.
+                novos_h = await colher_headers_dinamicos(page, log=None)
+                if novos_h:
+                    hdrs_ui = novos_h
+                novos_t = await colher_tokens_ui(page, log=None)
+                if novos_t.get("fb_dtsg"):
+                    tokens_ui = novos_t
 
             # ── follow ──
             try:
@@ -1955,6 +2005,11 @@ async def run(profile: dict, queue: list, settings: dict, filters: dict, *,
             if on_counts:
                 on_counts(counts)
 
+            # Curtida ocasional: outro verbo no log de ações da conta, e é o gesto
+            # natural de quem acabou de seguir alguém. Feita CLICANDO na interface —
+            # quem monta a requisição é o Instagram, então não há rota a adivinhar.
+            await humano.depois_de_seguir(page, ctx_perfil)
+
             feitos = stats["followed"] + stats["requested"]
             if cota and feitos >= cota:
                 meta["turno_cheio"] = True
@@ -1962,13 +2017,27 @@ async def run(profile: dict, queue: list, settings: dict, filters: dict, *,
                     log(f"🔁 {feitos} follow(s) nesta conta — turno completo, passando a vez")
                 break
 
-            wait = jitter(s["baseDelayMs"], s["jitterPercent"])
+            wait, modo = humano.proximo_intervalo(s["baseDelayMs"])
             if log:
                 log(f"✓ @{acct['username']} — {'solicitada' if requested else 'seguida'}"
                     f" · {feitos}{('/' + str(cota)) if cota else ''} no turno"
-                    f" · {counts['hour']}/h {counts['day']}/d · próximo em {human_duration(wait)}")
-            if await spider._sleep_stop(wait, should_stop):
+                    f" · {counts['hour']}/h {counts['day']}/d · próximo em {human_duration(wait)}"
+                    + (f" ({modo})" if modo != "fixo" else ""))
+            r_espera = await humano.esperar(page, wait, should_stop)
+            leitura = r_espera.get("leitura")
+            if log and leitura:
+                log("   👀 passou pelo " + str(leitura.get("tipo"))
+                    + (f" ('{leitura.get('termo')}')" if leitura.get("termo") else ""))
+            if r_espera.get("parado"):
                 break
+
+        # O que a conta fez ALÉM de seguir. Sem esta linha o ruído humano é
+        # trabalho invisível — e trabalho invisível já foi confundido com trabalho
+        # quebrado três vezes neste projeto.
+        if log:
+            extras = humano.resumo()
+            if extras:
+                log(f"🧑 além dos follows, esta conta: {extras}")
 
     try:
         if log:

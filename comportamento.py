@@ -1,0 +1,464 @@
+"""
+comportamento.py -- o que a conta faz ALEM de seguir.
+
+MOTIVO (medido em 2026-08-21 no nosso proprio banco, nao suposto):
+
+  * 6.894 acoes no historico e **um verbo so**: `friendships/create`. Zero
+    curtidas, zero unfollows, zero buscas, zero stories.
+  * 6.816 intervalos entre follows, 99,9% deles entre 7 e 30 segundos. Nove
+    passaram de 30s. Gente real tem cauda: segue tres seguidas, some por uns
+    minutos, volta.
+  * A conta trabalhava as 02h no mesmo ritmo das 15h -- 35 horas ininterruptas.
+  * E a pior: o corpo do follow declara `container_module=profile` e um referer
+    da pagina do perfil -- uma tela que a sessao **nunca carregou**. A Meta tem
+    os dois lados (o que a sessao leu e o que ela escreveu).
+
+Este modulo NAO muda como se segue -- isso esta provado e funcionando desde o fix
+do `fb_dtsg`. Ele muda o que acontece em volta:
+
+  ritmo    intervalo trimodal com cauda longa e MEDIA preservada, bloco de turno
+           de tamanho variavel, janela de sono opcional
+  leitura  a sessao de fato le o perfil antes de seguir, passa pelo feed, pelo
+           explorar, faz uma busca
+  escrita  curtida ocasional, feita CLICANDO na interface -- nunca por uma rota
+           montada na mao (foi rota adivinhada que custou dias no 404 do follow)
+
+Regra de ouro do modulo: **nada aqui pode derrubar a campanha**. Toda rotina que
+toca a pagina e best-effort e engole a propria excecao. Ruido de comportamento e
+acessorio; seguir e o trabalho.
+"""
+import hashlib
+import random
+import time
+from urllib.parse import quote
+
+import human
+import spider
+
+IG = spider.IG
+
+
+# ══════════════════════════════ RITMO ══════════════════════════════
+
+# (nome, peso, multiplicador minimo, multiplicador maximo) sobre o intervalo base.
+# O modo "sumiu" e o que cria a cauda que a nossa distribuicao nao tinha.
+_MODOS = (
+    ("varredura", 0.60, 0.30, 0.70),    # engatilhado, um atras do outro
+    ("leitura",   0.27, 0.80, 1.50),    # parou para olhar o perfil
+    ("distraido", 0.10, 1.60, 3.50),    # foi ver outra coisa
+    ("sumiu",     0.03, 3.00, 10.00),   # levantou da cadeira
+)
+
+
+def _media_dos_modos() -> float:
+    return sum(peso * (a + b) / 2 for _, peso, a, b in _MODOS)
+
+
+# Normaliza para a MEDIA continuar sendo o intervalo configurado. Sem isto a cauda
+# longa cobraria throughput; a escolha do usuario foi "so o necessario", ou seja:
+# o padrao muda, o volume nao. Se alguem mexer na tabela acima, isto se reajusta.
+_NORMALIZA = 1.0 / _media_dos_modos()
+
+
+def intervalo_humano(base_ms, rng=None):
+    """Segundos ate o proximo follow, e o nome do modo sorteado (para o log).
+
+    Substitui o jitter uniforme de +-50%, que produzia a caixa de 7-30s medida no
+    banco. A media continua sendo `base_ms`."""
+    r = rng or random
+    base = max(0.3, float(base_ms or 18000) / 1000.0)
+    x = r.random()
+    acumulado = 0.0
+    escolhido = _MODOS[0]
+    for modo in _MODOS:
+        acumulado += modo[1]
+        if x < acumulado:
+            escolhido = modo
+            break
+    nome, _peso, a, b = escolhido
+    fator = a + r.random() * (b - a)
+    return round(base * fator * _NORMALIZA, 2), nome
+
+
+def tamanho_do_bloco(centro, variacao_pct=25, rng=None) -> int:
+    """O turno de cada conta deixa de terminar sempre no mesmo numero redondo.
+
+    Com centro 100 e variacao 25%, o turno vira algo entre 75 e 125. `centro` 0
+    (sem rodizio) continua 0."""
+    if not centro or int(centro) <= 0:
+        return 0
+    r = rng or random
+    p = max(0.0, min(0.9, float(variacao_pct or 0) / 100.0))
+    n = int(round(int(centro) * r.uniform(1.0 - p, 1.0 + p)))
+    return max(1, n)
+
+
+def desvio_da_conta(chave, max_min=70) -> int:
+    """Minutos de desvio no horario de dormir, ESTAVEIS por conta.
+
+    Sem isto a frota inteira dormiria e acordaria no mesmo minuto -- trocariamos
+    uma assinatura (ninguem dorme) por outra (todos dormem juntos). Deriva do nome
+    da conta, entao a mesma conta tem sempre o mesmo horario."""
+    if not chave:
+        return 0
+    d = hashlib.sha1(str(chave).encode("utf-8")).digest()
+    return int.from_bytes(d[:4], "big") % (max_min * 2 + 1) - max_min
+
+
+def _hora_fracionada(agora=None) -> float:
+    t = time.localtime(agora if agora is not None else time.time())
+    return t.tm_hour + t.tm_min / 60.0 + t.tm_sec / 3600.0
+
+
+def dentro_do_sono(inicio_h, fim_h, agora=None, desvio_min=0) -> bool:
+    """True se AGORA esta dentro da janela de sono. Cobre janela que cruza a
+    meia-noite (23h -> 7h)."""
+    try:
+        ini = (float(inicio_h) + float(desvio_min) / 60.0) % 24.0
+        fim = (float(fim_h) + float(desvio_min) / 60.0) % 24.0
+    except (TypeError, ValueError):
+        return False
+    if abs(ini - fim) < 1e-9:
+        return False                       # janela vazia = desligada
+    h = _hora_fracionada(agora)
+    if ini < fim:
+        return ini <= h < fim
+    return h >= ini or h < fim             # cruza a meia-noite
+
+
+def segundos_ate_acordar(inicio_h, fim_h, agora=None, desvio_min=0) -> float:
+    """Quanto falta para o fim da janela de sono. 0 se nao esta dormindo."""
+    if not dentro_do_sono(inicio_h, fim_h, agora, desvio_min):
+        return 0.0
+    fim = (float(fim_h) + float(desvio_min) / 60.0) % 24.0
+    h = _hora_fracionada(agora)
+    falta = fim - h
+    if falta <= 0:
+        falta += 24.0
+    return round(falta * 3600.0, 1)
+
+
+# ══════════════════════════════ LEITURAS ══════════════════════════════
+# Tudo aqui e GET. Nenhuma leitura muda estado na conta.
+
+async def ver_perfil_completo(page, username, *, rng=None) -> dict:
+    """Carrega DE VERDADE a pagina do perfil.
+
+    E o que torna verdadeira a declaracao `container_module=profile` que o nosso
+    POST ja faz -- e, de quebra, o fetch do follow passa a sair de dentro da
+    pagina certa, com o referer real batendo com o declarado."""
+    r = rng or random
+    t0 = time.monotonic()
+    try:
+        await page.goto(IG + "/" + username + "/", wait_until="domcontentloaded",
+                        timeout=30000)
+    except Exception as e:
+        return {"ok": False, "tipo": "completo", "erro": str(e),
+                "segundos": round(time.monotonic() - t0, 2)}
+    try:
+        await human.idle_browse(page, r.uniform(2.0, 6.5))
+    except Exception:
+        pass
+    return {"ok": True, "tipo": "completo", "segundos": round(time.monotonic() - t0, 2)}
+
+
+async def ver_perfil_leve(page, username) -> dict:
+    """Le o perfil pela mesma requisicao que a pagina dispara (`web_profile_info`),
+    sem baixar a pagina inteira.
+
+    Existe porque a versao completa custa alguns MB por follow -- num chip 4G isso
+    vira gigabytes por dia. Esta aqui pesa dezenas de KB e produz a correlacao que
+    importa: a sessao LEU aquele perfil antes de escrever nele."""
+    t0 = time.monotonic()
+    try:
+        uid, info = await spider._resolve_user(page, username)
+    except Exception as e:
+        return {"ok": False, "tipo": "leve", "erro": str(e),
+                "segundos": round(time.monotonic() - t0, 2)}
+    return {"ok": bool(uid), "tipo": "leve", "id": uid, "info": info,
+            "segundos": round(time.monotonic() - t0, 2)}
+
+
+async def passar_pelo_feed(page, *, rng=None) -> dict:
+    """Abre o feed e rola um pouco. E a tela que qualquer pessoa abre, e carrega-la
+    faz a sessao emitir o trafego normal do Instagram (bandeja de stories, timeline)
+    sem que a gente precise adivinhar nenhuma rota."""
+    r = rng or random
+    t0 = time.monotonic()
+    try:
+        await page.goto(IG + "/", wait_until="domcontentloaded", timeout=30000)
+        await human.idle_browse(page, r.uniform(4.0, 12.0))
+    except Exception as e:
+        return {"ok": False, "tipo": "feed", "erro": str(e),
+                "segundos": round(time.monotonic() - t0, 2)}
+    return {"ok": True, "tipo": "feed", "segundos": round(time.monotonic() - t0, 2)}
+
+
+async def explorar(page, *, rng=None) -> dict:
+    """Abre o Explorar e rola. Outra tela banal, outro padrao de requisicao."""
+    r = rng or random
+    t0 = time.monotonic()
+    try:
+        await page.goto(IG + "/explore/", wait_until="domcontentloaded", timeout=30000)
+        await human.idle_browse(page, r.uniform(3.0, 10.0))
+    except Exception as e:
+        return {"ok": False, "tipo": "explorar", "erro": str(e),
+                "segundos": round(time.monotonic() - t0, 2)}
+    return {"ok": True, "tipo": "explorar", "segundos": round(time.monotonic() - t0, 2)}
+
+
+# Termos de busca coerentes com a persona (Porto Alegre / RS) -- o geoip dos perfis
+# esta fixado la, entao buscar "brooklyn pizza" seria a incoerencia oposta.
+TERMOS_BUSCA = [
+    "porto alegre", "gremio", "inter", "poa", "rio grande do sul", "canoas",
+    "gramado", "churrasco", "praia", "viagem", "musica", "receita", "treino",
+    "cachorro", "cafe", "fim de semana", "show", "futebol", "moda", "carros",
+]
+
+
+async def buscar(page, termo=None, *, rng=None) -> dict:
+    """Faz uma busca. Usa a rota `topsearch`, que o Spider ja usa para resolver
+    perfis -- rota estabelecida nas nossas sessoes, nao um chute."""
+    r = rng or random
+    q = termo or r.choice(TERMOS_BUSCA)
+    t0 = time.monotonic()
+    try:
+        await spider._api_get(
+            page, IG + "/web/search/topsearch/?context=blended&query=" + quote(q),
+            IG + "/")
+    except Exception as e:
+        return {"ok": False, "tipo": "busca", "erro": str(e),
+                "segundos": round(time.monotonic() - t0, 2)}
+    return {"ok": True, "tipo": "busca", "termo": q,
+            "segundos": round(time.monotonic() - t0, 2)}
+
+
+# Quanto cada leitura pesa no sorteio do "descanso ativo" entre follows.
+_LEITURAS = (("feed", 0.45), ("explorar", 0.30), ("busca", 0.25))
+
+
+def sortear_leitura(rng=None) -> str:
+    r = rng or random
+    x = r.random()
+    acumulado = 0.0
+    for nome, peso in _LEITURAS:
+        acumulado += peso
+        if x < acumulado:
+            return nome
+    return _LEITURAS[0][0]
+
+
+async def fazer_leitura(page, nome, *, rng=None) -> dict:
+    if nome == "feed":
+        return await passar_pelo_feed(page, rng=rng)
+    if nome == "explorar":
+        return await explorar(page, rng=rng)
+    if nome == "busca":
+        return await buscar(page, rng=rng)
+    return {"ok": False, "tipo": nome, "erro": "leitura desconhecida", "segundos": 0.0}
+
+
+# ══════════════════════════════ ESCRITA ══════════════════════════════
+
+# Rotulos do botao de curtir em pt-BR e en. A pagina roda em pt-BR (o geoip esta
+# fixado em Porto Alegre), mas o IG as vezes serve em ingles.
+_ALVOS_CURTIR = (
+    'section svg[aria-label="Curtir"]',
+    'section svg[aria-label="Like"]',
+    'article svg[aria-label="Curtir"]',
+    'article svg[aria-label="Like"]',
+)
+
+
+async def curtir_no_perfil(page, *, rng=None, log=None) -> dict:
+    """Curte um post do perfil aberto, CLICANDO na interface.
+
+    Deliberadamente NAO montamos a requisicao de like na mao. Foi rota adivinhada
+    que custou dias no 404 do follow; clicando, quem monta a requisicao e o proprio
+    Instagram -- com fb_dtsg, nav_chain e container_module corretos, de graca.
+
+    Exige que a pagina JA esteja no perfil (chame depois de ver_perfil_completo).
+    Falha e sempre tolerada: devolve {ok: False, motivo}."""
+    r = rng or random
+    try:
+        posts = page.locator('a[href*="/p/"]')
+        n = await posts.count()
+        if not n:
+            return {"ok": False, "motivo": "o perfil nao tem post visivel"}
+        alvo = posts.nth(r.randint(0, min(n - 1, 5)))
+        await human.click_locator(page, alvo)
+        await human.delay(1.2, 3.0)
+    except Exception as e:
+        return {"ok": False, "motivo": "nao consegui abrir o post (" + str(e) + ")"}
+
+    curtiu = False
+    erro = ""
+    try:
+        for sel in _ALVOS_CURTIR:
+            loc = page.locator(sel).first
+            try:
+                if await loc.is_visible(timeout=1200):
+                    await human.click_locator(page, loc)
+                    curtiu = True
+                    break
+            except Exception:
+                continue
+        await human.delay(0.8, 2.2)
+    except Exception as e:
+        erro = str(e)
+    finally:
+        # Fecha o post aconteca o que acontecer -- deixar o modal aberto atrapalharia
+        # a proxima iteracao.
+        try:
+            await page.keyboard.press("Escape")
+        except Exception:
+            pass
+
+    if curtiu and log:
+        log("   ♥ curtiu um post do perfil")
+    return {"ok": curtiu,
+            "motivo": "" if curtiu else (erro or "botao de curtir nao encontrado")}
+
+
+# ══════════════════════════════ COORDENADOR ══════════════════════════════
+
+PADROES = {
+    "humanoAtivo": True,
+    # % dos follows precedidos de uma LEITURA do perfil (o que torna verdadeiro o
+    # container_module=profile que ja mandamos).
+    "verPerfilPct": 100,
+    # Dessas, quantas carregam a PAGINA inteira. O resto usa a leitura leve, que
+    # produz a mesma correlacao por dezenas de KB em vez de alguns MB -- decisivo
+    # num chip 4G. Curtir so acontece quando a pagina foi carregada.
+    "verPerfilCompletoPct": 25,
+    "curtirPct": 12,          # % dos follows seguidos de uma curtida na interface
+    "leituraPct": 22,         # % dos intervalos gastos numa leitura (feed/explorar/busca)
+    "blocoVariacaoPct": 25,   # +- no tamanho do turno (100 vira 75-125)
+    "sonoAtivo": False,
+    "sonoInicio": 1,
+    "sonoFim": 8,
+}
+
+
+def config(settings: dict) -> dict:
+    """Mescla os padroes com o que veio das settings do InstaFollow."""
+    c = dict(PADROES)
+    for k in PADROES:
+        if settings and settings.get(k) is not None:
+            c[k] = settings[k]
+    return c
+
+
+def _pct(valor) -> float:
+    try:
+        return max(0.0, min(100.0, float(valor))) / 100.0
+    except (TypeError, ValueError):
+        return 0.0
+
+
+class Comportamento:
+    """Reune as rotinas acima em torno de UM turno de follow.
+
+    O motor (`follower.run`) chama tres metodos: `antes_de_seguir`, `depois_de_seguir`
+    e `intervalo`. Tudo o mais e detalhe interno daqui."""
+
+    def __init__(self, settings=None, *, chave_conta="", rng=None, log=None):
+        self.c = config(settings or {})
+        self.chave = chave_conta
+        self.rng = rng or random
+        self.log = log
+        self.desvio = desvio_da_conta(chave_conta)
+        self.contagem = {"perfil_leve": 0, "perfil_completo": 0, "curtidas": 0,
+                         "feed": 0, "explorar": 0, "busca": 0}
+
+    # ── estado ──────────────────────────────────────────────────────────
+    @property
+    def ativo(self) -> bool:
+        return self.c.get("humanoAtivo") is not False
+
+    def dormindo(self, agora=None) -> float:
+        """Segundos de sono restantes, ou 0. Ja aplica o desvio da conta."""
+        if not self.ativo or self.c.get("sonoAtivo") is not True:
+            return 0.0
+        return segundos_ate_acordar(self.c.get("sonoInicio"), self.c.get("sonoFim"),
+                                    agora, self.desvio)
+
+    def bloco(self, centro) -> int:
+        if not self.ativo:
+            return int(centro or 0)
+        return tamanho_do_bloco(centro, self.c.get("blocoVariacaoPct"), self.rng)
+
+    # ── ganchos do motor ────────────────────────────────────────────────
+    async def antes_de_seguir(self, page, username, *, ja_leu=False) -> dict:
+        """Le o perfil antes de escrever nele. `ja_leu=True` quando o enriquecimento
+        de filtros ja fez essa leitura -- nao vale gastar a requisicao duas vezes."""
+        if not self.ativo or not username:
+            return {"ok": False, "tipo": "desligado", "segundos": 0.0}
+        if self.rng.random() >= _pct(self.c.get("verPerfilPct")):
+            return {"ok": False, "tipo": "sorteio", "segundos": 0.0}
+        completo = self.rng.random() < _pct(self.c.get("verPerfilCompletoPct"))
+        if completo:
+            r = await ver_perfil_completo(page, username, rng=self.rng)
+            if r.get("ok"):
+                self.contagem["perfil_completo"] += 1
+            return r
+        if ja_leu:
+            return {"ok": True, "tipo": "leve", "reaproveitada": True, "segundos": 0.0}
+        r = await ver_perfil_leve(page, username)
+        if r.get("ok"):
+            self.contagem["perfil_leve"] += 1
+        return r
+
+    async def depois_de_seguir(self, page, contexto: dict) -> dict:
+        """Curtida ocasional. So faz sentido quando a PAGINA do perfil foi carregada
+        -- e o unico caso em que ha um post na tela para clicar."""
+        if not self.ativo:
+            return {"ok": False, "motivo": "desligado"}
+        if (contexto or {}).get("tipo") != "completo" or not contexto.get("ok"):
+            return {"ok": False, "motivo": "a pagina do perfil nao estava carregada"}
+        if self.rng.random() >= _pct(self.c.get("curtirPct")):
+            return {"ok": False, "motivo": "sorteio"}
+        r = await curtir_no_perfil(page, rng=self.rng, log=self.log)
+        if r.get("ok"):
+            self.contagem["curtidas"] += 1
+        return r
+
+    def proximo_intervalo(self, base_ms):
+        """Sorteia (segundos, modo) ate o proximo follow. Puro -- e chamado ANTES de
+        esperar, para a tela poder anunciar 'proximo em X' em vez de contar depois."""
+        if not self.ativo:
+            return max(0.3, float(base_ms or 0) / 1000.0), "fixo"
+        return intervalo_humano(base_ms, self.rng)
+
+    async def esperar(self, page, segundos, should_stop=None) -> dict:
+        """Cumpre o intervalo -- as vezes FAZENDO alguma coisa.
+
+        O tempo da leitura e DESCONTADO da espera: o padrao muda, o volume nao
+        (foi a escolha do usuario, "so o necessario"). Retorna o que fez, para o
+        log da tela poder narrar."""
+        feito = None
+        if self.ativo and self.rng.random() < _pct(self.c.get("leituraPct")):
+            nome = sortear_leitura(self.rng)
+            r = await fazer_leitura(page, nome, rng=self.rng)
+            if r.get("ok"):
+                self.contagem[nome] = self.contagem.get(nome, 0) + 1
+                feito = r
+            segundos = max(0.0, float(segundos) - float(r.get("segundos") or 0.0))
+        parado = await spider._sleep_stop(segundos, should_stop)
+        return {"segundos": segundos, "leitura": feito, "parado": parado}
+
+    def resumo(self) -> str:
+        """Uma linha para o log dizer o que a conta fez alem de seguir."""
+        c = self.contagem
+        partes = []
+        if c["perfil_completo"]:
+            partes.append(str(c["perfil_completo"]) + " perfil(is) abertos")
+        if c["perfil_leve"]:
+            partes.append(str(c["perfil_leve"]) + " perfil(is) lidos")
+        if c["curtidas"]:
+            partes.append(str(c["curtidas"]) + " curtida(s)")
+        for nome, rotulo in (("feed", "feed"), ("explorar", "explorar"),
+                             ("busca", "busca(s)")):
+            if c.get(nome):
+                partes.append(str(c[nome]) + "x " + rotulo)
+        return " · ".join(partes)

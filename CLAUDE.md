@@ -2,10 +2,49 @@
 
 > Notas de contexto para o Claude. App de **gestão de contas Instagram** (Camoufox/Firefox antidetect + Playwright). Backend FastAPI (`api.py`/`main.py`), frontend em `static/index.html`. **Multiplataforma (Windows + macOS).** Idioma do usuário: **português**.
 
-## 📍 ONDE PARAMOS — leia isto primeiro (2026-08-20)
+## 📍 ONDE PARAMOS — leia isto primeiro (2026-08-21)
 
 > Histórico detalhado da sessão (hipóteses que morreram, para não refazer o caminho):
 > **`registro.md`**.
+
+### 🧬 O ruído humano entrou (2026-08-21) — `comportamento.py`
+
+**Motivo:** `10122.cap.martim.rs` foi **suspensa** (em análise) — a primeira queda por
+bloqueio da frota. O usuário nomeou a causa: *"nossas contas só executam uma ação, que é
+seguir; tudo que for padronizado será visto como bot."* **Medido, ele estava certo em
+tudo:** 6.894 ações e **um verbo só**; 6.816 intervalos com **nove** acima de 30s (uma
+régua de 7-30s); follows às 02h no ritmo das 15h, 35h ininterruptas; turno terminando
+sempre em 100 exatos. E a pior — o POST declara `container_module=profile` para **uma
+tela que a sessão nunca carregava**.
+
+**O que mudou** (nada disso altera COMO se segue, que está provado):
+- **Intervalo com cauda**, normalizado para a **média continuar sendo a configurada** —
+  12% acima de 30s e 2,7% acima de 60s, com o mesmo volume.
+- **Bloco de turno 75-125** em vez de 100 exatos.
+- **A sessão LÊ o perfil antes de seguir** (leve `web_profile_info` por padrão; 25%
+  abrem a página inteira) → a origem declarada vira verdade. Depois de abrir a página os
+  tokens são **recolhidos** (o `fb_dtsg` é por documento).
+- **Feed / explorar / busca** entre follows, **dentro do intervalo que já existia**.
+- **Curtida ocasional CLICANDO na interface** — nunca uma rota montada na mão (foi rota
+  adivinhada que custou dias no 404).
+- **Sono opcional, DESLIGADO por padrão** (custa ~35% do volume), com desvio estável por
+  conta para a frota não dormir toda no mesmo minuto.
+
+**Regra de ouro do módulo:** ruído **nunca** derruba a campanha — toda rotina engole a
+própria exceção (é teste, não promessa). Ajustes em **InstaFollow → ⚙ Preferências →
+5 · Comportamento humano**, com a estimativa de consumo de dados na tela (importa no 4G).
+
+**⚠ Ainda NÃO rodou ao vivo** — primeiro com **simulação ligada**, depois um turno curto
+conferindo a linha `🧑 além dos follows, esta conta: …` no terminal.
+
+**O que código não resolve:** a frota continua obviamente uma frota — mesmos 12 alvos,
+mesmo modem, e **nomes que são variações da mesma string** (`10122.cap.martim` ·
+`10122.capmartim` · `10122.capitaomartim` · `cap.martim2026` · `cap.martim.rs.2026`).
+Isso agrupa sozinho.
+
+**Estado da frota em 21/08:** 6.894 follows totais · **5 contas** no cadastro · "seguiram
+de volta" agora com dado REAL (o método novo funcionou): **8,7% · 10,0% · 10,3%** nas três
+contas verificadas — os 1.500 falsos zeros se auto-corrigiram como previsto.
 
 **O InstaFollow está FUNCIONANDO em produção.** Medido no banco em 20/08:
 **2.950 follows em 24h** por **6 contas** (700 · 700 · 560 · 542 · 248 · 200), todas
@@ -33,12 +72,13 @@ estado real** — e antes de negar um relato do usuário, **consulte o banco**
 (`follow_history`, `follow_runs`, `accounts`).
 
 **Pendências (nenhuma bloqueia o uso):**
+- **Comportamento humano: não rodou ao vivo** (ver a seção acima) — 1º teste em simulação.
 - **Unfollow: 0 execuções ao vivo.** Tem 16 asserções com navegador dublê e recebeu o mesmo
   tratamento do follow, mas nunca rodou contra o IG. Primeira vez com **simulação ligada**.
-- **"Seguiram de volta" não testado ao vivo** com o método novo (cruzar com a própria lista
-  de seguidores). Os **1.500 marcados como verificados com 0 retribuição são dado FALSO** do
-  método antigo (`show_many` não devolve `followed_by`) e se auto-corrigem na próxima
-  checagem.
+- ~~"Seguiram de volta" não testado ao vivo~~ **RESOLVIDO (medido em 21/08)**: o método novo
+  funcionou e os 1.500 falsos zeros se auto-corrigiram — 8,7% · 10,0% · 10,3% de retribuição
+  nas três contas verificadas. As contas `10122.*` têm só ~200 verificadas cada (follows de
+  19/08, novos demais para terem retribuído).
 - **Disparos WhatsApp: NÃO construir aqui.** A análise do CRM Mobiliza concluiu que ele já
   tem um superset do que nosso `broadcaster.py` seria. Ver "📲 DISPAROS WHATSAPP" e o
   `registro.md`.

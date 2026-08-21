@@ -33,6 +33,7 @@ import warm_pool
 import spider
 import spider_app
 import follower
+import comportamento
 import modem
 import backup_data as bdata
 import time
@@ -2763,10 +2764,10 @@ async def follow_start(body: FollowStartRequest):
         Com 3 contas e bloco de 100, uma fila de 300 sai 100/100/100. O teto por
         hora/dia da conta continua valendo — vale o que vier primeiro. O histórico é
         GLOBAL, então duas contas nunca seguem a mesma pessoa."""
-        por_conta = max(0, int(settings.get("followsPerAccount") or 0))
+        centro_bloco = max(0, int(settings.get("followsPerAccount") or 0))
         if len(pool) > 1:
             log(f"👥 {len(pool)} contas revezando"
-                + (f", trocando a cada {por_conta} follow(s)" if por_conta else
+                + (f", trocando a cada ~{centro_bloco} follow(s)" if centro_bloco else
                    " (cada uma até o próprio teto)"))
         idx, sem_progresso, turno, contas_404 = 0, 0, 0, 0
         while not job.get("stop"):
@@ -2812,6 +2813,10 @@ async def follow_start(body: FollowStartRequest):
                 continue
             job["espera_teto_s"] = None
 
+            # Bloco de tamanho VARIÁVEL: com 100 fixo, todo turno terminava no mesmo
+            # número redondo — assinatura de bot tão boa quanto o intervalo fixo.
+            por_conta = comportamento.tamanho_do_bloco(
+                centro_bloco, settings.get("blocoVariacaoPct", 25))
             turno += 1
             if len(pool) > 1:
                 log(f"▶ turno {turno}: conta {key}"
@@ -2827,6 +2832,7 @@ async def follow_start(body: FollowStartRequest):
                 use_local=body.use_local, max_actions=por_conta,
                 yield_on_cap=len(pool) > 1,   # com várias contas, teto = passa a vez
                 should_stop=lambda: job.get("stop", False), log=log,
+                chave_conta=key,             # dá a esta conta o seu horário de dormir
                 on_action=_fazedor(key), on_counts=lambda c: job.update({"counts": c}))
             feitos = (job["stats"].get("followed", 0) + job["stats"].get("requested", 0)) - antes
             job["error"] = res.get("error")
