@@ -80,6 +80,54 @@ def intervalo_humano(base_ms, rng=None):
     return round(base * fator * _NORMALIZA, 2), nome
 
 
+# ── Estrutura de SESSAO: rajada curta + pausa ──────────────────────────────
+# Gente nao segue a cada 18 segundos a noite inteira: segue dois ou tres seguidos,
+# para um tempo, volta. A rajada e CURTA de proposito -- sequencia longa e sinal de
+# bot (decisao do usuario, 2026-08-21).
+#
+# As constantes abaixo PRESERVAM A MEDIA. Com rajada media de 3,5 follows, gap
+# interno medio de 0,40x e pausa media de 2,5x o intervalo base:
+#     ((3,5 - 1) * 0,40 + 2,5) / 3,5  =  (1,0 + 2,5) / 3,5  =  1,0
+# ou seja, o tempo por follow continua sendo exatamente o intervalo configurado --
+# o que muda e a FORMA da chegada, nao o volume.
+_GAP_MIN, _GAP_MAX = 0.25, 0.55     # multiplicador do base DENTRO da rajada
+_PAUSA_FATOR = 2.5                  # multiplicador medio da pausa entre rajadas
+_PAUSA_NORMAL = (0.50, 1.20)        # variacao comum da pausa
+_PAUSA_LONGA = (3.0, 8.0)           # "largou o celular" -- raro
+_PAUSA_LONGA_PCT = 0.05
+
+# Normaliza a pausa para a media do multiplicador ser 1 (senao as pausas longas
+# puxariam o intervalo medio para cima e o volume cairia sem ninguem pedir).
+_PAUSA_NORM = 1.0 / ((1 - _PAUSA_LONGA_PCT) * sum(_PAUSA_NORMAL) / 2
+                     + _PAUSA_LONGA_PCT * sum(_PAUSA_LONGA) / 2)
+
+
+def tamanho_da_rajada(minimo=2, maximo=5, rng=None) -> int:
+    """Quantos follows seguidos antes da proxima pausa."""
+    r = rng or random
+    a, b = int(minimo or 2), int(maximo or 5)
+    if a > b:
+        a, b = b, a
+    return r.randint(max(1, a), max(1, b))
+
+
+def gap_da_rajada(base_ms, rng=None) -> float:
+    """Intervalo curto entre follows da MESMA rajada."""
+    r = rng or random
+    base = max(0.3, float(base_ms or 18000) / 1000.0)
+    return round(base * r.uniform(_GAP_MIN, _GAP_MAX), 2)
+
+
+def pausa_entre_rajadas(base_ms, rng=None):
+    """Pausa depois de fechar uma rajada. Devolve (segundos, longa?)."""
+    r = rng or random
+    base = max(0.3, float(base_ms or 18000) / 1000.0)
+    longa = r.random() < _PAUSA_LONGA_PCT
+    faixa = _PAUSA_LONGA if longa else _PAUSA_NORMAL
+    m = r.uniform(*faixa) * _PAUSA_NORM
+    return round(base * _PAUSA_FATOR * m, 2), longa
+
+
 def tamanho_do_bloco(centro, variacao_pct=25, rng=None) -> int:
     """O turno de cada conta deixa de terminar sempre no mesmo numero redondo.
 
@@ -168,10 +216,17 @@ async def ver_perfil_leve(page, username) -> dict:
 
     Existe porque a versao completa custa alguns MB por follow -- num chip 4G isso
     vira gigabytes por dia. Esta aqui pesa dezenas de KB e produz a correlacao que
-    importa: a sessao LEU aquele perfil antes de escrever nele."""
+    importa: a sessao LEU aquele perfil antes de escrever nele.
+
+    Usa `_resolve_via_web_profile_info` DIRETO, e nao o `_resolve_user`: aquele tem
+    cadeia de fallback que, no ultimo recurso, **navega para a pagina inteira** (~3MB)
+    e dorme 2s de verdade. Para resolver um alvo de extracao isso vale a pena; para um
+    ruido de contexto, nao -- transformaria a leitura "leve" numa pesada sem avisar,
+    justamente o que o orcamento de 30 GB/mes nao permite. Falhou, deixa pra la:
+    isto e acessorio, o follow acontece de qualquer jeito."""
     t0 = time.monotonic()
     try:
-        uid, info = await spider._resolve_user(page, username)
+        uid, info = await spider._resolve_via_web_profile_info(page, username, None)
     except Exception as e:
         return {"ok": False, "tipo": "leve", "erro": str(e),
                 "segundos": round(time.monotonic() - t0, 2)}
@@ -233,8 +288,15 @@ async def buscar(page, termo=None, *, rng=None) -> dict:
             "segundos": round(time.monotonic() - t0, 2)}
 
 
-# Quanto cada leitura pesa no sorteio do "descanso ativo" entre follows.
-_LEITURAS = (("feed", 0.45), ("explorar", 0.30), ("busca", 0.25))
+# Quanto cada leitura pesa no sorteio da pausa. A busca leva o maior peso porque e
+# a mais BARATA (JSON de ~50KB) e continua sendo comportamento humano comum; o
+# explorar e o mais caro (~4MB, grade de imagens) e por isso e o mais raro. Num
+# plano de 30 GB/mes compartilhado com o PC, o peso aqui e decisao de orcamento.
+_LEITURAS = (("feed", 0.35), ("explorar", 0.15), ("busca", 0.50))
+
+# Custo estimado de cada leitura, em MB. Usado so para a previsao na tela -- o
+# numero que vale e o do MedidorDeDados, que conta os bytes de verdade.
+CUSTO_MB = {"leve": 0.05, "pagina": 3.0, "feed": 2.5, "explorar": 4.0, "busca": 0.05}
 
 
 def sortear_leitura(rng=None) -> str:
@@ -320,20 +382,82 @@ async def curtir_no_perfil(page, *, rng=None, log=None) -> dict:
             "motivo": "" if curtiu else (erro or "botao de curtir nao encontrado")}
 
 
+# ══════════════════════════════ MEDIDOR DE DADOS ══════════════════════════════
+
+class MedidorDeDados:
+    """Soma os bytes que a sessao baixa, lendo o `content-length` das respostas.
+
+    Existe porque o plano do usuario tem **30 GB/mes** e o modem e a internet do PC
+    inteiro -- entao "quanto isto consome" deixou de ser curiosidade e virou
+    restricao de projeto. Antes disto o numero na tela era ESTIMATIVA minha, e ela
+    ja errou uma vez (contava so a leitura de perfil e ignorava feed/explorar,
+    mostrando 1,5 GB onde o real era ~76 GB/mes).
+
+    E um PISO honesto, nao o total exato: resposta em chunked pode nao declarar
+    tamanho. Mas o que pesa -- imagem e video -- quase sempre declara, entao o
+    numero serve para a decisao que importa. `sem_tamanho` diz o quanto ficou de
+    fora, para o resumo nao fingir precisao que nao tem."""
+
+    def __init__(self):
+        self.bytes = 0
+        self.respostas = 0
+        self.sem_tamanho = 0
+
+    def ligar(self, page):
+        """Best-effort, como todo o resto deste modulo: se nao der para escutar,
+        seguimos sem medir em vez de derrubar a campanha."""
+        try:
+            page.on("response", self._ver)
+            return True
+        except Exception:
+            return False
+
+    def _ver(self, resposta):
+        self.respostas += 1
+        try:
+            tamanho = (resposta.headers or {}).get("content-length")
+        except Exception:
+            tamanho = None
+        if tamanho:
+            try:
+                self.bytes += int(tamanho)
+                return
+            except (TypeError, ValueError):
+                pass
+        self.sem_tamanho += 1
+
+    @property
+    def mb(self) -> float:
+        return round(self.bytes / (1024 * 1024), 2)
+
+    def resumo(self) -> str:
+        t = f"{self.mb} MB em {self.respostas} resposta(s)"
+        if self.sem_tamanho:
+            t += f" · {self.sem_tamanho} sem tamanho declarado (o real é um pouco maior)"
+        return t
+
+
 # ══════════════════════════════ COORDENADOR ══════════════════════════════
 
 PADROES = {
     "humanoAtivo": True,
     # % dos follows precedidos de uma LEITURA do perfil (o que torna verdadeiro o
-    # container_module=profile que ja mandamos).
+    # container_module=profile que ja mandamos). Custa ~50KB: a 2.000 follows/dia
+    # sao ~3 GB/mes, ou seja o sinal mais importante e quase de graca.
     "verPerfilPct": 100,
-    # Dessas, quantas carregam a PAGINA inteira. O resto usa a leitura leve, que
-    # produz a mesma correlacao por dezenas de KB em vez de alguns MB -- decisivo
-    # num chip 4G. Curtir so acontece quando a pagina foi carregada.
-    "verPerfilCompletoPct": 25,
+    # Dessas, quantas carregam a PAGINA inteira (~3MB). Baixo de proposito: e este
+    # numero, junto com o "explorar", que come o plano de 30 GB. Curtir so acontece
+    # quando a pagina foi carregada, entao mexer aqui mexe na curtida tambem.
+    "verPerfilCompletoPct": 5,
     "curtirPct": 12,          # % dos follows seguidos de uma curtida na interface
-    "leituraPct": 22,         # % dos intervalos gastos numa leitura (feed/explorar/busca)
+    # % das PAUSAS que viram feed/explorar/busca. Conta por pausa, nao por follow:
+    # conteudo e coisa de intervalo, nao de rajada.
+    "leituraPct": 25,
     "blocoVariacaoPct": 25,   # +- no tamanho do turno (100 vira 75-125)
+    # Estrutura de sessao: rajada curta de follows, depois uma pausa maior.
+    "rajadaAtiva": True,
+    "rajadaMin": 2,
+    "rajadaMax": 5,
     "sonoAtivo": False,
     "sonoInicio": 1,
     "sonoFim": 8,
@@ -369,7 +493,12 @@ class Comportamento:
         self.log = log
         self.desvio = desvio_da_conta(chave_conta)
         self.contagem = {"perfil_leve": 0, "perfil_completo": 0, "curtidas": 0,
-                         "feed": 0, "explorar": 0, "busca": 0}
+                         "feed": 0, "explorar": 0, "busca": 0, "rajadas": 0}
+        self.dados = MedidorDeDados()
+        # Estado da rajada em curso.
+        self._rajada = tamanho_da_rajada(self.c.get("rajadaMin"), self.c.get("rajadaMax"),
+                                         self.rng)
+        self._na_rajada = 0
 
     # ── estado ──────────────────────────────────────────────────────────
     @property
@@ -425,19 +554,39 @@ class Comportamento:
 
     def proximo_intervalo(self, base_ms):
         """Sorteia (segundos, modo) ate o proximo follow. Puro -- e chamado ANTES de
-        esperar, para a tela poder anunciar 'proximo em X' em vez de contar depois."""
+        esperar, para a tela poder anunciar 'proximo em X' em vez de contar depois.
+
+        Com a rajada ligada (padrao), a sessao ganha FORMA: alguns follows rapidos
+        em sequencia e depois uma pausa maior, em vez do gotejar uniforme de antes.
+        A media e preservada por construcao, entao o volume nao muda."""
         if not self.ativo:
             return max(0.3, float(base_ms or 0) / 1000.0), "fixo"
-        return intervalo_humano(base_ms, self.rng)
+        if self.c.get("rajadaAtiva") is False:
+            return intervalo_humano(base_ms, self.rng)
 
-    async def esperar(self, page, segundos, should_stop=None) -> dict:
+        self._na_rajada += 1
+        if self._na_rajada < self._rajada:
+            return gap_da_rajada(base_ms, self.rng), "rajada"
+
+        # Fechou a rajada: pausa maior e sorteia o tamanho da proxima.
+        self.contagem["rajadas"] += 1
+        self._na_rajada = 0
+        self._rajada = tamanho_da_rajada(self.c.get("rajadaMin"), self.c.get("rajadaMax"),
+                                         self.rng)
+        segundos, longa = pausa_entre_rajadas(base_ms, self.rng)
+        return segundos, ("pausa longa" if longa else "pausa")
+
+    async def esperar(self, page, segundos, should_stop=None, modo="") -> dict:
         """Cumpre o intervalo -- as vezes FAZENDO alguma coisa.
 
-        O tempo da leitura e DESCONTADO da espera: o padrao muda, o volume nao
-        (foi a escolha do usuario, "so o necessario"). Retorna o que fez, para o
-        log da tela poder narrar."""
+        A leitura so acontece na PAUSA, nunca no meio da rajada: e ali que uma
+        pessoa consome conteudo. E a maior parte das pausas e simplesmente ociosa,
+        que alem de humano custa **zero dados** -- o que importa num plano de 30 GB.
+
+        O tempo da leitura e DESCONTADO da espera: o padrao muda, o volume nao."""
         feito = None
-        if self.ativo and self.rng.random() < _pct(self.c.get("leituraPct")):
+        na_pausa = (self.c.get("rajadaAtiva") is False) or str(modo).startswith("pausa")
+        if self.ativo and na_pausa and self.rng.random() < _pct(self.c.get("leituraPct")):
             nome = sortear_leitura(self.rng)
             r = await fazer_leitura(page, nome, rng=self.rng)
             if r.get("ok"):
@@ -451,6 +600,8 @@ class Comportamento:
         """Uma linha para o log dizer o que a conta fez alem de seguir."""
         c = self.contagem
         partes = []
+        if c.get("rajadas"):
+            partes.append(str(c["rajadas"]) + " rajada(s)")
         if c["perfil_completo"]:
             partes.append(str(c["perfil_completo"]) + " perfil(is) abertos")
         if c["perfil_leve"]:
@@ -461,4 +612,6 @@ class Comportamento:
                              ("busca", "busca(s)")):
             if c.get(nome):
                 partes.append(str(c[nome]) + "x " + rotulo)
+        if self.dados.respostas:
+            partes.append("📶 " + self.dados.resumo())
         return " · ".join(partes)

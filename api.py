@@ -2527,6 +2527,39 @@ def _follow_config() -> dict:
             "filters": {**follower.DEFAULT_FILTERS, **f}}
 
 
+def _follow_dados_mes(quando=None) -> dict:
+    """Consumo de dados acumulado por MÊS (chave 'AAAA-MM' → bytes).
+
+    Fica numa setting em vez de tabela: é um contador, não histórico — e assim não
+    há migração. O plano do usuário é de 30 GB/mês e o modem é a internet do PC
+    inteiro, então este número é restrição de projeto."""
+    try:
+        d = json.loads(db.get_setting("follow_data_usage", "") or "{}")
+    except Exception:
+        d = {}
+    return d if isinstance(d, dict) else {}
+
+
+def _follow_somar_dados(job, res, feitos, log=None):
+    """Acumula os bytes MEDIDOS de um turno no total do mês e conta no terminal."""
+    b = int(res.get("dados_bytes") or 0)
+    if b <= 0:
+        return
+    mes = time.strftime("%Y-%m")
+    d = _follow_dados_mes()
+    d[mes] = int(d.get(mes) or 0) + b
+    try:
+        db.set_setting("follow_data_usage", json.dumps(d))
+    except Exception:
+        logger.exception("follow: falha ao gravar consumo de dados")
+    job["dados_mb_turno"] = res.get("dados_mb")
+    job["dados_gb_mes"] = round(d[mes] / (1024 ** 3), 2)
+    if log:
+        por = f" · ~{(b / 1024 / max(1, feitos)):.0f} KB por follow" if feitos else ""
+        log(f"📶 este turno gastou {res.get('dados_mb')} MB{por} · "
+            f"{job['dados_gb_mes']} GB no mês")
+
+
 def _follow_account_key(profile: dict) -> str:
     """Chave do limitador: a CONTA logada no perfil (o teto é por conta, que é o que
     faz a rotação entre perfis valer a pena). Cai no id do perfil se não houver conta."""
@@ -2836,6 +2869,7 @@ async def follow_start(body: FollowStartRequest):
                 on_action=_fazedor(key), on_counts=lambda c: job.update({"counts": c}))
             feitos = (job["stats"].get("followed", 0) + job["stats"].get("requested", 0)) - antes
             job["error"] = res.get("error")
+            _follow_somar_dados(job, res, feitos, log)
 
             if res.get("blocked"):
                 job["blocked"] = True
@@ -3267,6 +3301,21 @@ def follow_config_set(body: FollowConfigRequest):
     if body.filters is not None:
         db.set_setting("follow_filters", json.dumps(body.filters))
     return follow_config_get()
+
+
+@app.get("/follow/data-usage")
+def follow_data_usage():
+    """Consumo MEDIDO de dados por mês. Substitui a estimativa da tela — que já
+    errou uma vez, mostrando 1,5 GB onde o custo real era ~76 GB/mês."""
+    d = _follow_dados_mes()
+    mes = time.strftime("%Y-%m")
+    bytes_mes = int(d.get(mes) or 0)
+    return {
+        "mes": mes,
+        "bytes": bytes_mes,
+        "gb": round(bytes_mes / (1024 ** 3), 2),
+        "historico": {k: round(v / (1024 ** 3), 2) for k, v in sorted(d.items())},
+    }
 
 
 @app.get("/follow/history")

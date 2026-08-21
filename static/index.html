@@ -1612,8 +1612,8 @@
           </div>
           <div class="form-group">
             <label>Dessas, quantas abrem a página inteira (%)</label>
-            <input id="fw-verPerfilCompletoPct" type="number" min="0" max="100" value="25" oninput="followHumanoHint()">
-            <div class="form-hint">O resto usa a leitura leve (dezenas de KB em vez de alguns MB — <b>importa no chip 4G</b>).</div>
+            <input id="fw-verPerfilCompletoPct" type="number" min="0" max="100" value="5" oninput="followHumanoHint()">
+            <div class="form-hint">O resto usa a leitura leve (~50 KB em vez de ~3 MB). <b>É este número que come o plano de 30 GB</b> — e a curtida depende dele.</div>
           </div>
         </div>
         <div class="form-row">
@@ -1623,15 +1623,30 @@
             <div class="form-hint">Curte <b>clicando na interface</b>, então quem monta o pedido é o próprio Instagram. Só vale quando a página foi aberta.</div>
           </div>
           <div class="form-group">
-            <label>Passar pelo feed / explorar / busca (%)</label>
-            <input id="fw-leituraPct" type="number" min="0" max="100" value="22" oninput="followHumanoHint()">
-            <div class="form-hint">Acontece <b>dentro</b> do intervalo que já existe — não custa volume.</div>
+            <label>Pausas que viram feed / explorar / busca (%)</label>
+            <input id="fw-leituraPct" type="number" min="0" max="100" value="25" oninput="followHumanoHint()">
+            <div class="form-hint">Conta por <b>pausa</b>, não por follow. O resto das pausas é ociosidade — humana e de <b>custo zero</b>.</div>
           </div>
         </div>
         <div class="form-group">
           <label>Variação no tamanho do turno (%)</label>
           <input id="fw-blocoVariacaoPct" type="number" min="0" max="90" value="25" style="max-width:160px" oninput="followHumanoHint()">
           <div class="form-hint" id="fw-bloco-hint"></div>
+        </div>
+        <label style="display:flex;align-items:flex-start;gap:8px;font-weight:400;cursor:pointer;margin:14px 0 6px">
+          <input type="checkbox" id="fw-rajadaAtiva" checked style="margin-top:3px" onchange="followHumanoHint()">
+          <span style="font-size:12px;color:var(--muted)"><b>Sessão em rajadas</b> — alguns follows seguidos e depois uma pausa maior, em vez de gotejar um a cada X segundos para sempre. A <b>média é preservada</b>, então o volume não muda: só a forma de chegada. O conteúdo (feed/explorar/busca) acontece <b>na pausa</b>, que é onde uma pessoa consome.</span>
+        </label>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Rajada — mínimo de follows</label>
+            <input id="fw-rajadaMin" type="number" min="1" max="20" value="2" oninput="followHumanoHint()">
+          </div>
+          <div class="form-group">
+            <label>Rajada — máximo</label>
+            <input id="fw-rajadaMax" type="number" min="1" max="20" value="5" oninput="followHumanoHint()">
+            <div class="form-hint">Sequência <b>longa é sinal de bot</b>. 2 a 5 é o que uma pessoa faz mexendo numa lista.</div>
+          </div>
         </div>
         <label style="display:flex;align-items:flex-start;gap:8px;font-weight:400;cursor:pointer;margin:14px 0 6px">
           <input type="checkbox" id="fw-sonoAtivo" style="margin-top:3px" onchange="followHumanoHint()">
@@ -4253,6 +4268,9 @@ function followReadConfig() {
     curtirPct: fwNum('fw-curtirPct', 12),
     leituraPct: fwNum('fw-leituraPct', 22),
     blocoVariacaoPct: fwNum('fw-blocoVariacaoPct', 25),
+    rajadaAtiva: document.getElementById('fw-rajadaAtiva').checked,
+    rajadaMin: fwNum('fw-rajadaMin', 2),
+    rajadaMax: fwNum('fw-rajadaMax', 5),
     sonoAtivo: document.getElementById('fw-sonoAtivo').checked,
     sonoInicio: fwNum('fw-sonoInicio', 1),
     sonoFim: fwNum('fw-sonoFim', 8),
@@ -4290,10 +4308,13 @@ function followFillConfig(cfg) {
   document.getElementById('fw-restAfterRoundMin').value = s.restAfterRoundMin ?? 60;
   document.getElementById('fw-humanoAtivo').checked = s.humanoAtivo !== false;
   document.getElementById('fw-verPerfilPct').value = s.verPerfilPct ?? 100;
-  document.getElementById('fw-verPerfilCompletoPct').value = s.verPerfilCompletoPct ?? 25;
+  document.getElementById('fw-verPerfilCompletoPct').value = s.verPerfilCompletoPct ?? 5;
   document.getElementById('fw-curtirPct').value = s.curtirPct ?? 12;
-  document.getElementById('fw-leituraPct').value = s.leituraPct ?? 22;
+  document.getElementById('fw-leituraPct').value = s.leituraPct ?? 25;
   document.getElementById('fw-blocoVariacaoPct').value = s.blocoVariacaoPct ?? 25;
+  document.getElementById('fw-rajadaAtiva').checked = s.rajadaAtiva !== false;
+  document.getElementById('fw-rajadaMin').value = s.rajadaMin ?? 2;
+  document.getElementById('fw-rajadaMax').value = s.rajadaMax ?? 5;
   document.getElementById('fw-sonoAtivo').checked = s.sonoAtivo === true;
   document.getElementById('fw-sonoInicio').value = s.sonoInicio ?? 1;
   document.getElementById('fw-sonoFim').value = s.sonoFim ?? 8;
@@ -4326,6 +4347,9 @@ async function loadFollow() {
       api('GET', '/profiles'),
       api('GET', '/follow/config'),
     ]);
+    // Consumo MEDIDO do mês. Falhar aqui não pode atrapalhar a aba — é informativo.
+    api('GET', '/follow/data-usage').then(d => { window._fwDados = d; followPrefsResumo(); })
+      .catch(() => {});
     const logged = (profiles || []).filter(p => p.account_status === 'active');
     document.getElementById('fw-profile').innerHTML = logged.map(p =>
       `<option value="${p.id}">${escapeHtml(p.name)}${p.account_username ? ' (@' + escapeHtml(p.account_username) + ')' : ''}</option>`
@@ -4691,23 +4715,42 @@ function followHumanoHint() {
       + 'Era assim quando a primeira conta da frota foi suspensa.';
     return;
   }
-  const ler = fwNum('fw-verPerfilPct', 100), cheio = fwNum('fw-verPerfilCompletoPct', 25);
-  const leitura = fwNum('fw-leituraPct', 22);
+  const ler = fwNum('fw-verPerfilPct', 100), cheio = fwNum('fw-verPerfilCompletoPct', 5);
+  const leitura = fwNum('fw-leituraPct', 25);
+  const rajada = document.getElementById('fw-rajadaAtiva').checked;
+  const rMin = fwNum('fw-rajadaMin', 2), rMax = fwNum('fw-rajadaMax', 5);
   // Estimativas grosseiras: perfil JSON ~50KB · página de perfil ~3MB · feed ~2,5MB ·
-  // explorar ~4MB (grade de imagens) · busca JSON ~50KB. A mistura das leituras entre
-  // follows é 45% feed / 30% explorar / 25% busca.
+  // explorar ~4MB (grade de imagens) · busca JSON ~50KB. A mistura é 35/15/50 — a
+  // busca leva o maior peso por ser a mais barata, o explorar o menor por ser o mais caro.
+  const custoLeitura = 0.35 * 2.5 + 0.15 * 4 + 0.50 * 0.05;
+  // leituraPct conta por PAUSA, não por follow: com rajada de N, são N follows por pausa.
+  const porPausa = rajada ? Math.max(1, (rMin + rMax) / 2) : 1;
   const mbPerfil = (ler / 100) * ((cheio / 100) * 3 + (1 - cheio / 100) * 0.05);
-  const mbLeitura = (leitura / 100) * (0.45 * 2.5 + 0.30 * 4 + 0.25 * 0.05);
+  const mbLeitura = (leitura / 100) / porPausa * custoLeitura;
   const mbPorFollow = mbPerfil + mbLeitura;
   const gbMes = mbPorFollow * (window._fwFollowsDia || 2000) * 30 / 1024;
   const partes = [];
+  if (rajada) {
+    const rm = (rMin + rMax) / 2;
+    // pausa média = 2,5 × intervalo base (a constante que preserva a média no motor)
+    const base = (parseFloat(document.getElementById('fw-interval').value) || 3) * 60;
+    partes.push(`🌊 <b>${rMin}–${rMax} follows</b> em rajada (média ${rm.toFixed(1)}), `
+      + `com <b>~${Math.round(base * 2.5)}s</b> de pausa entre elas — o volume não muda, só a forma.`);
+  } else {
+    partes.push('⚠️ <b>Sem rajada:</b> volta a gotejar um follow a cada intervalo, para sempre.');
+  }
   partes.push(ler >= 100
     ? '✅ <b>todo</b> follow é precedido da leitura do perfil — a origem declarada passa a ser verdade'
     : `⚠️ só <b>${ler}%</b> dos follows leem o perfil antes; nos outros ${100 - ler}% a origem declarada continua falsa`);
   const cor = gbMes > 25 ? '#ef4444' : (gbMes > 15 ? '#f59e0b' : '#22c55e');
-  partes.push(`📶 ~<b>${mbPorFollow.toFixed(2)} MB</b> por follow → <b style="color:${cor}">~${gbMes.toFixed(0)} GB/mês</b> `
-    + `a 2.000 follows/dia (perfil ${mbPerfil.toFixed(2)} + feed/explorar ${mbLeitura.toFixed(2)})`
+  partes.push(`📶 <b>previsão:</b> ~${mbPorFollow.toFixed(2)} MB por follow → <b style="color:${cor}">~${gbMes.toFixed(0)} GB/mês</b> `
+    + `a 2.000 follows/dia (perfil ${mbPerfil.toFixed(2)} + conteúdo ${mbLeitura.toFixed(2)})`
     + (gbMes > 25 ? ' — <b>estoura o plano de 30 GB</b>, e o modem é a internet do PC inteiro' : ''));
+  const real = window._fwDados;
+  if (real && real.gb !== undefined) {
+    partes.push(`📊 <b>medido de verdade em ${real.mes}: ${real.gb} GB</b>`
+      + ' — este é o número que vale; o de cima é só previsão.');
+  }
   partes.push('💡 A leitura <b>leve</b> do perfil custa ~50 KB e é ela que corrige o sinal principal: '
     + 'a 2.000 follows/dia dá <b>~3 GB/mês</b>. Quem come o plano é <b>abrir a página inteira</b> (~3 MB) '
     + 'e o <b>explorar</b> (~4 MB) — use com parcimônia.');
@@ -4729,6 +4772,10 @@ function followPrefsResumo() {
                   `troca de conta a cada ~${v('fw-followsPerAccount') || '?'} follows`,
                   ext ? `+${ext}min de descanso ao fechar a volta` : 'sem descanso extra',
                   on('fw-humanoAtivo') ? 'comportamento humano ligado' : '⚠️ comportamento humano DESLIGADO'];
+  // O plano é de 30 GB/mês e o modem é a internet do PC inteiro: o consumo tem de
+  // estar visível SEM abrir as preferências.
+  const d = window._fwDados;
+  if (d && d.gb !== undefined) partes.push(`📶 ${d.gb} GB usados em ${d.mes}`);
   const filtros = [];
   if (on('fw-skipPrivate')) filtros.push('sem privadas');
   if (on('fw-skipVerified')) filtros.push('sem verificadas');

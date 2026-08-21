@@ -88,6 +88,62 @@ rodados 3× e o `test_rodizio` 5× por causa da aleatoriedade nova.
 **8,7% a 10,3%** nas três contas verificadas — o método novo funcionou e os falsos zeros
 se auto-corrigiram como previsto.
 
+### Segunda rodada do mesmo dia: forma de sessão e o plano de dados
+
+O usuário fez a pergunta certa: *"ela segue 12 pessoas e para pra ver um reel, ou vai
+seguindo e entre as pausas faz algo diferente?"* — era a segunda, e a primeira é melhor.
+O que eu tinha construído distribuía o ruído por igual e **descontava o tempo da espera**,
+então a conta nunca ficava um tempo só consumindo: atividade contínua e uniforme, com
+razão leitura/escrita de ~1,2 para 1 (numa pessoa real é 50 ou 200 para 1).
+
+Aí vieram as duas restrições que fecharam o desenho:
+1. **"as sequências não podem ser grandes por ser sinal de bot"** — rajada de 2 a 5, não 15.
+2. **O plano tem 30 GB/mês** — e o modem é a internet do PC inteiro.
+
+**A conta de dados me pegou.** Meus padrões custavam **~76 GB/mês** a 2.000 follows/dia,
+duas vezes e meia o plano. E a estimativa que eu tinha posto na tela dizia 1,5 GB porque
+**contava só a leitura do perfil e ignorava feed/explorar** — que são justamente as caras.
+Errei por mais de 50×, e num teto duro isso levaria a uma configuração que estoura o plano
+em menos de duas semanas.
+
+**A boa notícia que a conta revelou:** o sinal mais importante — ler o perfil antes de
+escrever nele — custa **~3 GB/mês** no volume cheio, porque é um JSON de ~50 KB. Quem come
+o plano é abrir a página renderizada (~3 MB) e o explorar (~4 MB, grade de imagens). Dá
+para ter o principal e ficar folgado; o que não dá é navegar bonito o tempo todo.
+
+**O reframe que resolveu a tensão entre rajada curta e volume:** a pausa **não precisa ser
+consumo**. Uma pessoa real também simplesmente para — larga o celular, muda de aba. Ficar
+parado é humano e custa **zero dados**. Então: rajada curta → pausa que na maioria das
+vezes é só ociosidade (grátis) e de vez em quando é conteúdo (pago e raro).
+
+**A aritmética que preserva o volume**, e que virou constante no módulo: com rajada média
+de 3,5, gap interno de 0,40× e pausa de 2,5× o intervalo base,
+`((3,5-1)·0,40 + 2,5) / 3,5 = 1,0`. O tempo por follow continua sendo o configurado.
+Medido em 60 mil intervalos: média 18,0s, gap 7,2s, pausa 44,9s, e 5% das pausas entre
+2 e 5,5 minutos.
+
+**Reels ficaram de fora** por decisão conjunta: é vídeo, e num plano de 30 GB compartilhado
+com o PC seria o primeiro a estourar tudo.
+
+**Medir em vez de estimar.** Como meu chute já errou por 50×, entrou o `MedidorDeDados`:
+soma o `content-length` das respostas, acumula por mês e aparece no terminal, no resumo da
+aba e em `GET /follow/data-usage`. É um piso honesto (chunked não declara tamanho) e o
+resumo diz isso em vez de fingir precisão.
+
+**Armadilha que só apareceu porque um teste estourou o tempo:** a leitura "leve" usava
+`spider._resolve_user`, cuja cadeia de fallback, no último recurso, **navega para a página
+inteira** (~3 MB) e dorme 2s de verdade. Ou seja, a leitura barata podia virar a cara sem
+avisar — exatamente o que o orçamento não permite. Passou a usar
+`_resolve_via_web_profile_info` direto: uma requisição, sem fallback. O `test_404` estourava
+30s por causa disso; foi o timeout que denunciou o custo escondido.
+
+**Testes atualizados por mudança deliberada, não por regressão:** os pesos das leituras
+(agora busca > feed > explorar, por preço) e o dublê do motor, que patchava `_resolve_user`
+e precisou passar a patchar `_resolve_via_web_profile_info`.
+
+**Validação:** 33 asserções novas da rajada e do medidor · regressão **35 arquivos,
+~626 asserções, 0 falhas**.
+
 ### Aberto
 - **Ainda não rodou ao vivo.** O primeiro teste deve ser com **simulação ligada** e depois
   um turno curto, conferindo o log (`🧑 além dos follows, esta conta: …`).

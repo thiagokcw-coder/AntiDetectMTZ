@@ -1683,6 +1683,10 @@ async def run(profile: dict, queue: list, settings: dict, filters: dict, *,
             await page.add_init_script(_SPY_INIT)
         except Exception:
             pass
+        # Medidor de dados ANTES de navegar: o plano e de 30 GB/mes e o modem e a
+        # internet do PC INTEIRO, entao quanto cada turno consome virou restricao
+        # de projeto, nao curiosidade. Ligado aqui para contar a sessao inteira.
+        humano.dados.ligar(page)
         await page.goto(IG + "/", wait_until="domcontentloaded")
         await asyncio.sleep(round(random.uniform(1.0, 2.5), 1))
         hdrs_ui = await colher_headers_dinamicos(page, log=log)
@@ -2023,7 +2027,7 @@ async def run(profile: dict, queue: list, settings: dict, filters: dict, *,
                     f" · {feitos}{('/' + str(cota)) if cota else ''} no turno"
                     f" · {counts['hour']}/h {counts['day']}/d · próximo em {human_duration(wait)}"
                     + (f" ({modo})" if modo != "fixo" else ""))
-            r_espera = await humano.esperar(page, wait, should_stop)
+            r_espera = await humano.esperar(page, wait, should_stop, modo=modo)
             leitura = r_espera.get("leitura")
             if log and leitura:
                 log("   👀 passou pelo " + str(leitura.get("tipo"))
@@ -2049,4 +2053,9 @@ async def run(profile: dict, queue: list, settings: dict, filters: dict, *,
         if log:
             log(f"✖ {meta['error']}")
 
-    return {"stats": stats, **meta}
+    # Bytes MEDIDOS neste turno (piso -- ver MedidorDeDados). Quem acumula por
+    # mes e a api, do mesmo jeito que ela acumula historico e acoes.
+    return {"stats": stats, **meta,
+            "dados_bytes": humano.dados.bytes,
+            "dados_mb": humano.dados.mb,
+            "dados_sem_tamanho": humano.dados.sem_tamanho}

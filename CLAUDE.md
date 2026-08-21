@@ -29,6 +29,30 @@ tela que a sessão nunca carregava**.
   adivinhada que custou dias no 404).
 - **Sono opcional, DESLIGADO por padrão** (custa ~35% do volume), com desvio estável por
   conta para a frota não dormir toda no mesmo minuto.
+- **Sessão em RAJADA (2-5 follows) + pausa**, em vez de gotejar um a cada X segundos.
+  Rajada curta de propósito — *"as sequências não podem ser grandes por ser sinal de bot"*.
+  A média é preservada por construção (`((3,5-1)·0,40 + 2,5)/3,5 = 1,0`), então **o volume
+  não muda, só a forma da chegada**. Medido: gap 7,2s · pausa 44,9s · 5% das pausas de
+  2 a 5,5 min. **O conteúdo só acontece NA PAUSA** — no meio da rajada, nunca.
+
+**📶 O plano de dados virou restrição de projeto (30 GB/mês, e o modem é a internet do PC
+inteiro).** Os meus primeiros padrões custavam **~76 GB/mês** a 2.000 follows/dia — e a
+estimativa na tela mostrava 1,5 GB porque **eu contava só a leitura do perfil e ignorava
+feed/explorar**. Recalibrado para **~18 GB/mês**: a leitura leve (~50 KB) fica em 100% e é
+ela que corrige o sinal principal (~3 GB/mês sozinha); quem come o plano é **abrir a página
+inteira (~3 MB, agora 5%)** e o **explorar (~4 MB, agora o mais raro do sorteio)**. A busca
+virou a leitura mais comum por ser a mais barata. **A maioria das pausas é ociosa, o que
+além de humano custa zero.**
+- **Medidor de dados REAL** (`comportamento.MedidorDeDados`): soma o `content-length` das
+  respostas da sessão, acumula por mês em `follow_data_usage` e aparece no terminal
+  (`📶 este turno gastou X MB`), no resumo da aba e em **`GET /follow/data-usage`**. É um
+  **piso** (resposta chunked pode não declarar tamanho) e o resumo diz isso — mas troca a
+  minha estimativa, que já errou por 50×, por medição.
+- **Armadilha corrigida:** a leitura "leve" usava `spider._resolve_user`, cuja cadeia de
+  fallback **navega para a página inteira** (~3 MB) e dorme 2s de verdade. Passou a usar
+  `_resolve_via_web_profile_info` direto — uma requisição, sem fallback. Para resolver um
+  alvo de extração a cadeia vale a pena; para ruído de contexto ela transformaria a leitura
+  leve numa pesada sem avisar.
 
 **Regra de ouro do módulo:** ruído **nunca** derruba a campanha — toda rotina engole a
 própria exceção (é teste, não promessa). Ajustes em **InstaFollow → ⚙ Preferências →
