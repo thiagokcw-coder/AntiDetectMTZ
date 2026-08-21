@@ -4692,15 +4692,25 @@ function followHumanoHint() {
     return;
   }
   const ler = fwNum('fw-verPerfilPct', 100), cheio = fwNum('fw-verPerfilCompletoPct', 25);
-  // Estimativa grosseira: leitura leve ~50KB, página inteira ~3MB.
-  const mbPorFollow = (ler / 100) * ((cheio / 100) * 3 + (1 - cheio / 100) * 0.05);
-  const porDia = mbPorFollow * 2000;
+  const leitura = fwNum('fw-leituraPct', 22);
+  // Estimativas grosseiras: perfil JSON ~50KB · página de perfil ~3MB · feed ~2,5MB ·
+  // explorar ~4MB (grade de imagens) · busca JSON ~50KB. A mistura das leituras entre
+  // follows é 45% feed / 30% explorar / 25% busca.
+  const mbPerfil = (ler / 100) * ((cheio / 100) * 3 + (1 - cheio / 100) * 0.05);
+  const mbLeitura = (leitura / 100) * (0.45 * 2.5 + 0.30 * 4 + 0.25 * 0.05);
+  const mbPorFollow = mbPerfil + mbLeitura;
+  const gbMes = mbPorFollow * (window._fwFollowsDia || 2000) * 30 / 1024;
   const partes = [];
   partes.push(ler >= 100
     ? '✅ <b>todo</b> follow é precedido da leitura do perfil — a origem declarada passa a ser verdade'
     : `⚠️ só <b>${ler}%</b> dos follows leem o perfil antes; nos outros ${100 - ler}% a origem declarada continua falsa`);
-  partes.push(`📶 ~<b>${mbPorFollow.toFixed(2)} MB</b> por follow (~<b>${(porDia / 1024).toFixed(1)} GB</b> a cada 2.000 follows) — `
-    + 'baixe "abrem a página inteira" se o chip 4G apertar');
+  const cor = gbMes > 25 ? '#ef4444' : (gbMes > 15 ? '#f59e0b' : '#22c55e');
+  partes.push(`📶 ~<b>${mbPorFollow.toFixed(2)} MB</b> por follow → <b style="color:${cor}">~${gbMes.toFixed(0)} GB/mês</b> `
+    + `a 2.000 follows/dia (perfil ${mbPerfil.toFixed(2)} + feed/explorar ${mbLeitura.toFixed(2)})`
+    + (gbMes > 25 ? ' — <b>estoura o plano de 30 GB</b>, e o modem é a internet do PC inteiro' : ''));
+  partes.push('💡 A leitura <b>leve</b> do perfil custa ~50 KB e é ela que corrige o sinal principal: '
+    + 'a 2.000 follows/dia dá <b>~3 GB/mês</b>. Quem come o plano é <b>abrir a página inteira</b> (~3 MB) '
+    + 'e o <b>explorar</b> (~4 MB) — use com parcimônia.');
   const sono = document.getElementById('fw-sonoAtivo').checked;
   partes.push(sono
     ? `🌙 dorme das <b>${fwNum('fw-sonoInicio', 1)}h às ${fwNum('fw-sonoFim', 8)}h</b> (±70 min por conta) — `
