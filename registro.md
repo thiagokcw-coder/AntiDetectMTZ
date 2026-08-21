@@ -216,6 +216,49 @@ ali a punha no tempo errado. Ganhou linha própria. Também removi o log interno
 E não dá aviso falso quando há variedade · desligado não polui) · regressão **36 arquivos,
 ~650 asserções, 0 falhas**. Um dublê precisou aceitar o kwarg `termo`.
 
+### "Paradas não quebram o ciclo" — a pausa ociosa não era comportamento novo
+
+Print do usuário com o log ao vivo e três observações: a primeira rajada teve 7 follows,
+*"a ação foi a mesma, só parou por 44seg e retornou a seguir"*, e *"paradas não quebram o
+ciclo"*.
+
+**Medido antes de responder:**
+- **A rajada de 7 estava certa.** `GET /follow/config` mostrou **`rajadaMin=6`,
+  `rajadaMax=11`** — não o padrão 2-5. O motor obedeceu ao que estava configurado. Isso é
+  fato reportável, não bug; a UI passou a **avisar** quando o máximo passa de 6.
+- **As pausas, não.** Contadas no log do job: **3 pausas, 3 ociosas (100%)**, rajadas de
+  7, 8 e 6. Ou seja a sessão era literalmente `follow×7 → espera → follow×8 → espera`.
+  **Nenhum verbo diferente.** O usuário está certo: pausa ociosa muda o intervalo, não o
+  comportamento.
+
+**A causa foi minha, e era dupla:** `leituraPct` estava em 25 (por pausa), e com rajadas
+de 6-11 há poucas pausas por follow — o produto das duas coisas fazia a ação ser
+praticamente nunca.
+
+**E a medição revelou uma terceira assinatura que eu não tinha visto:** a conta seguia
+**100% dos perfis que abria**. Conversão perfeita leitura→follow é padrão por si só —
+gente real abre muito perfil e segue poucos.
+
+**O que entrou:**
+- **Ação nova: `espiar_perfil`** — abre o perfil de alguém da fila e **não segue**. Custa
+  ~50 KB (a mesma leitura leve), e é a que ataca a conversão de 100%. Quem foi espiado
+  continua na fila e será seguido na vez dele.
+- **`leituraPct` de 25 → 90**: a pausa quase sempre age. Os ~10% ociosos ficam de
+  propósito — gente também simplesmente para, e "sempre agir" seria outra regra fixa.
+- **Mix reponderado por preço**: espiar 50% · busca 35% · feed 12% · explorar 3%. As duas
+  primeiras custam ~50 KB, então a pausa pode agir quase sempre **sem estourar o plano**:
+  a previsão foi de ~18 para **~19 GB/mês**.
+- **O relatório passou a mostrar a conversão** (`abriu 16 perfil(is), seguiu 14 (88%)`) e
+  a acusar quando ela é total (`⚠ seguiu TODO perfil que abriu`).
+- **Guarda:** sem ninguém para espiar, a pausa cai numa ação igualmente barata em vez de
+  ficar ociosa por acidente.
+
+**Validação:** 9 asserções novas (espiar aparece no log dizendo que NÃO seguiu · a
+conversão sai abaixo de 100% · conversão total é denunciada e a parcial não · sem fila
+para espiar a pausa ainda age e nunca tenta espiar o vazio) · regressão **36 arquivos,
+~661 asserções, 0 falhas**. Três testes foram atualizados por mudança deliberada de mix,
+não por regressão.
+
 ### Aberto
 - **Ainda não rodou ao vivo.** O primeiro teste deve ser com **simulação ligada** e depois
   um turno curto, conferindo o log (`🧑 além dos follows, esta conta: …`).

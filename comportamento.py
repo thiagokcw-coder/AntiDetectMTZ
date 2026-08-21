@@ -234,6 +234,26 @@ async def ver_perfil_leve(page, username) -> dict:
             "segundos": round(time.monotonic() - t0, 2)}
 
 
+async def espiar_perfil(page, username) -> dict:
+    """Abre o perfil de alguem e NAO segue.
+
+    Existe por causa de uma assinatura medida em 2026-08-21: **100% dos perfis que a
+    conta lia, ela seguia**. Conversao perfeita leitura->follow e padrao por si so --
+    gente real abre muito perfil e segue poucos. Esta acao quebra exatamente isso, e
+    custa o mesmo que a leitura leve (~50KB), entao cabe no plano de 30 GB."""
+    t0 = time.monotonic()
+    if not username:
+        return {"ok": False, "tipo": "espiar", "erro": "sem perfil para espiar",
+                "segundos": 0.0}
+    try:
+        uid, _info = await spider._resolve_via_web_profile_info(page, username, None)
+    except Exception as e:
+        return {"ok": False, "tipo": "espiar", "usuario": username, "erro": str(e),
+                "segundos": round(time.monotonic() - t0, 2)}
+    return {"ok": bool(uid), "tipo": "espiar", "usuario": username,
+            "segundos": round(time.monotonic() - t0, 2)}
+
+
 async def passar_pelo_feed(page, *, rng=None) -> dict:
     """Abre o feed e rola um pouco. E a tela que qualquer pessoa abre, e carrega-la
     faz a sessao emitir o trafego normal do Instagram (bandeja de stories, timeline)
@@ -293,11 +313,16 @@ async def buscar(page, termo=None, *, rng=None) -> dict:
             "segundos": round(time.monotonic() - t0, 2)}
 
 
-# Quanto cada leitura pesa no sorteio da pausa. A busca leva o maior peso porque e
-# a mais BARATA (JSON de ~50KB) e continua sendo comportamento humano comum; o
-# explorar e o mais caro (~4MB, grade de imagens) e por isso e o mais raro. Num
-# plano de 30 GB/mes compartilhado com o PC, o peso aqui e decisao de orcamento.
-_LEITURAS = (("feed", 0.35), ("explorar", 0.15), ("busca", 0.50))
+# Quanto cada acao pesa no sorteio da pausa.
+#
+# Os pesos sao decisao de ORCAMENTO tanto quanto de comportamento: espiar um perfil e
+# buscar custam ~50KB cada, enquanto o feed custa ~2,5MB e o explorar ~4MB (grade de
+# imagens). Num plano de 30 GB/mes compartilhado com o PC, encher a pausa de conteudo
+# pesado estoura o mes; encher de acoes BARATAS nao.
+#
+# `espiar` leva o maior peso porque resolve a assinatura mais grave que a medicao de
+# 2026-08-21 revelou: a conta seguia 100% dos perfis que lia.
+_LEITURAS = (("espiar", 0.50), ("busca", 0.35), ("feed", 0.12), ("explorar", 0.03))
 
 # Custo estimado de cada leitura, em MB. Usado so para a previsao na tela -- o
 # numero que vale e o do MedidorDeDados, que conta os bytes de verdade.
@@ -315,13 +340,15 @@ def sortear_leitura(rng=None) -> str:
     return _LEITURAS[0][0]
 
 
-async def fazer_leitura(page, nome, *, rng=None, termo=None) -> dict:
+async def fazer_leitura(page, nome, *, rng=None, termo=None, usuario=None) -> dict:
     if nome == "feed":
         return await passar_pelo_feed(page, rng=rng)
     if nome == "explorar":
         return await explorar(page, rng=rng)
     if nome == "busca":
         return await buscar(page, termo, rng=rng)
+    if nome == "espiar":
+        return await espiar_perfil(page, usuario)
     return {"ok": False, "tipo": nome, "erro": "leitura desconhecida", "segundos": 0.0}
 
 
@@ -357,7 +384,9 @@ def descrever_pausa(segundos, leitura=None, curtiu=False) -> str:
         partes.append("curtiu um post")
     l = leitura or {}
     tipo, dur = l.get("tipo"), float(l.get("segundos") or 0)
-    if tipo == "busca":
+    if tipo == "espiar":
+        partes.append("espiou o perfil de @" + str(l.get("usuario")) + " e NÃO seguiu")
+    elif tipo == "busca":
         partes.append('buscou "' + str(l.get("termo")) + '"')
     elif tipo == "feed":
         partes.append(f"abriu o feed e rolou por {dur:.0f}s")
@@ -500,9 +529,16 @@ PADROES = {
     # quando a pagina foi carregada, entao mexer aqui mexe na curtida tambem.
     "verPerfilCompletoPct": 5,
     "curtirPct": 12,          # % dos follows seguidos de uma curtida na interface
-    # % das PAUSAS que viram feed/explorar/busca. Conta por pausa, nao por follow:
-    # conteudo e coisa de intervalo, nao de rajada.
-    "leituraPct": 25,
+    # % das PAUSAS em que a conta FAZ alguma coisa (espiar perfil, buscar, feed,
+    # explorar). Conta por pausa, nao por follow: conteudo e coisa de intervalo.
+    #
+    # Era 25, e a medicao de 2026-08-21 mostrou o resultado disso na pratica: 3 pausas,
+    # 3 ociosas, sessao 100% follow. Como o usuario resumiu, "a acao foi a mesma, so
+    # parou 44s e voltou a seguir -- paradas nao quebram o ciclo". Subiu para 90: a
+    # pausa quase sempre age, e o mix e dominado pelas acoes BARATAS (~50KB) para o
+    # plano de 30 GB nao sofrer. Os ~10% restantes ficam ociosos de proposito -- gente
+    # tambem simplesmente para, e "sempre agir" seria outra regra fixa.
+    "leituraPct": 90,
     "blocoVariacaoPct": 25,   # +- no tamanho do turno (100 vira 75-125)
     # Estrutura de sessao: rajada curta de follows, depois uma pausa maior.
     "rajadaAtiva": True,
@@ -543,7 +579,10 @@ class Comportamento:
         self.log = log
         self.desvio = desvio_da_conta(chave_conta)
         self.contagem = {"perfil_leve": 0, "perfil_completo": 0, "curtidas": 0,
-                         "feed": 0, "explorar": 0, "busca": 0, "rajadas": 0}
+                         "feed": 0, "explorar": 0, "busca": 0, "espiar": 0, "rajadas": 0}
+        # De onde sai o perfil que a conta vai ESPIAR sem seguir. Quem define e o
+        # motor, que tem a fila; o modulo so pede um nome quando precisa.
+        self.fonte_de_perfis = None
         self.dados = MedidorDeDados()
         # Estado da rajada em curso.
         self._rajada = tamanho_da_rajada(self.c.get("rajadaMin"), self.c.get("rajadaMax"),
@@ -552,7 +591,7 @@ class Comportamento:
         # Trilha do turno -- e o que permite VER a variedade em vez de confiar nela.
         # O usuario pediu explicitamente para conseguir "prevenir comportamento
         # repetitivo", e para isso ele precisa dos numeros, nao de uma media.
-        self.trilha = {"rajadas": [], "pausas": [], "termos": []}
+        self.trilha = {"rajadas": [], "pausas": [], "termos": [], "espiados": []}
 
     # ── estado ──────────────────────────────────────────────────────────
     @property
@@ -632,6 +671,16 @@ class Comportamento:
         self.trilha["pausas"].append(int(round(segundos)))
         return segundos, ("pausa longa" if longa else "pausa")
 
+    def _perfil_para_espiar(self):
+        """Pede ao motor um perfil para abrir SEM seguir. Best-effort: se a fonte
+        nao existe ou falha, devolve None e a pausa faz outra coisa."""
+        if not callable(self.fonte_de_perfis):
+            return None
+        try:
+            return self.fonte_de_perfis()
+        except Exception:
+            return None
+
     def sortear_termo(self) -> str:
         """Termo de busca que NAO esteja entre os ultimos usados.
 
@@ -657,7 +706,17 @@ class Comportamento:
         if self.ativo and na_pausa and self.rng.random() < _pct(self.c.get("leituraPct")):
             nome = sortear_leitura(self.rng)
             termo = self.sortear_termo() if nome == "busca" else None
-            r = await fazer_leitura(page, nome, rng=self.rng, termo=termo)
+            usuario = None
+            if nome == "espiar":
+                usuario = self._perfil_para_espiar()
+                if not usuario:
+                    # Sem ninguem para espiar, cai numa acao igualmente barata em vez
+                    # de desperdicar a pausa.
+                    nome, termo = "busca", self.sortear_termo()
+            r = await fazer_leitura(page, nome, rng=self.rng, termo=termo,
+                                    usuario=usuario)
+            if r.get("ok") and nome == "espiar":
+                self.trilha["espiados"].append(usuario)
             if r.get("ok"):
                 self.contagem[nome] = self.contagem.get(nome, 0) + 1
                 feito = r
@@ -678,7 +737,8 @@ class Comportamento:
             partes.append(str(c["perfil_leve"]) + " perfil(is) lidos")
         if c["curtidas"]:
             partes.append(str(c["curtidas"]) + " curtida(s)")
-        for nome, rotulo in (("feed", "feed"), ("explorar", "explorar"),
+        for nome, rotulo in (("espiar", "perfil(is) espiados sem seguir"),
+                             ("feed", "feed"), ("explorar", "explorar"),
                              ("busca", "busca(s)")):
             if c.get(nome):
                 partes.append(str(c[nome]) + "x " + rotulo)
@@ -708,4 +768,18 @@ class Comportamento:
             repetidos = len(termos) - len(set(termos))
             extra = f"  ⚠ {repetidos} repetido(s)" if repetidos else ""
             linhas.append(f"   ↳ buscas: {', '.join(termos[-12:])}{extra}")
+        espiados = t.get("espiados") or []
+        if espiados:
+            linhas.append("   ↳ espiados sem seguir: "
+                          + ", ".join("@" + str(u) for u in espiados[-10:]))
+        # Conversao leitura->follow. Media 100% e assinatura: gente real abre muito
+        # perfil e segue poucos. Aqui isso vira numero na tela, nao suposicao.
+        lidos = self.contagem["perfil_leve"] + self.contagem["perfil_completo"]
+        seguidos = lidos                       # todo perfil lido antes do follow virou follow
+        total_lidos = lidos + len(espiados)
+        if total_lidos:
+            pct = 100.0 * seguidos / total_lidos
+            aviso = "  ⚠ seguiu TODO perfil que abriu" if pct >= 99.5 else ""
+            linhas.append(f"   ↳ abriu {total_lidos} perfil(is), seguiu {seguidos}"
+                          f" ({pct:.0f}%){aviso}")
         return linhas

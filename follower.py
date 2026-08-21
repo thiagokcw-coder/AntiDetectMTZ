@@ -1649,6 +1649,19 @@ async def run(profile: dict, queue: list, settings: dict, filters: dict, *,
     humano = comp.Comportamento(s, chave_conta=chave_conta or profile.get("name") or "",
                                 log=log)
 
+    def _perfil_aleatorio_da_fila():
+        """Um nome da fila para a conta ESPIAR sem seguir.
+
+        Medido em 2026-08-21: a conta seguia 100% dos perfis que abria — conversão
+        perfeita é assinatura, gente real abre muito e segue pouco. Sai da própria
+        fila porque é o que uma pessoa faria: percorre uma lista, abre vários, segue
+        alguns. Quem for espiado continua na fila e será seguido depois, na vez dele."""
+        pend = [a.get("username") for a in queue
+                if a.get("status") == "pending" and a.get("username")]
+        return random.choice(pend) if pend else None
+
+    humano.fonte_de_perfis = _perfil_aleatorio_da_fila
+
     if use_local:
         profile = {**profile, "proxy": None}
 

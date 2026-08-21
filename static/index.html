@@ -1623,9 +1623,9 @@
             <div class="form-hint">Curte <b>clicando na interface</b>, então quem monta o pedido é o próprio Instagram. Só vale quando a página foi aberta.</div>
           </div>
           <div class="form-group">
-            <label>Pausas que viram feed / explorar / busca (%)</label>
-            <input id="fw-leituraPct" type="number" min="0" max="100" value="25" oninput="followHumanoHint()">
-            <div class="form-hint">Conta por <b>pausa</b>, não por follow. O resto das pausas é ociosidade — humana e de <b>custo zero</b>.</div>
+            <label>Pausas em que a conta FAZ algo (%)</label>
+            <input id="fw-leituraPct" type="number" min="0" max="100" value="90" oninput="followHumanoHint()">
+            <div class="form-hint">Espiar um perfil <b>sem seguir</b>, buscar, feed ou explorar. Conta por <b>pausa</b>. Com 25% (o valor antigo) a sessão saía <b>100% follow</b> — a pausa só alongava o intervalo, não quebrava o padrão.</div>
           </div>
         </div>
         <div class="form-group">
@@ -4321,7 +4321,7 @@ function followFillConfig(cfg) {
   document.getElementById('fw-verPerfilPct').value = s.verPerfilPct ?? 100;
   document.getElementById('fw-verPerfilCompletoPct').value = s.verPerfilCompletoPct ?? 5;
   document.getElementById('fw-curtirPct').value = s.curtirPct ?? 12;
-  document.getElementById('fw-leituraPct').value = s.leituraPct ?? 25;
+  document.getElementById('fw-leituraPct').value = s.leituraPct ?? 90;
   document.getElementById('fw-blocoVariacaoPct').value = s.blocoVariacaoPct ?? 25;
   document.getElementById('fw-rajadaAtiva').checked = s.rajadaAtiva !== false;
   document.getElementById('fw-rajadaMin').value = s.rajadaMin ?? 2;
@@ -4739,7 +4739,10 @@ function followHumanoHint() {
   // Estimativas grosseiras: perfil JSON ~50KB · página de perfil ~3MB · feed ~2,5MB ·
   // explorar ~4MB (grade de imagens) · busca JSON ~50KB. A mistura é 35/15/50 — a
   // busca leva o maior peso por ser a mais barata, o explorar o menor por ser o mais caro.
-  const custoLeitura = 0.35 * 2.5 + 0.15 * 4 + 0.50 * 0.05;
+  // Mix: espiar perfil 50% (~50KB) · busca 35% (~50KB) · feed 12% (~2,5MB) ·
+  // explorar 3% (~4MB). Dominado pelas acoes baratas de proposito -- e o que permite
+  // a pausa AGIR quase sempre sem estourar o plano de 30 GB.
+  const custoLeitura = 0.50 * 0.05 + 0.35 * 0.05 + 0.12 * 2.5 + 0.03 * 4;
   // leituraPct conta por PAUSA, não por follow: com rajada de N, são N follows por pausa.
   const porPausa = rajada ? Math.max(1, (rMin + rMax) / 2) : 1;
   const mbPerfil = (ler / 100) * ((cheio / 100) * 3 + (1 - cheio / 100) * 0.05);
@@ -4751,8 +4754,11 @@ function followHumanoHint() {
     const rm = (rMin + rMax) / 2;
     // pausa média = 2,5 × intervalo base (a constante que preserva a média no motor)
     const base = (parseFloat(document.getElementById('fw-interval').value) || 3) * 60;
+    const alerta = rMax > 6
+      ? ` <b style="color:#f59e0b">⚠ sequência longa é sinal de bot</b> — 2 a 5 é o que uma pessoa faz.`
+      : '';
     partes.push(`🌊 <b>${rMin}–${rMax} follows</b> em rajada (média ${rm.toFixed(1)}), `
-      + `com <b>~${Math.round(base * 2.5)}s</b> de pausa entre elas — o volume não muda, só a forma.`);
+      + `com <b>~${Math.round(base * 2.5)}s</b> de pausa entre elas — o volume não muda, só a forma.${alerta}`);
   } else {
     partes.push('⚠️ <b>Sem rajada:</b> volta a gotejar um follow a cada intervalo, para sempre.');
   }
