@@ -2012,7 +2012,7 @@ async def run(profile: dict, queue: list, settings: dict, filters: dict, *,
             # Curtida ocasional: outro verbo no log de ações da conta, e é o gesto
             # natural de quem acabou de seguir alguém. Feita CLICANDO na interface —
             # quem monta a requisição é o Instagram, então não há rota a adivinhar.
-            await humano.depois_de_seguir(page, ctx_perfil)
+            r_curtida = await humano.depois_de_seguir(page, ctx_perfil)
 
             feitos = stats["followed"] + stats["requested"]
             if cota and feitos >= cota:
@@ -2022,16 +2022,28 @@ async def run(profile: dict, queue: list, settings: dict, filters: dict, *,
                 break
 
             wait, modo = humano.proximo_intervalo(s["baseDelayMs"])
+            # O que PRECEDEU este follow vai inline: sem isso a leitura do perfil —
+            # que acontece em todo follow e é o principal do disfarce — era invisível.
+            antes_disso = comp.descrever_leitura_de_perfil(ctx_perfil)
+            eh_pausa = str(modo).startswith("pausa")
             if log:
                 log(f"✓ @{acct['username']} — {'solicitada' if requested else 'seguida'}"
-                    f" · {feitos}{('/' + str(cota)) if cota else ''} no turno"
-                    f" · {counts['hour']}/h {counts['day']}/d · próximo em {human_duration(wait)}"
-                    + (f" ({modo})" if modo != "fixo" else ""))
+                    + (f" · {antes_disso}" if antes_disso else "")
+                    + f" · {feitos}{('/' + str(cota)) if cota else ''} no turno"
+                    + f" · {counts['hour']}/h {counts['day']}/d"
+                    + ("" if eh_pausa else f" · próximo em {human_duration(wait)}"))
+            # A curtida acontece logo APÓS o follow, antes de o intervalo começar —
+            # por isso tem linha própria e não é dobrada na linha da pausa, que
+            # descreve um tempo posterior.
+            if log and (r_curtida or {}).get("ok"):
+                log("   ♥ curtiu um post do perfil")
             r_espera = await humano.esperar(page, wait, should_stop, modo=modo)
-            leitura = r_espera.get("leitura")
-            if log and leitura:
-                log("   👀 passou pelo " + str(leitura.get("tipo"))
-                    + (f" ('{leitura.get('termo')}')" if leitura.get("termo") else ""))
+            # A pausa é narrada SEMPRE, inclusive quando não se fez nada nela. Ficar
+            # parado é a maioria das pausas, e era justamente esse silêncio que fazia
+            # o terminal parecer morto no tempo em que mais tempo passa.
+            if log and r_espera.get("na_pausa"):
+                log(comp.descrever_pausa(r_espera.get("segundos"),
+                                         r_espera.get("leitura")))
             if r_espera.get("parado"):
                 break
 
@@ -2042,6 +2054,11 @@ async def run(profile: dict, queue: list, settings: dict, filters: dict, *,
             extras = humano.resumo()
             if extras:
                 log(f"🧑 além dos follows, esta conta: {extras}")
+            # A sequência CRUA de rajadas, pausas e buscas. Média não revela
+            # repetição; a sequência revela — e foi para poder "prevenir
+            # comportamento repetitivo" que o usuário pediu esta visibilidade.
+            for linha in humano.relatorio_de_variedade():
+                log(linha)
 
     try:
         if log:

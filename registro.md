@@ -177,6 +177,45 @@ parecendo que nada aconteceu.
 **Bug que o teste pegou na hora:** essa linha cosmética derrubou o supervisor no
 `test_ciclo` (job de dublê sem a chave `log`). Blindada — cosmético não pode matar o ciclo.
 
+### O log virou instrumento: narrar a pausa e denunciar repetição
+
+Relato: *"os logs não estão descrevendo o que está sendo feito nas pausas"* — e o motivo,
+que muda o que a entrega precisa ser: *"preciso saber o que está sendo feito para prevenir
+comportamento repetitivo"*. Ou seja, o log deixou de ser narração e virou **instrumento de
+diagnóstico**.
+
+**Medido antes de mexer, no turno real de 21 follows:** zero linhas de leitura, zero de
+curtida. Duas causas somadas — os eventos são raros por configuração (1,5 leituras
+esperadas em 6 pausas; a curtida depende da página completa, que é 5%), e **a pausa ociosa
+não era narrada**. Como ociosidade é a maioria das pausas, o terminal ficava mudo
+justamente no tempo em que mais tempo passa.
+
+**O que entrou:**
+- **Toda pausa é narrada**, inclusive a vazia: `⏸ pausa de 32s — parada, sem atividade` ·
+  `⏸ pausa de 45s — buscou "viagem"` · `⏸ pausa de 30s — abriu o feed e rolou por 7s`.
+- **A leitura do perfil aparece inline** na linha do follow (`· leu o perfil` /
+  `· abriu a página`) — acontece em todo follow, é o principal do disfarce, e era invisível.
+  Inline para não dobrar o volume do log.
+- **`próximo em Xs` só quando o próximo follow é da mesma rajada** — quando vem pausa, quem
+  informa é a linha da pausa, sem repetir a informação.
+- **Relatório de variedade no fim do turno**, com a sequência CRUA: `↳ rajadas: 4, 5, 2
+  (de 2 a 5)` · `↳ pausas: 32s, 45s, 30s (média 36s)` · `↳ buscas: viagem`. **Média não
+  revela repetição; a sequência revela** — e o relatório acusa sozinho quando algo trava
+  (`⚠ SEMPRE o mesmo tamanho`, `⚠ 2 repetido(s)`).
+- **Anti-repetição de verdade, não só visibilidade:** a busca passou a evitar os **6 termos
+  mais recentes**. Sorteio uniforme sobre 20 termos repete por acaso (aniversário), e
+  repetir a mesma busca é exatamente o padrão que o usuário quer evitar.
+
+**Erro meu corrigido no caminho:** a primeira versão dobrava a curtida na linha da pausa.
+Mas a curtida acontece logo **depois do follow**, antes de o intervalo começar — colocá-la
+ali a punha no tempo errado. Ganhou linha própria. Também removi o log interno do
+`curtir_no_perfil`, que agora duplicaria (quem narra é o motor).
+
+**Validação:** 24 asserções novas (pausa ociosa aparece · leitura inline em todo follow ·
+`próximo em` só na rajada · termo nunca repete na janela · o relatório denuncia repetição
+E não dá aviso falso quando há variedade · desligado não polui) · regressão **36 arquivos,
+~650 asserções, 0 falhas**. Um dublê precisou aceitar o kwarg `termo`.
+
 ### Aberto
 - **Ainda não rodou ao vivo.** O primeiro teste deve ser com **simulação ligada** e depois
   um turno curto, conferindo o log (`🧑 além dos follows, esta conta: …`).

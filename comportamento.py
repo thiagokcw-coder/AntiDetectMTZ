@@ -270,6 +270,11 @@ TERMOS_BUSCA = [
     "cachorro", "cafe", "fim de semana", "show", "futebol", "moda", "carros",
 ]
 
+# Quantos termos recentes ficam PROIBIDOS antes de poder repetir. Sorteio uniforme
+# repete por acaso (aniversario), e repetir a mesma busca e o tipo de padrao que o
+# usuario quer evitar -- ele pediu justamente para conseguir ver e prevenir isso.
+_TERMOS_SEM_REPETIR = 6
+
 
 async def buscar(page, termo=None, *, rng=None) -> dict:
     """Faz uma busca. Usa a rota `topsearch`, que o Spider ja usa para resolver
@@ -310,14 +315,59 @@ def sortear_leitura(rng=None) -> str:
     return _LEITURAS[0][0]
 
 
-async def fazer_leitura(page, nome, *, rng=None) -> dict:
+async def fazer_leitura(page, nome, *, rng=None, termo=None) -> dict:
     if nome == "feed":
         return await passar_pelo_feed(page, rng=rng)
     if nome == "explorar":
         return await explorar(page, rng=rng)
     if nome == "busca":
-        return await buscar(page, rng=rng)
+        return await buscar(page, termo, rng=rng)
     return {"ok": False, "tipo": nome, "erro": "leitura desconhecida", "segundos": 0.0}
+
+
+# ══════════════════════════════ NARRACAO ══════════════════════════════
+# O usuario pediu para "saber o que esta sendo feito para prevenir comportamento
+# repetitivo". Entao o log deixa de ser so narracao e vira INSTRUMENTO: cada pausa
+# diz o que aconteceu nela -- inclusive quando nao aconteceu nada, que e o caso mais
+# comum e era exatamente o silencio que fazia o terminal parecer morto.
+
+def descrever_leitura_de_perfil(ctx) -> str:
+    """Frase curta do que precedeu o follow. Vai INLINE na linha do follow, para nao
+    dobrar o volume do log."""
+    c = ctx or {}
+    tipo, ok = c.get("tipo"), c.get("ok")
+    if tipo == "completo":
+        return "abriu a página" if ok else "tentou abrir a página, falhou"
+    if tipo == "leve":
+        if c.get("reaproveitada"):
+            return "perfil já lido pelos filtros"
+        return "leu o perfil" if ok else "não conseguiu ler o perfil"
+    if tipo == "sorteio":
+        return "sem leitura antes (sorteio)"
+    return ""
+
+
+def descrever_pausa(segundos, leitura=None, curtiu=False) -> str:
+    """O que a conta fez na pausa. `leitura=None` = ficou parada, e isso PRECISA
+    aparecer: ociosidade e a maior parte das pausas, e sem narrar isso o log fica
+    mudo justamente no tempo em que mais tempo passa."""
+    cab = f"⏸ pausa de {int(round(float(segundos or 0)))}s — "
+    partes = []
+    if curtiu:
+        partes.append("curtiu um post")
+    l = leitura or {}
+    tipo, dur = l.get("tipo"), float(l.get("segundos") or 0)
+    if tipo == "busca":
+        partes.append('buscou "' + str(l.get("termo")) + '"')
+    elif tipo == "feed":
+        partes.append(f"abriu o feed e rolou por {dur:.0f}s")
+    elif tipo == "explorar":
+        partes.append(f"foi ao explorar e rolou por {dur:.0f}s")
+    elif tipo:
+        partes.append(str(tipo))
+    if not partes:
+        return cab + "parada, sem atividade"
+    return cab + " · ".join(partes)
 
 
 # ══════════════════════════════ ESCRITA ══════════════════════════════
@@ -376,8 +426,8 @@ async def curtir_no_perfil(page, *, rng=None, log=None) -> dict:
         except Exception:
             pass
 
-    if curtiu and log:
-        log("   ♥ curtiu um post do perfil")
+    # Nao loga aqui de proposito: quem narra e o motor, que agrupa a curtida na linha
+    # da pausa. Logar nos dois lugares duplicava a mesma acao no terminal.
     return {"ok": curtiu,
             "motivo": "" if curtiu else (erro or "botao de curtir nao encontrado")}
 
@@ -499,6 +549,10 @@ class Comportamento:
         self._rajada = tamanho_da_rajada(self.c.get("rajadaMin"), self.c.get("rajadaMax"),
                                          self.rng)
         self._na_rajada = 0
+        # Trilha do turno -- e o que permite VER a variedade em vez de confiar nela.
+        # O usuario pediu explicitamente para conseguir "prevenir comportamento
+        # repetitivo", e para isso ele precisa dos numeros, nao de uma media.
+        self.trilha = {"rajadas": [], "pausas": [], "termos": []}
 
     # ── estado ──────────────────────────────────────────────────────────
     @property
@@ -570,11 +624,25 @@ class Comportamento:
 
         # Fechou a rajada: pausa maior e sorteia o tamanho da proxima.
         self.contagem["rajadas"] += 1
+        self.trilha["rajadas"].append(self._rajada)
         self._na_rajada = 0
         self._rajada = tamanho_da_rajada(self.c.get("rajadaMin"), self.c.get("rajadaMax"),
                                          self.rng)
         segundos, longa = pausa_entre_rajadas(base_ms, self.rng)
+        self.trilha["pausas"].append(int(round(segundos)))
         return segundos, ("pausa longa" if longa else "pausa")
+
+    def sortear_termo(self) -> str:
+        """Termo de busca que NAO esteja entre os ultimos usados.
+
+        Sorteio uniforme repete por acaso, e repetir a mesma busca e exatamente o
+        padrao que o usuario quer evitar. Se a lista de termos for menor que a
+        janela, cai no sorteio normal em vez de travar."""
+        recentes = self.trilha["termos"][-_TERMOS_SEM_REPETIR:]
+        opcoes = [t for t in TERMOS_BUSCA if t not in recentes] or list(TERMOS_BUSCA)
+        termo = self.rng.choice(opcoes)
+        self.trilha["termos"].append(termo)
+        return termo
 
     async def esperar(self, page, segundos, should_stop=None, modo="") -> dict:
         """Cumpre o intervalo -- as vezes FAZENDO alguma coisa.
@@ -588,13 +656,15 @@ class Comportamento:
         na_pausa = (self.c.get("rajadaAtiva") is False) or str(modo).startswith("pausa")
         if self.ativo and na_pausa and self.rng.random() < _pct(self.c.get("leituraPct")):
             nome = sortear_leitura(self.rng)
-            r = await fazer_leitura(page, nome, rng=self.rng)
+            termo = self.sortear_termo() if nome == "busca" else None
+            r = await fazer_leitura(page, nome, rng=self.rng, termo=termo)
             if r.get("ok"):
                 self.contagem[nome] = self.contagem.get(nome, 0) + 1
                 feito = r
             segundos = max(0.0, float(segundos) - float(r.get("segundos") or 0.0))
         parado = await spider._sleep_stop(segundos, should_stop)
-        return {"segundos": segundos, "leitura": feito, "parado": parado}
+        return {"segundos": segundos, "leitura": feito, "parado": parado,
+                "na_pausa": na_pausa}
 
     def resumo(self) -> str:
         """Uma linha para o log dizer o que a conta fez alem de seguir."""
@@ -615,3 +685,27 @@ class Comportamento:
         if self.dados.respostas:
             partes.append("📶 " + self.dados.resumo())
         return " · ".join(partes)
+
+    def relatorio_de_variedade(self) -> list:
+        """Linhas que mostram a VARIEDADE em numeros, para dar para conferir em vez
+        de confiar. Existe porque o pedido do usuario foi explicitamente
+        'saber o que esta sendo feito para prevenir comportamento repetitivo' --
+        e media nenhuma revela repeticao; a sequencia crua revela."""
+        t, linhas = self.trilha, []
+        raj, pau, termos = t["rajadas"], t["pausas"], t["termos"]
+        if raj:
+            distintos = len(set(raj))
+            aviso = "" if distintos > 1 else "  ⚠ SEMPRE o mesmo tamanho"
+            linhas.append(f"   ↳ rajadas: {', '.join(str(x) for x in raj[-20:])}"
+                          f" (de {min(raj)} a {max(raj)}){aviso}")
+        if pau:
+            media = sum(pau) / len(pau)
+            iguais = len(set(pau)) == 1 and len(pau) > 2
+            aviso = "  ⚠ SEMPRE a mesma duração" if iguais else ""
+            linhas.append(f"   ↳ pausas: {', '.join(str(x) + 's' for x in pau[-20:])}"
+                          f" (de {min(pau)}s a {max(pau)}s, média {media:.0f}s){aviso}")
+        if termos:
+            repetidos = len(termos) - len(set(termos))
+            extra = f"  ⚠ {repetidos} repetido(s)" if repetidos else ""
+            linhas.append(f"   ↳ buscas: {', '.join(termos[-12:])}{extra}")
+        return linhas
