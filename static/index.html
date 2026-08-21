@@ -4778,9 +4778,21 @@ function followHumanoHint() {
       + Math.max(0, Math.round(rm / 3) - 1);
     partes.push(`🌊 <b>${rMin}–${rMax} follows</b> em rajada (média ${rm.toFixed(1)}), `
       + `com <b>~${Math.round(base * 2.5)}s</b> de pausa entre elas — o volume não muda, só a forma.${alerta}`);
+    const pctPausa = fwNum('fw-leituraPct', 90);
+    const aCada = rm / (nAcoes * pctPausa / 100);
+    // Aviso explicito: um ajuste salvo BAIXO deixa a maioria das pausas ociosa, e o
+    // sintoma na tela e "voltou da pausa e ja seguiu". Aconteceu de verdade em
+    // 2026-08-21: o padrao do codigo subiu para 90 mas o valor salvo (25) venceu,
+    // deixando 75% das pausas mudas -- e o usuario so descobriu olhando o log.
+    const ocioso = 100 - pctPausa;
     partes.push(`↩️ ao <b>voltar</b> da pausa faz <b>~${nAcoes.toFixed(1)} ação(ões)</b> antes do próximo follow `
-      + `(≈ 1 a cada ${(rm / (nAcoes * fwNum('fw-leituraPct', 90) / 100)).toFixed(1)} follows) — `
+      + `(≈ 1 a cada ${aCada.toFixed(1)} follows) — `
       + `rajada longa rende volta mais rica, então a densidade <b>não depende</b> do tamanho da rajada.`);
+    if (pctPausa < 60) {
+      partes.push(`<b style="color:#f59e0b">⚠ ${ocioso}% das pausas ficam ociosas</b> — a conta vai `
+        + `<b>voltar da pausa seguindo</b> na maioria das vezes, que é o padrão óbvio. `
+        + `Suba "Pausas em que a conta FAZ algo" para 90%.`);
+    }
   } else {
     partes.push('⚠️ <b>Sem rajada:</b> volta a gotejar um follow a cada intervalo, para sempre.');
   }

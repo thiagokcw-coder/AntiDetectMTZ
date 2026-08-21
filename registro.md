@@ -388,6 +388,32 @@ pequena não é mexida · mantém os recentes e não os antigos · podar duas ve
 idempotente · item sem username não quebra) · regressão **38 arquivos, ~754 asserções,
 0 falhas**.
 
+### Padrão novo não alcança config salva — a armadilha que me pegou
+
+Print do usuário: `⏸ pausa de 43s — parada, sem atividade` seguido de três follows, com a
+pergunta *"qual foi a ação após a pausa e seguir novamente?"*. Resposta: **nenhuma**.
+
+**Medido:** `GET /follow/config` mostrou **`leituraPct = 25`** — o valor antigo, salvo no
+banco. Eu tinha subido o padrão do código para 90, mas `_follow_config` faz
+`{**DEFAULT_SETTINGS, **salvo}` e **o valor salvo vence**. Resultado: 75% das pausas
+ociosas. No log ao vivo: **10 pausas, 7 ociosas (70%)** — batendo com o configurado.
+
+**O motor estava certo.** Uma das 10 pausas mostrava
+`voltou: espiou o perfil de @ynallhrhymy sem seguir · depois espiou o perfil...`. Só a
+proporção estava errada, e ela vinha de um ajuste salvo que eu não conferi.
+
+**Corrigido:** `leituraPct` de 25 → 90 na config dele (ciclo estava parado). Densidade foi
+de **1 ação a cada 9,3 follows para 1 a cada 2,6**.
+
+**E o estrutural, para não repetir:** subir um padrão no código **nunca** alcança quem já
+tem config salva — e o sintoma disso é silencioso. A tela passou a avisar em âmbar quando
+o ajuste deixa muita pausa muda: *"⚠ 75% das pausas ficam ociosas — a conta vai voltar da
+pausa seguindo na maioria das vezes, que é o padrão óbvio."*
+
+**Lição:** por três mensagens seguidas eu tratei o sintoma como bug de código e mexi no
+motor, quando bastava ler a config em uso. **Antes de mudar comportamento, conferir o que
+está EFETIVAMENTE configurado** — o padrão do código é só o valor de partida.
+
 ### Aberto
 - **Ainda não rodou ao vivo.** O primeiro teste deve ser com **simulação ligada** e depois
   um turno curto, conferindo o log (`🧑 além dos follows, esta conta: …`).
