@@ -3011,6 +3011,18 @@ async def follow_cycle_start(body: FollowCycleRequest):
             pendentes = len([x for x in (_follow_jobs[run_id].get("queue") or [])
                              if x.get("status") == "pending"])
             _cycle_log(f"aproveitando a fila ja coletada: {pendentes} pendente(s)")
+            # Marca no terminal DO JOB que o ciclo religou. Reaproveitar o mesmo job
+            # mantém o log anterior, e sem esta linha o usuário religa e vê o texto
+            # velho parado na tela — indistinguível de "não reiniciou".
+            # Blindado: é cosmético, e cosmético não pode derrubar o supervisor (um
+            # job sem a chave `log` chegou a matar o ciclo antes de a 1ª rodada rodar).
+            try:
+                _follow_jobs[run_id].setdefault("log", [])
+                _follow_log(_follow_jobs[run_id])(
+                    f"═══ ciclo religado — retomando com {pendentes} pendente(s) ═══")
+            except Exception:
+                logger.exception("follow: falha ao marcar o religamento no log do job")
+            # (o `stop` do job já é zerado pelo /follow/start, não repetir aqui)
         secas = 0
         try:
             _cycle_log(f"ciclo ligado - {len(alvos)} alvo(s), {body.limit} nova(s) por coleta")

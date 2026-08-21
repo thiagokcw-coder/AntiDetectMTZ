@@ -144,6 +144,39 @@ e precisou passar a patchar `_resolve_via_web_profile_info`.
 **Validação:** 33 asserções novas da rajada e do medidor · regressão **35 arquivos,
 ~626 asserções, 0 falhas**.
 
+### Quarto rótulo falso: o terminal não religava ao parar e voltar
+
+Relato: *"log do terminal está falhando em reiniciar ao ser parado"*. Medido antes de
+mexer: o ciclo tinha rodado às 14:03 e sido parado às 14:10 com **21 follows reais**, e o
+log do job mostrava o comportamento novo funcionando (`próximo em 9s (rajada)` ·
+`próximo em 31s (pausa)` · `6 rajada(s) · 20 perfil(is) lidos · 📶 18.49 MB`). **De novo o
+motor certo e a tela errada** — a quarta vez nesta base.
+
+**Causa, e é minha:** os quatro pontos que paravam o poll do terminal faziam
+`clearTimeout(_followTimer)` mas **não zeravam** `_followTimer`. O handle ficava com o id
+de um timeout já disparado — um número, portanto *truthy*. A linha que religa o terminal é
+
+```js
+if (s.running && _followJob && !_followTimer) followPoll();
+```
+
+e `!_followTimer` nunca era verdadeiro. Somado a isso, o bloco de adoção só dispara quando
+`s.job_id !== _followJob`, e o ciclo religado **reaproveita o mesmo job** — então também
+não disparava. Resultado: parar e religar deixava o terminal congelado no texto antigo.
+
+**Contraprova feita no navegador**, e é o que torna o diagnóstico decisivo: com o handle
+velho o terminal não busca o job e fica preso; com o handle em `null`, no mesmo cenário,
+atualiza. Salvo como `test_terminal_religa.browser.js` (6 asserções, roda no console — a
+suíte Python não cobre o frontend).
+
+**Dois extras:** o `catch` do poll também passou a zerar o handle (um piscar de rede
+matava o terminal para sempre), e o ciclo agora escreve `═══ ciclo religado ═══` no log do
+job — reaproveitar o job mantém o texto anterior, e sem essa marca religar continuaria
+parecendo que nada aconteceu.
+
+**Bug que o teste pegou na hora:** essa linha cosmética derrubou o supervisor no
+`test_ciclo` (job de dublê sem a chave `log`). Blindada — cosmético não pode matar o ciclo.
+
 ### Aberto
 - **Ainda não rodou ao vivo.** O primeiro teste deve ser com **simulação ligada** e depois
   um turno curto, conferindo o log (`🧑 além dos follows, esta conta: …`).

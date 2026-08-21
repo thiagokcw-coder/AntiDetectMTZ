@@ -4148,6 +4148,17 @@ async function rotateModem(btn) {
 // ── Seguir (porte da extensão InstaFollow) ───────────────────────────────────
 let _followJob = null, _followTimer = null;
 
+// Para o poll do terminal E ZERA o handle.
+// Sem zerar, `_followTimer` ficava com o id de um timeout ja disparado — um numero,
+// portanto truthy — e o `!_followTimer` que religa o terminal quando o ciclo volta
+// NUNCA era verdadeiro. Efeito reportado em 2026-08-21: parar e religar deixava o
+// terminal congelado no conteudo antigo, parecendo que nada acontecia. De novo o
+// padrao desta base: o motor certo, a tela errada.
+function followPollStop() {
+  if (_followTimer) clearTimeout(_followTimer);
+  _followTimer = null;
+}
+
 // Campos do formulário ↔ chaves de filtro do backend.
 const FW_CHECKS = ['skipPrivate', 'skipVerified', 'skipNoProfilePic', 'skipFollowedByViewer', 'skipBusiness'];
 const FW_NUMS = ['followersMin', 'followersMax', 'followingMin', 'followingMax',
@@ -4443,7 +4454,7 @@ async function followHarvest() {
 function followNewQueue() {
   if (!confirm('Começar uma fila nova? A fila atual fica salva no histórico.')) return;
   _followJob = null;
-  if (_followTimer) clearTimeout(_followTimer);
+  followPollStop();
   document.getElementById('fw-status').style.display = 'none';
   document.getElementById('fw-newqueue').style.display = 'none';
   loadFollowHistory();
@@ -4480,7 +4491,7 @@ async function followDiscardQueue() {
   if (!confirm('Zerar a fila atual SEM SALVAR? A execucao e apagada e nao fica no historico. O historico global de quem ja foi seguido NAO e afetado.')) return;
   try {
     const r = await api('POST', '/follow/queue/discard', { run_id: _followJob });
-    if (_followTimer) clearTimeout(_followTimer);
+    followPollStop();
     _followJob = null;
     document.getElementById('fw-status').style.display = 'none';
     document.getElementById('fw-newqueue').style.display = 'none';
@@ -4526,7 +4537,7 @@ async function followStop() {
 
 async function followPoll() {
   if (!_followJob) return;
-  if (_followTimer) clearTimeout(_followTimer);
+  followPollStop();
   try {
     const j = await api('GET', `/follow/jobs/${_followJob}`);
     const map = { idle: '⏸ Pronto', harvesting: '🔎 Coletando…', running: '⏳ Em andamento',
@@ -4575,6 +4586,9 @@ async function followPoll() {
         || window._cicloAtivo) {
       _followTimer = setTimeout(followPoll, 2000); return;
     }
+    // Acabou de acompanhar: o handle TEM de voltar a null, senao o terminal nunca
+    // religa quando o ciclo recomeca reaproveitando o MESMO job.
+    _followTimer = null;
     document.getElementById('fw-start').disabled = false;
     document.getElementById('fw-harvest').disabled = false;
     document.getElementById('fw-unfollow-start').disabled = false;
@@ -4582,6 +4596,9 @@ async function followPoll() {
     loadFollowHistory();
     if (j.mode === 'unfollow') loadUnfollowQuota();
   } catch (e) {
+    // Piscar de rede nao pode matar o terminal para sempre: zera o handle para o
+    // ciclo conseguir religar o poll na proxima passada.
+    _followTimer = null;
     document.getElementById('fw-start').disabled = false;
     document.getElementById('fw-harvest').disabled = false;
   }
