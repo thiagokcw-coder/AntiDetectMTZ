@@ -420,10 +420,15 @@ def descrever_pausa(segundos, acoes=None) -> str:
     O rotulo diz "voltou" de proposito: as acoes acontecem no FIM da pausa, entao a
     linha descreve a RETOMADA, nao o comeco do descanso."""
     cab = f"⏸ pausa de {int(round(float(segundos or 0)))}s — "
-    feitas = [a for a in (acoes or []) if a and a.get("ok")]
-    if not feitas:
-        return cab + "parada, sem atividade"
-    return cab + "voltou: " + " · depois ".join(frase_da_acao(a) for a in feitas)
+    tentadas = [a for a in (acoes or []) if a]
+    feitas = [a for a in tentadas if a.get("ok")]
+    if feitas:
+        return cab + "voltou: " + " · depois ".join(frase_da_acao(a) for a in feitas)
+    if tentadas:
+        # Tentou e nao conseguiu -- dizer "parada" aqui seria mentira, e mentira no
+        # log ja custou caro neste projeto.
+        return cab + "voltou, mas as ações não completaram"
+    return cab + "parada, sem atividade"
 
 
 # ══════════════════════════════ ESCRITA ══════════════════════════════
@@ -556,16 +561,14 @@ PADROES = {
     # quando a pagina foi carregada, entao mexer aqui mexe na curtida tambem.
     "verPerfilCompletoPct": 5,
     "curtirPct": 12,          # % dos follows seguidos de uma curtida na interface
-    # % das PAUSAS em que a conta FAZ alguma coisa (espiar perfil, buscar, feed,
-    # explorar). Conta por pausa, nao por follow: conteudo e coisa de intervalo.
+    # % das voltas em que a primeira acao PODE ser conteudo pesado (feed ~2,5MB ou
+    # explorar ~4MB). Controla CUSTO, nunca existencia: em 0 a conta continua agindo
+    # em toda volta, so que sempre pelas acoes baratas (~50KB).
     #
-    # Era 25, e a medicao de 2026-08-21 mostrou o resultado disso na pratica: 3 pausas,
-    # 3 ociosas, sessao 100% follow. Como o usuario resumiu, "a acao foi a mesma, so
-    # parou 44s e voltou a seguir -- paradas nao quebram o ciclo". Subiu para 90: a
-    # pausa quase sempre age, e o mix e dominado pelas acoes BARATAS (~50KB) para o
-    # plano de 30 GB nao sofrer. Os ~10% restantes ficam ociosos de proposito -- gente
-    # tambem simplesmente para, e "sempre agir" seria outra regra fixa.
-    "leituraPct": 90,
+    # Substituiu o antigo `leituraPct`, que decidia SE a volta teria acao -- e que em
+    # 25% deixava 3 de cada 4 pausas voltando direto para o follow. O usuario cravou:
+    # "esse e um padrao que nao pode ser quebrado independente de configuracao".
+    "conteudoPesadoPct": 100,
     # % das voltas que ganham uma SEGUNDA acao. A segunda e sempre barata (~50KB) e e
     # a ultima coisa antes do follow -- e o que faz o follow parecer consequencia do
     # que se estava olhando, em vez de "voltou da pausa e ja seguiu".
@@ -587,6 +590,13 @@ def config(settings: dict) -> dict:
     for k in PADROES:
         if settings and settings.get(k) is not None:
             c[k] = settings[k]
+    # Migracao do antigo `leituraPct` (que decidia SE a volta agia) para o
+    # `conteudoPesadoPct` (que decide o CUSTO da volta). Config antiga com valor baixo
+    # passa a significar "volta barata", nao mais "volta muda" -- ou seja, migra para
+    # o lado seguro sem que ninguem precise mexer em nada.
+    if settings and settings.get("conteudoPesadoPct") is None \
+            and settings.get("leituraPct") is not None:
+        c["conteudoPesadoPct"] = settings["leituraPct"]
     return c
 
 
@@ -781,17 +791,23 @@ class Comportamento:
         if await spider._sleep_stop(max(0.0, float(segundos) - reserva), should_stop):
             return {**base, "parado": True}
 
-        # 2. a volta, dimensionada pelo trabalho que a precedeu
+        # 2. a volta -- SEMPRE acontece, dimensionada pelo trabalho que a precedeu.
+        #
+        # NAO ha sorteio aqui, e isso e deliberado. "Seguir -> parar -> seguir" e uma
+        # assinatura, e assinatura nao pode ser opcao de configuracao: se da para
+        # desligar, uma hora fica desligada. Aconteceu exatamente isso em 2026-08-21 --
+        # o ajuste salvo estava em 25% e 75% das pausas voltavam seguindo direto.
+        # O que a config controla agora e o CUSTO da volta, nunca a existencia dela.
         acoes = []
-        if self.rng.random() < _pct(self.c.get("leituraPct")):
-            for i in range(self.quantas_acoes_na_volta()):
-                if i:
-                    # respiro entre uma acao e outra
-                    if await spider._sleep_stop(self.rng.uniform(1.5, 5.0), should_stop):
-                        return {**base, "acoes": acoes, "parado": True}
-                # Só a PRIMEIRA pode ser cara: as seguintes acontecem sempre e a
-                # ultima e o que antecede o follow.
-                acoes.append(await self._agir(page, permitir_caras=(i == 0)))
+        pode_pesado = self.rng.random() < _pct(self.c.get("conteudoPesadoPct"))
+        for i in range(self.quantas_acoes_na_volta()):
+            if i:
+                # respiro entre uma acao e outra
+                if await spider._sleep_stop(self.rng.uniform(1.5, 5.0), should_stop):
+                    return {**base, "acoes": acoes, "parado": True}
+            # So a PRIMEIRA pode ser cara, e so se o sorteio de custo deixar. As
+            # demais sao sempre baratas (~50KB) -- a ultima e o que antecede o follow.
+            acoes.append(await self._agir(page, permitir_caras=(i == 0 and pode_pesado)))
 
         # 3. respiro CURTO entre a ultima acao e o follow -- e o que faz o follow
         #    parecer consequencia do que se estava olhando.

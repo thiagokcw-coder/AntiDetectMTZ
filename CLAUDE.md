@@ -29,11 +29,22 @@ tela que a sessão nunca carregava**.
   adivinhada que custou dias no 404).
 - **Sono opcional, DESLIGADO por padrão** (custa ~35% do volume), com desvio estável por
   conta para a frota não dormir toda no mesmo minuto.
-- **Sessão em RAJADA (2-5 follows) + pausa**, em vez de gotejar um a cada X segundos.
-  Rajada curta de propósito — *"as sequências não podem ser grandes por ser sinal de bot"*.
-  A média é preservada por construção (`((3,5-1)·0,40 + 2,5)/3,5 = 1,0`), então **o volume
-  não muda, só a forma da chegada**. Medido: gap 7,2s · pausa 44,9s · 5% das pausas de
-  2 a 5,5 min. **O conteúdo só acontece NA PAUSA** — no meio da rajada, nunca.
+- **Sessão em RAJADA + pausa**, em vez de gotejar um a cada X segundos. A média é
+  preservada por construção (`((3,5-1)·0,40 + 2,5)/3,5 = 1,0`), então **o volume não
+  muda, só a forma da chegada**. Medido: gap 7,2s · pausa 44,9s · 5% das pausas de 2 a
+  5,5 min. **O conteúdo só acontece NA PAUSA** — no meio da rajada, nunca.
+- **🔒 GARANTIA: a conta NUNCA volta da pausa seguindo direto.** O silêncio vem primeiro
+  e a atividade fica no FIM da pausa (`_RESERVA_VOLTA`, 9-18s), com 1 a N ações antes do
+  próximo follow. **Não há sorteio** — *"esse é um padrão que não pode ser quebrado
+  independente de configuração"*. Assinatura não pode ser botão: se dá para desligar, uma
+  hora fica desligada (aconteceu — `leituraPct=25` deixava 75% das pausas mudas).
+  `conteudoPesadoPct` controla só o **custo**: em 0% a conta age igual, só que sempre
+  pelas ações baratas (~50 KB).
+- **A volta ESCALA com a rajada** (uma ação a mais a cada ~3 follows), para a densidade
+  não depender da config: 1 ação a cada ~2,3 follows tanto em rajada 2-5 quanto em 6-11.
+- **Ação nova: espiar perfil SEM seguir.** Nasceu de uma assinatura medida — a conta
+  seguia **100% dos perfis que abria**. Hoje a conversão fica em ~78%, e o relatório do
+  turno mostra o número (`abriu 18 perfil(is), seguiu 14 (78%)`) e acusa se voltar a 100%.
 
 **📶 O plano de dados virou restrição de projeto (30 GB/mês, e o modem é a internet do PC
 inteiro).** Os meus primeiros padrões custavam **~76 GB/mês** a 2.000 follows/dia — e a

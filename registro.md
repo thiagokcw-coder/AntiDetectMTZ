@@ -414,6 +414,43 @@ pausa seguindo na maioria das vezes, que é o padrão óbvio."*
 motor, quando bastava ler a config em uso. **Antes de mudar comportamento, conferir o que
 está EFETIVAMENTE configurado** — o padrão do código é só o valor de partida.
 
+### "Esse é um padrão que não pode ser quebrado independente de configuração"
+
+Resposta do usuário depois que eu corrigi o `leituraPct` dele de 25 para 90. Ele não
+queria o valor consertado — queria que **o valor não pudesse causar aquilo**.
+
+Ele está certo, e é correção de arquitetura, não de ajuste: **se "seguir → parar → seguir"
+é assinatura, nenhuma configuração deveria poder produzi-la**. Eu tinha transformado uma
+garantia em botão, e botão que desliga garantia uma hora fica desligado — foi exatamente o
+que aconteceu, silenciosamente, por semanas de log.
+
+**O que mudou:**
+- O sorteio que decidia SE a volta agia **saiu**. A volta sempre faz pelo menos uma ação.
+- `leituraPct` virou **`conteudoPesadoPct`**, que controla **custo** e não existência: em
+  0% a conta continua agindo em toda volta, só que sempre pelas ações baratas (~50 KB).
+  Medido na tela: 16 GB/mês em 100%, **13 GB/mês em 0%** — e a garantia vale nos dois.
+- **Migração automática:** config antiga com `leituraPct: 25` vira `conteudoPesadoPct: 25`,
+  ou seja migra para o lado seguro (volta barata) em vez do lado perigoso (volta muda).
+- O log parou de mentir no caso de falha: ação tentada que não completa agora diz
+  *"voltou, mas as ações não completaram"*, e não mais *"parada, sem atividade"*.
+
+**Três testes precisaram mudar de intenção**, e isso é o sinal de que a garantia entrou:
+eles codificavam justamente o poder de desligar as ações — o que passou a ser impossível.
+
+**Instabilidade caçada de brinde:** `test_humano_motor` falhava em ~1 de cada 3 execuções.
+Causa: duas asserções contavam TODAS as leituras de perfil, e a volta da pausa agora
+também lê perfis (`espiar`), então o total oscilava com o sorteio. A pior delas eu
+cheguei a "consertar" afrouxando (`<= 2`), o que teria deixado passar o bug da leitura
+dupla — desfiz e troquei por uma verificação direta no log
+(`"perfil já lido pelos filtros"`), que é o invariante de verdade. **8 execuções seguidas
+limpas** depois disso.
+
+**Validação:** 6 combinações de config testadas contra a garantia, incluindo os dois
+valores que causaram o problema original · regressão **38 arquivos, ~768 asserções,
+0 falhas, duas rodadas completas** · UI conferida (migração, precedência da chave nova,
+o custo movendo entre 13 e 16 GB, e o aviso de pausa ociosa removido por ter virado
+impossível).
+
 ### Aberto
 - **Ainda não rodou ao vivo.** O primeiro teste deve ser com **simulação ligada** e depois
   um turno curto, conferindo o log (`🧑 além dos follows, esta conta: …`).

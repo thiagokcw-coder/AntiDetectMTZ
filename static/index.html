@@ -1623,9 +1623,9 @@
             <div class="form-hint">Curte <b>clicando na interface</b>, então quem monta o pedido é o próprio Instagram. Só vale quando a página foi aberta.</div>
           </div>
           <div class="form-group">
-            <label>Pausas em que a conta FAZ algo (%)</label>
-            <input id="fw-leituraPct" type="number" min="0" max="100" value="90" oninput="followHumanoHint()">
-            <div class="form-hint">Espiar um perfil <b>sem seguir</b>, buscar, feed ou explorar. Conta por <b>pausa</b>. Com 25% (o valor antigo) a sessão saía <b>100% follow</b> — a pausa só alongava o intervalo, não quebrava o padrão.</div>
+            <label>Voltas que podem incluir conteúdo pesado (%)</label>
+            <input id="fw-conteudoPesadoPct" type="number" min="0" max="100" value="100" oninput="followHumanoHint()">
+            <div class="form-hint">Controla <b>custo</b>, nunca existência: em <b>0%</b> a conta continua agindo em toda volta, só que sempre pelas ações baratas (espiar um perfil <b>sem seguir</b>, buscar — ~50&nbsp;KB). Acima disso, a primeira ação pode ser feed (~2,5&nbsp;MB) ou explorar (~4&nbsp;MB).</div>
           </div>
         </div>
         <div class="form-group">
@@ -4286,7 +4286,7 @@ function followReadConfig() {
     verPerfilPct: fwNum('fw-verPerfilPct', 100),
     verPerfilCompletoPct: fwNum('fw-verPerfilCompletoPct', 25),
     curtirPct: fwNum('fw-curtirPct', 12),
-    leituraPct: fwNum('fw-leituraPct', 90),
+    conteudoPesadoPct: fwNum('fw-conteudoPesadoPct', 100),
     segundaAcaoPct: fwNum('fw-segundaAcaoPct', 65),
     blocoVariacaoPct: fwNum('fw-blocoVariacaoPct', 25),
     rajadaAtiva: document.getElementById('fw-rajadaAtiva').checked,
@@ -4331,7 +4331,7 @@ function followFillConfig(cfg) {
   document.getElementById('fw-verPerfilPct').value = s.verPerfilPct ?? 100;
   document.getElementById('fw-verPerfilCompletoPct').value = s.verPerfilCompletoPct ?? 5;
   document.getElementById('fw-curtirPct').value = s.curtirPct ?? 12;
-  document.getElementById('fw-leituraPct').value = s.leituraPct ?? 90;
+  document.getElementById('fw-conteudoPesadoPct').value = s.conteudoPesadoPct ?? s.leituraPct ?? 100;
   document.getElementById('fw-segundaAcaoPct').value = s.segundaAcaoPct ?? 65;
   document.getElementById('fw-blocoVariacaoPct').value = s.blocoVariacaoPct ?? 25;
   document.getElementById('fw-rajadaAtiva').checked = s.rajadaAtiva !== false;
@@ -4744,26 +4744,23 @@ function followHumanoHint() {
     return;
   }
   const ler = fwNum('fw-verPerfilPct', 100), cheio = fwNum('fw-verPerfilCompletoPct', 5);
-  const leitura = fwNum('fw-leituraPct', 25);
+  const pesado = fwNum('fw-conteudoPesadoPct', 100);
   const rajada = document.getElementById('fw-rajadaAtiva').checked;
   const rMin = fwNum('fw-rajadaMin', 2), rMax = fwNum('fw-rajadaMax', 5);
   // Estimativas grosseiras: perfil JSON ~50KB · página de perfil ~3MB · feed ~2,5MB ·
-  // explorar ~4MB (grade de imagens) · busca JSON ~50KB. A mistura é 35/15/50 — a
-  // busca leva o maior peso por ser a mais barata, o explorar o menor por ser o mais caro.
-  // Mix: espiar perfil 50% (~50KB) · busca 35% (~50KB) · feed 12% (~2,5MB) ·
-  // explorar 3% (~4MB). Dominado pelas acoes baratas de proposito -- e o que permite
-  // a pausa AGIR quase sempre sem estourar o plano de 30 GB.
-  const custoLeitura = 0.50 * 0.05 + 0.35 * 0.05 + 0.12 * 2.5 + 0.03 * 4;
-  // leituraPct conta por PAUSA, não por follow: com rajada de N, são N follows por pausa.
+  // explorar ~4MB (grade de imagens) · busca e espiar ~50KB cada.
+  // Mix quando o conteúdo pesado é permitido: espiar 50 · busca 35 · feed 12 · explorar 3.
+  const CHEAP = 0.05;
+  const custoMixPesado = 0.50 * CHEAP + 0.35 * CHEAP + 0.12 * 2.5 + 0.03 * 4;
   const porPausa = rajada ? Math.max(1, (rMin + rMax) / 2) : 1;
   const mbPerfil = (ler / 100) * ((cheio / 100) * 3 + (1 - cheio / 100) * 0.05);
-  // A volta faz 1 acao (mix cheio), com `segundaAcaoPct` uma 2a, e mais uma a cada
-  // ~3 follows da rajada que acabou -- rajada longa rende volta mais rica, para a
-  // densidade de acoes nao depender de como a rajada esta configurada.
+  // A volta SEMPRE faz pelo menos 1 ação; `conteudoPesadoPct` decide se a PRIMEIRA
+  // pode ser cara. As demais são sempre baratas. Mais uma a cada ~3 follows da rajada.
   const seg = fwNum('fw-segundaAcaoPct', 65);
   const extras = rajada ? Math.max(0, Math.round(porPausa / 3) - 1) : 0;
-  const custoVolta = custoLeitura + ((seg / 100) + extras) * 0.05;
-  const mbLeitura = (leitura / 100) / porPausa * custoVolta;
+  const primeira = (pesado / 100) * custoMixPesado + (1 - pesado / 100) * CHEAP;
+  const custoVolta = primeira + ((seg / 100) + extras) * CHEAP;
+  const mbLeitura = custoVolta / porPausa;
   const mbPorFollow = mbPerfil + mbLeitura;
   const gbMes = mbPorFollow * (window._fwFollowsDia || 2000) * 30 / 1024;
   const partes = [];
@@ -4778,21 +4775,12 @@ function followHumanoHint() {
       + Math.max(0, Math.round(rm / 3) - 1);
     partes.push(`🌊 <b>${rMin}–${rMax} follows</b> em rajada (média ${rm.toFixed(1)}), `
       + `com <b>~${Math.round(base * 2.5)}s</b> de pausa entre elas — o volume não muda, só a forma.${alerta}`);
-    const pctPausa = fwNum('fw-leituraPct', 90);
-    const aCada = rm / (nAcoes * pctPausa / 100);
-    // Aviso explicito: um ajuste salvo BAIXO deixa a maioria das pausas ociosa, e o
-    // sintoma na tela e "voltou da pausa e ja seguiu". Aconteceu de verdade em
-    // 2026-08-21: o padrao do codigo subiu para 90 mas o valor salvo (25) venceu,
-    // deixando 75% das pausas mudas -- e o usuario so descobriu olhando o log.
-    const ocioso = 100 - pctPausa;
+    // Sem sorteio: a volta SEMPRE age. "Seguir → parar → seguir" e assinatura, e
+    // assinatura nao pode ser opcao de configuracao -- se da para desligar, uma hora
+    // fica desligada (aconteceu em 2026-08-21, com 75% das pausas mudas).
     partes.push(`↩️ ao <b>voltar</b> da pausa faz <b>~${nAcoes.toFixed(1)} ação(ões)</b> antes do próximo follow `
-      + `(≈ 1 a cada ${aCada.toFixed(1)} follows) — `
-      + `rajada longa rende volta mais rica, então a densidade <b>não depende</b> do tamanho da rajada.`);
-    if (pctPausa < 60) {
-      partes.push(`<b style="color:#f59e0b">⚠ ${ocioso}% das pausas ficam ociosas</b> — a conta vai `
-        + `<b>voltar da pausa seguindo</b> na maioria das vezes, que é o padrão óbvio. `
-        + `Suba "Pausas em que a conta FAZ algo" para 90%.`);
-    }
+      + `(≈ 1 a cada ${(rm / nAcoes).toFixed(1)} follows) — <b>sempre</b>, sem exceção: `
+      + `nenhuma configuração faz a conta voltar da pausa seguindo direto.`);
   } else {
     partes.push('⚠️ <b>Sem rajada:</b> volta a gotejar um follow a cada intervalo, para sempre.');
   }
