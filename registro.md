@@ -349,6 +349,45 @@ e a medição confirmou ele, não eu.
 depende da config · com 6-11 a ação não fica rara · nenhuma ação cara depois da primeira)
 · regressão **37 arquivos, ~734 asserções, 0 falhas**.
 
+### A fila nunca zerava: 4.997 itens, 4.138 já feitos, 4,65 MB regravados a cada follow
+
+Relato: *"toda vez que inicia pega novos em vez de zerar e então pegar mais pra fila"*,
+com print mostrando **"Fila: 859 pendente(s) de 4997"**.
+
+**Medido na instância dele antes de mexer:**
+- `queue_total` **4.997**, `queue_pending` **859** — ou seja **4.138 itens já
+  processados** que nunca saíam.
+- `queue_json` no banco: **4,65 MB**. E o `_follow_save` roda em **toda ação**
+  (`_on_action`), então a run reserializou e regravou esses megabytes ~4.000 vezes.
+
+A fila era append-only: o motor marcava o item como `followed` e ele continuava lá; cada
+coleta empilhava por cima. O sintoma que o usuário viu ("pega novos em vez de zerar") era
+a superfície de um desperdício grande.
+
+**`_follow_podar_fila(job)`**, chamada antes de cada coleta e no início do ciclo. Ela poda
+**só o que está duravelmente registrado em `follow_history`** — `followed` e `requested`.
+`skipped` e `failed` **ficam**, porque esses não vão para o histórico global e removê-los
+faria a próxima coleta trazer a mesma gente de volta. Guarda os 150 mais recentes para a
+tabela da tela não ficar vazia.
+
+**Detalhe que o teste cobriu e que teria virado bug:** a coleta usa a fila para saber quem
+já conhece. Podar reabriria a porta para recoletar quem já foi seguido — então os **nomes**
+podados ficam guardados (`job["podados"]`, lista de strings, ordens de grandeza mais leve
+que os itens) e entram no `conhecidos` da coleta.
+
+**Resultado no caso real:** 5.015 → 1.081 itens (**78% menor**), e o `queue_json` cai para
+menos de um terço.
+
+**Limite honesto:** `podados` vive em memória. Se o app reiniciar, ela se perde — mas o
+`follow_history` cobre exatamente o mesmo conjunto (followed+requested) sempre que
+`skipAlreadyAttempted` estiver ligado, que é o padrão.
+
+**Validação:** 20 asserções (o caso real reproduzido item a item · nada pendente é podado ·
+skipped/failed ficam · os nomes são guardados e não coincidem com os que ficaram · fila
+pequena não é mexida · mantém os recentes e não os antigos · podar duas vezes é
+idempotente · item sem username não quebra) · regressão **38 arquivos, ~754 asserções,
+0 falhas**.
+
 ### Aberto
 - **Ainda não rodou ao vivo.** O primeiro teste deve ser com **simulação ligada** e depois
   um turno curto, conferindo o log (`🧑 além dos follows, esta conta: …`).

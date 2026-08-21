@@ -2572,6 +2572,36 @@ def _follow_account_key(profile: dict) -> str:
     return f"profile:{profile.get('id')}"
 
 
+def _follow_podar_fila(job: dict, manter_recentes: int = 150) -> int:
+    """Tira da fila o que já foi seguido/solicitado. Devolve quantos saíram.
+
+    A fila era append-only: o que foi processado ficava nela para sempre e cada nova
+    coleta empilhava por cima. Medido em 2026-08-21 na instância do usuário: **4.997
+    itens, 4.138 já processados**, e um `queue_json` de **4,65 MB regravado no banco a
+    cada follow** (o `_follow_save` roda em toda ação). Além do desperdício, a tela
+    dizia "859 pendentes de 4997", que não é informação útil.
+
+    Poda só o que está DURAVELMENTE registrado em `follow_history` — `followed` e
+    `requested`. `skipped` e `failed` ficam: eles não vão para o histórico global,
+    então removê-los faria a próxima coleta trazer a mesma gente de volta. Guarda os
+    `manter_recentes` mais novos para a tabela da tela não ficar vazia."""
+    fila = job.get("queue") or []
+    concluidos = [i for i, a in enumerate(fila)
+                  if a.get("status") in ("followed", "requested")]
+    if len(concluidos) <= manter_recentes:
+        return 0
+    # A fila é cronológica (coleta acrescenta no fim, o motor consome do começo),
+    # então os índices menores são os mais antigos.
+    remover = set(concluidos[:-manter_recentes])
+    # Guarda os NOMES podados: a coleta usa a fila para não repetir ninguém, e sem
+    # isto podar reabriria a porta para recoletar quem já foi seguido. É uma lista de
+    # strings — ordens de grandeza mais leve que os itens completos.
+    podados = job.setdefault("podados", [])
+    podados.extend(fila[i].get("username") for i in remover if fila[i].get("username"))
+    job["queue"] = [a for i, a in enumerate(fila) if i not in remover]
+    return len(remover)
+
+
 def _follow_save(job: dict):
     try:
         db.follow_run_upsert({
@@ -2670,6 +2700,13 @@ async def follow_harvest(body: FollowHarvestRequest):
     job["status"] = "harvesting"
     job["settings"], job["filters"] = cfg["settings"], cfg["filters"]
     log = _follow_log(job)
+    # Enxuga ANTES de coletar: sem isto a fila só crescia e cada coleta empilhava
+    # por cima do que já tinha sido feito ("pega novos em vez de zerar", relatado
+    # pelo usuário em 2026-08-21). Quem sai daqui continua no histórico global.
+    podados = _follow_podar_fila(job)
+    if podados:
+        log(f"🧹 fila enxugada: {podados} já concluída(s) saíram "
+            f"(seguem no histórico) · {len(job['queue'])} ficam")
     _follow_save(job)
 
     async def _worker():
@@ -2683,6 +2720,9 @@ async def follow_harvest(body: FollowHarvestRequest):
             hist = db.follow_history_map()
             black = set(db.list_follow_blacklist())
             conhecidos = set(black) | {a.get("username") for a in job["queue"] if a.get("username")}
+            # Quem saiu da fila na poda continua conhecido — senão enxugar faria a
+            # coleta trazer de volta gente que já foi seguida.
+            conhecidos |= {u for u in (job.get("podados") or []) if u}
             if cfg["settings"].get("skipAlreadyAttempted"):
                 conhecidos |= set(hist)
             res = await follower.harvest(
@@ -3010,6 +3050,13 @@ async def follow_cycle_start(body: FollowCycleRequest):
         if run_id:
             pendentes = len([x for x in (_follow_jobs[run_id].get("queue") or [])
                              if x.get("status") == "pending"])
+            # Enxuga o que ja foi feito ANTES de comecar: o ciclo reaproveita o job,
+            # e sem isto a fila carregaria milhares de itens concluidos rodada apos
+            # rodada (medido: 4.997 itens, 4.138 ja processados).
+            podados = _follow_podar_fila(_follow_jobs[run_id])
+            if podados:
+                _cycle_log(f"fila enxugada: {podados} ja concluida(s) sairam "
+                           f"(seguem no historico)")
             _cycle_log(f"aproveitando a fila ja coletada: {pendentes} pendente(s)")
             # Marca no terminal DO JOB que o ciclo religou. Reaproveitar o mesmo job
             # mantém o log anterior, e sem esta linha o usuário religa e vê o texto
