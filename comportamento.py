@@ -334,6 +334,15 @@ _BARATAS = ("espiar", "busca")
 # o usuario identificou como padrao obvio (2026-08-21).
 _RESERVA_VOLTA = (9.0, 18.0)
 
+# Quantos follows da rajada "pedem" uma acao a mais na volta.
+#
+# Medido em 2026-08-21: amarrar as acoes as PAUSAS fazia a densidade depender do
+# tamanho da rajada -- com 2-5 saia 1 acao a cada 2,4 follows, com 6-11 a cada 5,7.
+# O usuario corrigiu que o incomodo era "a falta de acoes apos", nao o tamanho da
+# rajada. Entao a volta passa a escalar com o trabalho que a precedeu: rajada longa,
+# volta mais rica -- e a densidade deixa de depender de como a rajada esta configurada.
+_FOLLOWS_POR_ACAO_EXTRA = 3
+
 # Custo estimado de cada leitura, em MB. Usado so para a previsao na tela -- o
 # numero que vale e o do MedidorDeDados, que conta os bytes de verdade.
 CUSTO_MB = {"leve": 0.05, "pagina": 3.0, "feed": 2.5, "explorar": 4.0, "busca": 0.05}
@@ -610,6 +619,7 @@ class Comportamento:
         self._rajada = tamanho_da_rajada(self.c.get("rajadaMin"), self.c.get("rajadaMax"),
                                          self.rng)
         self._na_rajada = 0
+        self._ultima_rajada = self._rajada
         # Trilha do turno -- e o que permite VER a variedade em vez de confiar nela.
         # O usuario pediu explicitamente para conseguir "prevenir comportamento
         # repetitivo", e para isso ele precisa dos numeros, nao de uma media.
@@ -686,6 +696,8 @@ class Comportamento:
         # Fechou a rajada: pausa maior e sorteia o tamanho da proxima.
         self.contagem["rajadas"] += 1
         self.trilha["rajadas"].append(self._rajada)
+        # Guarda o tamanho da rajada que ACABOU: e ele que dimensiona a volta.
+        self._ultima_rajada = self._rajada
         self._na_rajada = 0
         self._rajada = tamanho_da_rajada(self.c.get("rajadaMin"), self.c.get("rajadaMax"),
                                          self.rng)
@@ -714,6 +726,20 @@ class Comportamento:
         termo = self.rng.choice(opcoes)
         self.trilha["termos"].append(termo)
         return termo
+
+    def quantas_acoes_na_volta(self) -> int:
+        """Quantas acoes a conta faz ao voltar da pausa.
+
+        Escala com a rajada que acabou, para a densidade de acoes NAO depender de como
+        a rajada esta configurada. Antes disto, rajada de 6-11 rendia uma acao a cada
+        5,7 follows contra uma a cada 2,4 na rajada de 2-5 -- e foi exatamente essa
+        escassez que o usuario sentiu como "falta de acoes apos"."""
+        n = 1
+        if self.rng.random() < _pct(self.c.get("segundaAcaoPct")):
+            n += 1
+        rajada = max(1, int(self._ultima_rajada or 1))
+        n += max(0, int(round(rajada / _FOLLOWS_POR_ACAO_EXTRA)) - 1)
+        return n
 
     async def _agir(self, page, permitir_caras=True) -> dict:
         """Uma acao de pausa: escolhe, resolve o que ela precisa (termo/perfil) e
@@ -755,14 +781,17 @@ class Comportamento:
         if await spider._sleep_stop(max(0.0, float(segundos) - reserva), should_stop):
             return {**base, "parado": True}
 
-        # 2. a volta: uma acao, e na maioria das vezes duas
+        # 2. a volta, dimensionada pelo trabalho que a precedeu
         acoes = []
         if self.rng.random() < _pct(self.c.get("leituraPct")):
-            acoes.append(await self._agir(page, permitir_caras=True))
-            if self.rng.random() < _pct(self.c.get("segundaAcaoPct")):
-                if await spider._sleep_stop(self.rng.uniform(1.5, 5.0), should_stop):
-                    return {**base, "acoes": acoes, "parado": True}
-                acoes.append(await self._agir(page, permitir_caras=False))
+            for i in range(self.quantas_acoes_na_volta()):
+                if i:
+                    # respiro entre uma acao e outra
+                    if await spider._sleep_stop(self.rng.uniform(1.5, 5.0), should_stop):
+                        return {**base, "acoes": acoes, "parado": True}
+                # Só a PRIMEIRA pode ser cara: as seguintes acontecem sempre e a
+                # ultima e o que antecede o follow.
+                acoes.append(await self._agir(page, permitir_caras=(i == 0)))
 
         # 3. respiro CURTO entre a ultima acao e o follow -- e o que faz o follow
         #    parecer consequencia do que se estava olhando.

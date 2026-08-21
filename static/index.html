@@ -4757,9 +4757,12 @@ function followHumanoHint() {
   // leituraPct conta por PAUSA, não por follow: com rajada de N, são N follows por pausa.
   const porPausa = rajada ? Math.max(1, (rMin + rMax) / 2) : 1;
   const mbPerfil = (ler / 100) * ((cheio / 100) * 3 + (1 - cheio / 100) * 0.05);
-  // A volta faz 1 acao (mix cheio) e, com `segundaAcaoPct`, uma 2a sempre BARATA.
+  // A volta faz 1 acao (mix cheio), com `segundaAcaoPct` uma 2a, e mais uma a cada
+  // ~3 follows da rajada que acabou -- rajada longa rende volta mais rica, para a
+  // densidade de acoes nao depender de como a rajada esta configurada.
   const seg = fwNum('fw-segundaAcaoPct', 65);
-  const custoVolta = custoLeitura + (seg / 100) * 0.05;
+  const extras = rajada ? Math.max(0, Math.round(porPausa / 3) - 1) : 0;
+  const custoVolta = custoLeitura + ((seg / 100) + extras) * 0.05;
   const mbLeitura = (leitura / 100) / porPausa * custoVolta;
   const mbPorFollow = mbPerfil + mbLeitura;
   const gbMes = mbPorFollow * (window._fwFollowsDia || 2000) * 30 / 1024;
@@ -4771,8 +4774,13 @@ function followHumanoHint() {
     const alerta = rMax > 6
       ? ` <b style="color:#f59e0b">⚠ sequência longa é sinal de bot</b> — 2 a 5 é o que uma pessoa faz.`
       : '';
+    const nAcoes = 1 + fwNum('fw-segundaAcaoPct', 65) / 100
+      + Math.max(0, Math.round(rm / 3) - 1);
     partes.push(`🌊 <b>${rMin}–${rMax} follows</b> em rajada (média ${rm.toFixed(1)}), `
       + `com <b>~${Math.round(base * 2.5)}s</b> de pausa entre elas — o volume não muda, só a forma.${alerta}`);
+    partes.push(`↩️ ao <b>voltar</b> da pausa faz <b>~${nAcoes.toFixed(1)} ação(ões)</b> antes do próximo follow `
+      + `(≈ 1 a cada ${(rm / (nAcoes * fwNum('fw-leituraPct', 90) / 100)).toFixed(1)} follows) — `
+      + `rajada longa rende volta mais rica, então a densidade <b>não depende</b> do tamanho da rajada.`);
   } else {
     partes.push('⚠️ <b>Sem rajada:</b> volta a gotejar um follow a cada intervalo, para sempre.');
   }

@@ -304,6 +304,51 @@ ponto · a pausa continua valendo o tempo que dizia) · regressão **37 arquivos
 ~729 asserções, 0 falhas**. Quatro expectativas atualizadas por mudança deliberada (o
 modelo passou de "uma ação por pausa" para "uma ou duas").
 
+### Correção do usuário: o incômodo era a densidade, não o tamanho da rajada
+
+Eu tinha fechado o item anterior recomendando trocar a rajada de 6-11 para 2-5. Ele
+corrigiu: *"o que me incomodou não foi o número de follows, foi a falta de ações após"*.
+
+**Medido, ele estava apontando para uma consequência real do meu desenho:** eu havia
+amarrado as ações às PAUSAS, então a densidade dependia de como a rajada estava
+configurada.
+
+| rajada | pausas/follow | 1 ação a cada |
+|---|---|---|
+| 2-5 | 0,286 | **2,4 follows** |
+| 6-11 (a dele) | 0,118 | **5,7 follows** |
+
+Rajada longa = menos pausas = menos ação. O tamanho da rajada era só o mecanismo; o
+sintoma era a escassez.
+
+**Conserto — a volta escala com o trabalho que a precedeu:** uma ação a mais a cada
+~3 follows da rajada que acabou (`_FOLLOWS_POR_ACAO_EXTRA`). Rajada longa rende volta
+mais rica, e a densidade deixa de depender da config:
+
+| rajada | ações/volta | 1 ação a cada |
+|---|---|---|
+| 2-5 | 1,9 | 2,0 follows |
+| 6-11 | **3,5** | 2,7 follows |
+
+A diferença entre as duas caiu de **2,4× para 1,35×**. Na config dele a volta passou de
+1,65 para **3,47 ações**.
+
+**Só a PRIMEIRA ação da volta pode ser cara** (feed/explorar); as seguintes são sempre
+baratas (~50 KB). Por isso a rajada longa saiu mais BARATA em dados, não mais cara:
+**~15 GB/mês** contra ~19 da rajada curta — menos pausas, e as ações extras custam quase
+nada.
+
+A tela passou a mostrar a densidade diretamente: *"ao voltar da pausa faz ~3,6 ação(ões)
+antes do próximo follow (≈ 1 a cada 2,6 follows)"*.
+
+**Lição:** eu li o sintoma ("rajada de 7") como se fosse a causa e recomendei mexer no
+lugar errado. O usuário sabia o que o incomodava melhor do que a minha interpretação —
+e a medição confirmou ele, não eu.
+
+**Validação:** 5 asserções novas (rajada longa rende volta maior · a densidade quase não
+depende da config · com 6-11 a ação não fica rara · nenhuma ação cara depois da primeira)
+· regressão **37 arquivos, ~734 asserções, 0 falhas**.
+
 ### Aberto
 - **Ainda não rodou ao vivo.** O primeiro teste deve ser com **simulação ligada** e depois
   um turno curto, conferindo o log (`🧑 além dos follows, esta conta: …`).
