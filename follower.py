@@ -2056,7 +2056,7 @@ async def run(profile: dict, queue: list, settings: dict, filters: dict, *,
             # o terminal parecer morto no tempo em que mais tempo passa.
             if log and r_espera.get("na_pausa"):
                 log(comp.descrever_pausa(r_espera.get("segundos"),
-                                         r_espera.get("leitura")))
+                                         r_espera.get("acoes")))
             if r_espera.get("parado"):
                 break
 

@@ -324,20 +324,34 @@ async def buscar(page, termo=None, *, rng=None) -> dict:
 # 2026-08-21 revelou: a conta seguia 100% dos perfis que lia.
 _LEITURAS = (("espiar", 0.50), ("busca", 0.35), ("feed", 0.12), ("explorar", 0.03))
 
+# Acoes BARATAS (~50KB). A ULTIMA coisa antes de um follow sai sempre daqui: ela
+# acontece em toda pausa, entao nao pode custar dados de verdade.
+_BARATAS = ("espiar", "busca")
+
+# Segundos reservados no FIM da pausa para a volta. O silencio vem antes, a atividade
+# depois. Sem isto a acao acontecia no INICIO da pausa e o que colava no proximo
+# follow eram dezenas de segundos de silencio -- ou seja "seguir, parar, seguir", que
+# o usuario identificou como padrao obvio (2026-08-21).
+_RESERVA_VOLTA = (9.0, 18.0)
+
 # Custo estimado de cada leitura, em MB. Usado so para a previsao na tela -- o
 # numero que vale e o do MedidorDeDados, que conta os bytes de verdade.
 CUSTO_MB = {"leve": 0.05, "pagina": 3.0, "feed": 2.5, "explorar": 4.0, "busca": 0.05}
 
 
-def sortear_leitura(rng=None) -> str:
+def sortear_leitura(rng=None, so_baratas=False) -> str:
+    """Sorteia a acao da pausa. `so_baratas=True` restringe as opcoes as de ~50KB --
+    usado na ULTIMA acao antes do follow, que acontece toda vez."""
     r = rng or random
-    x = r.random()
+    opcoes = [(n, p) for n, p in _LEITURAS if (not so_baratas or n in _BARATAS)]
+    total = sum(p for _, p in opcoes) or 1.0
+    x = r.random() * total
     acumulado = 0.0
-    for nome, peso in _LEITURAS:
+    for nome, peso in opcoes:
         acumulado += peso
         if x < acumulado:
             return nome
-    return _LEITURAS[0][0]
+    return opcoes[0][0]
 
 
 async def fazer_leitura(page, nome, *, rng=None, termo=None, usuario=None) -> dict:
@@ -374,29 +388,33 @@ def descrever_leitura_de_perfil(ctx) -> str:
     return ""
 
 
-def descrever_pausa(segundos, leitura=None, curtiu=False) -> str:
-    """O que a conta fez na pausa. `leitura=None` = ficou parada, e isso PRECISA
-    aparecer: ociosidade e a maior parte das pausas, e sem narrar isso o log fica
-    mudo justamente no tempo em que mais tempo passa."""
-    cab = f"⏸ pausa de {int(round(float(segundos or 0)))}s — "
-    partes = []
-    if curtiu:
-        partes.append("curtiu um post")
-    l = leitura or {}
-    tipo, dur = l.get("tipo"), float(l.get("segundos") or 0)
+def frase_da_acao(a) -> str:
+    """Uma acao de pausa em palavras."""
+    a = a or {}
+    tipo, dur = a.get("tipo"), float(a.get("segundos") or 0)
     if tipo == "espiar":
-        partes.append("espiou o perfil de @" + str(l.get("usuario")) + " e NÃO seguiu")
-    elif tipo == "busca":
-        partes.append('buscou "' + str(l.get("termo")) + '"')
-    elif tipo == "feed":
-        partes.append(f"abriu o feed e rolou por {dur:.0f}s")
-    elif tipo == "explorar":
-        partes.append(f"foi ao explorar e rolou por {dur:.0f}s")
-    elif tipo:
-        partes.append(str(tipo))
-    if not partes:
+        return "espiou o perfil de @" + str(a.get("usuario")) + " sem seguir"
+    if tipo == "busca":
+        return 'buscou "' + str(a.get("termo")) + '"'
+    if tipo == "feed":
+        return f"abriu o feed e rolou por {dur:.0f}s"
+    if tipo == "explorar":
+        return f"foi ao explorar e rolou por {dur:.0f}s"
+    return str(tipo or "?")
+
+
+def descrever_pausa(segundos, acoes=None) -> str:
+    """O que a conta fez na pausa. Lista vazia = ficou parada, e isso PRECISA
+    aparecer: sem narrar a ociosidade o log fica mudo justamente no tempo em que mais
+    tempo passa.
+
+    O rotulo diz "voltou" de proposito: as acoes acontecem no FIM da pausa, entao a
+    linha descreve a RETOMADA, nao o comeco do descanso."""
+    cab = f"⏸ pausa de {int(round(float(segundos or 0)))}s — "
+    feitas = [a for a in (acoes or []) if a and a.get("ok")]
+    if not feitas:
         return cab + "parada, sem atividade"
-    return cab + " · ".join(partes)
+    return cab + "voltou: " + " · depois ".join(frase_da_acao(a) for a in feitas)
 
 
 # ══════════════════════════════ ESCRITA ══════════════════════════════
@@ -539,6 +557,10 @@ PADROES = {
     # plano de 30 GB nao sofrer. Os ~10% restantes ficam ociosos de proposito -- gente
     # tambem simplesmente para, e "sempre agir" seria outra regra fixa.
     "leituraPct": 90,
+    # % das voltas que ganham uma SEGUNDA acao. A segunda e sempre barata (~50KB) e e
+    # a ultima coisa antes do follow -- e o que faz o follow parecer consequencia do
+    # que se estava olhando, em vez de "voltou da pausa e ja seguiu".
+    "segundaAcaoPct": 65,
     "blocoVariacaoPct": 25,   # +- no tamanho do turno (100 vira 75-125)
     # Estrutura de sessao: rajada curta de follows, depois uma pausa maior.
     "rajadaAtiva": True,
@@ -693,37 +715,59 @@ class Comportamento:
         self.trilha["termos"].append(termo)
         return termo
 
-    async def esperar(self, page, segundos, should_stop=None, modo="") -> dict:
-        """Cumpre o intervalo -- as vezes FAZENDO alguma coisa.
-
-        A leitura so acontece na PAUSA, nunca no meio da rajada: e ali que uma
-        pessoa consome conteudo. E a maior parte das pausas e simplesmente ociosa,
-        que alem de humano custa **zero dados** -- o que importa num plano de 30 GB.
-
-        O tempo da leitura e DESCONTADO da espera: o padrao muda, o volume nao."""
-        feito = None
-        na_pausa = (self.c.get("rajadaAtiva") is False) or str(modo).startswith("pausa")
-        if self.ativo and na_pausa and self.rng.random() < _pct(self.c.get("leituraPct")):
-            nome = sortear_leitura(self.rng)
-            termo = self.sortear_termo() if nome == "busca" else None
-            usuario = None
+    async def _agir(self, page, permitir_caras=True) -> dict:
+        """Uma acao de pausa: escolhe, resolve o que ela precisa (termo/perfil) e
+        executa. Best-effort como todo o resto do modulo."""
+        nome = sortear_leitura(self.rng, so_baratas=not permitir_caras)
+        termo = self.sortear_termo() if nome == "busca" else None
+        usuario = None
+        if nome == "espiar":
+            usuario = self._perfil_para_espiar()
+            if not usuario:
+                # Sem ninguem para espiar, cai numa acao igualmente barata em vez de
+                # desperdicar a volta da pausa.
+                nome, termo = "busca", self.sortear_termo()
+        r = await fazer_leitura(page, nome, rng=self.rng, termo=termo, usuario=usuario)
+        if r.get("ok"):
+            self.contagem[nome] = self.contagem.get(nome, 0) + 1
             if nome == "espiar":
-                usuario = self._perfil_para_espiar()
-                if not usuario:
-                    # Sem ninguem para espiar, cai numa acao igualmente barata em vez
-                    # de desperdicar a pausa.
-                    nome, termo = "busca", self.sortear_termo()
-            r = await fazer_leitura(page, nome, rng=self.rng, termo=termo,
-                                    usuario=usuario)
-            if r.get("ok") and nome == "espiar":
                 self.trilha["espiados"].append(usuario)
-            if r.get("ok"):
-                self.contagem[nome] = self.contagem.get(nome, 0) + 1
-                feito = r
-            segundos = max(0.0, float(segundos) - float(r.get("segundos") or 0.0))
-        parado = await spider._sleep_stop(segundos, should_stop)
-        return {"segundos": segundos, "leitura": feito, "parado": parado,
-                "na_pausa": na_pausa}
+        return r
+
+    async def esperar(self, page, segundos, should_stop=None, modo="") -> dict:
+        """Cumpre o intervalo. Na PAUSA, o silencio vem PRIMEIRO e a atividade DEPOIS.
+
+        Essa ordem e o ponto todo. Antes a acao acontecia no INICIO da pausa, e o que
+        colava no proximo follow eram dezenas de segundos de silencio -- a conta
+        "voltava direto para seguir". O usuario nomeou isso em 2026-08-21:
+        *"seguir - parar - seguir novamente e padrao obvio"*. Agora ela volta FAZENDO
+        alguma coisa, e a ultima acao antes do follow e sempre BARATA (~50KB), porque
+        acontece em toda pausa.
+
+        Dentro da rajada nao ha acao nenhuma: ali os follows sao seguidos mesmo."""
+        na_pausa = (self.c.get("rajadaAtiva") is False) or str(modo).startswith("pausa")
+        base = {"segundos": segundos, "acoes": [], "na_pausa": na_pausa}
+        if not (self.ativo and na_pausa):
+            return {**base, "parado": await spider._sleep_stop(segundos, should_stop)}
+
+        # 1. o descanso de fato, guardando um naco do fim para a volta
+        reserva = self.rng.uniform(*_RESERVA_VOLTA)
+        if await spider._sleep_stop(max(0.0, float(segundos) - reserva), should_stop):
+            return {**base, "parado": True}
+
+        # 2. a volta: uma acao, e na maioria das vezes duas
+        acoes = []
+        if self.rng.random() < _pct(self.c.get("leituraPct")):
+            acoes.append(await self._agir(page, permitir_caras=True))
+            if self.rng.random() < _pct(self.c.get("segundaAcaoPct")):
+                if await spider._sleep_stop(self.rng.uniform(1.5, 5.0), should_stop):
+                    return {**base, "acoes": acoes, "parado": True}
+                acoes.append(await self._agir(page, permitir_caras=False))
+
+        # 3. respiro CURTO entre a ultima acao e o follow -- e o que faz o follow
+        #    parecer consequencia do que se estava olhando.
+        parado = await spider._sleep_stop(self.rng.uniform(0.8, 2.5), should_stop)
+        return {**base, "acoes": acoes, "parado": parado}
 
     def resumo(self) -> str:
         """Uma linha para o log dizer o que a conta fez alem de seguir."""

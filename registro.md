@@ -259,6 +259,51 @@ para espiar a pausa ainda age e nunca tenta espiar o vazio) · regressão **36 a
 ~661 asserções, 0 falhas**. Três testes foram atualizados por mudança deliberada de mix,
 não por regressão.
 
+### "Voltou direto para seguir" — o defeito era de ORDEM, não de existência
+
+Relato: *"retornou de parada novamente direto para seguir, adicione ações para que nunca
+volte direto, seguir--parar--seguir novamente é padrão óbvio"*.
+
+Ele estava certo, e o erro era mais sutil do que o que eu tinha acabado de corrigir. A
+ação existia, mas acontecia no **início** da pausa:
+
+```
+follow → ação → [30-40s de silêncio] → follow
+```
+
+Ou seja a atividade ficava colada no follow ANTERIOR, e o que precedia o próximo era
+silêncio puro. A conta literalmente voltava direto para seguir.
+
+**Invertido:** o silêncio vem primeiro, a atividade vem no fim (`_RESERVA_VOLTA`, 9-18s
+guardados do fim da pausa), e a volta ganhou um **segundo tempo** (`segundaAcaoPct`, 65%).
+A segunda ação é **sempre barata** (~50 KB), porque acontece em toda pausa e é a última
+coisa antes do follow — é ela que faz o follow parecer consequência do que se estava
+olhando. Entre a última ação e o follow sobra só um respiro de 0,8 a 2,5s.
+
+O log passou a dizer **"voltou:"** em vez de listar a ação solta, porque a linha agora
+descreve a retomada, não o começo do descanso:
+
+```
+⏸ pausa de 44s — voltou: espiou o perfil de @u11 sem seguir · depois buscou "viagem"
+```
+
+Efeito colateral bom: a conversão leitura→follow caiu de 100% para **78%**.
+
+**Erro meu no caminho, e sério:** editei o `esperar()` por índice de string usando
+`s.index("    def resumo(self) -> str:")` como âncora de fim — mas `def resumo` existe em
+**duas** classes (`MedidorDeDados` e `Comportamento`), e o índice encontrado ficou ANTES
+do início. O splice duplicou um bloco inteiro: 785 → 1043 linhas, com `PADROES`, `config`
+e `Comportamento` em duas cópias. Só apareceu porque fui conferir um `assert` que falhou.
+Restaurei do commit e refiz com âncoras únicas. **Lição: editar Python por índice de
+string exige âncora comprovadamente única — `grep -c` antes, não depois.**
+
+**Validação:** 68 asserções novas só para a ordem (a última coisa antes do follow é ação e
+não silêncio longo · o silêncio vem primeiro e é a maior parte · a 2ª ação nunca é cara,
+mas a 1ª pode ser · dentro da rajada não há ação nenhuma · Parar responde em qualquer
+ponto · a pausa continua valendo o tempo que dizia) · regressão **37 arquivos,
+~729 asserções, 0 falhas**. Quatro expectativas atualizadas por mudança deliberada (o
+modelo passou de "uma ação por pausa" para "uma ou duas").
+
 ### Aberto
 - **Ainda não rodou ao vivo.** O primeiro teste deve ser com **simulação ligada** e depois
   um turno curto, conferindo o log (`🧑 além dos follows, esta conta: …`).
