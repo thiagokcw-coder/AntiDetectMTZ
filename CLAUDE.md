@@ -2,49 +2,55 @@
 
 > Notas de contexto para o Claude. App de **gestão de contas Instagram** (Camoufox/Firefox antidetect + Playwright). Backend FastAPI (`api.py`/`main.py`), frontend em `static/index.html`. **Multiplataforma (Windows + macOS).** Idioma do usuário: **português**.
 
-## 📍 ONDE PARAMOS — leia isto primeiro (2026-08-18)
+## 📍 ONDE PARAMOS — leia isto primeiro (2026-08-20)
 
-**InstaFollow: o follow VOLTOU A FUNCIONAR (confirmado ao vivo pelo usuário).** A causa do
-404 era o **`fb_dtsg`** (token anti-CSRF da Meta) faltando no CORPO do POST — ver a seção
-"🎯 CAUSA DO 404 MEDIDA". Coleta, fila, ródizio, limitador e métricas já funcionavam.
+> Histórico detalhado da sessão (hipóteses que morreram, para não refazer o caminho):
+> **`registro.md`**.
 
-**⚠ DUAS CORREÇÕES a afirmações minhas — o usuário estava certo nas duas:**
-1. Eu escrevi que "o follow **nunca** funcionou", baseado no HANDOFF §11 da extensão e no
-   `follower.py` ter 3 commits. **Errado.** O banco mostra **12 follows REAIS em 2026-08-16**
-   (`follow_runs`: `dry=0`, `followed=11`; `follow_history`: 12 usernames, todos por
-   `cap.martim.poa.2026`, entre 17:36 e 17:42). O "começou funcionando" do usuário era
-   **literalmente exato**.
-2. Eu escrevi que "não houve regressão". **Errado em substância:** houve regressão de
-   verdade — só não foi do nosso código. Funcionou em 16/08 com corpo simples e parou
-   quando **o Instagram passou a exigir o `fb_dtsg` na escrita** entre 16 e 18/08. A
-   intuição do usuário ("começou funcionando", "houve alguma regressão") apontava para o
-   fenômeno certo; o que estava errado era eu procurar a causa **dentro** do nosso repositório.
-   **Lição:** git log limpo prova que NÓS não mudamos — não prova que nada mudou. A
-   superfície externa é parte do sistema. **Consultar o BANCO antes de negar um relato**
-   (`follow_runs`/`follow_history` estavam a uma query de distância e teriam evitado a
-   afirmação errada).
+**O InstaFollow está FUNCIONANDO em produção.** Medido no banco em 20/08:
+**2.950 follows em 24h** por **6 contas** (700 · 700 · 560 · 542 · 248 · 200), todas
+`active`, **zero suspensões**. O ciclo automático rodou **~9h ininterruptas** (rodada 3,
+1.926 follows no ciclo).
 
-**Pendências reais do InstaFollow (nenhuma bloqueia usar o follow):**
-- **Unfollow: 0 execuções ao vivo** (medido: `follow_runs` sem `mode='unfollow'`, zero
-  desfeitas). Recebeu o mesmo tratamento do follow (corpo medido + tokens + headers) e tem
-  16 asserções com navegador dublê, **mas nunca rodou contra o Instagram**. Quando for a
-  primeira vez, usar **simulação ligada**.
-- **`nav_chain` omitido de propósito** (telemetria de navegação, não credencial). Se algum dia
-  o IG passar a exigir, a captura já mostra o formato real.
-- **`x-asbd-id` constante 129477 no `_POST_JS`** é só fallback — o colhido (359341) sobrepõe.
-  Inofensivo, mas fica registrado que o valor fixo está velho.
-- **Instrumentação de 404 continua ligada** (`_diag_rotas` + resolver o pk e re-tentar). Roda
-  **só no caminho de falha**, então não custa nada em operação normal — e se o IG apertar de
-  novo, o próprio log já diz o que mudou. Manter.
-- **Se o follow voltar a dar 404 no futuro:** primeira coisa é conferir se o log mostra
-  `🔑 tokens da interface: fb_dtsg=…`. Se não mostrar, o `_TOKENS_JS` perdeu a fonte
-  (o IG mudou o bootstrap) — e o botão "🔬 Capturar requisição real" resolve: um follow
-  manual mostra o formato novo e popula o token colhido.
+**A causa do 404 era o `fb_dtsg`** — token anti-CSRF da Meta faltando no CORPO do POST. A
+rota sempre esteve certa. Sem ele o IG devolve **404, não 403**, e foi isso que despistou o
+diagnóstico. Headers e tokens são **colhidos** do tráfego da própria interface (rotacionam;
+fixar quebraria na virada). Ver "🎯 CAUSA DO 404 MEDIDA".
 
-**→ PRÓXIMO TRABALHO (pedido do usuário, 2026-08-18): retomar o planejamento dos DISPAROS
-WHATSAPP** — ver a seção "📲 DISPAROS WHATSAPP". Decisões que estavam travadas:
-Evolution API auto-hospedada em Docker neste PC. O usuário reabriu "evolution **ou** z-api",
-então a escolha do provedor volta à mesa.
+**Como o ritmo funciona hoje** (3 iterações do usuário até chegar aqui):
+- **Sem teto por hora nem por dia.** O freio é o **intervalo** entre follows.
+- **O descanso é o RÓDIZIO:** a conta faz seu bloco (`followsPerAccount`, 100), passa a vez
+  e só volta quando as outras trabalharam. Descanso = `(n_contas − 1) × bloco × intervalo`.
+- **Descanso extra de 1h** ao fechar a volta (`restAfterRoundMin`). `0` emenda.
+- O limitador continua no código, **dormente**: pôr um número em `maxPerDay` e a trava volta.
+
+**⚠ REGRA DE OURO desta sessão — medir antes de mexer.** Três vezes o painel mentiu sobre
+um motor que funcionava, e o usuário **parou algo que estava certo** (terminal vazio ·
+"SIMULAÇÃO" numa execução real · "0 seguidas" após 16 follows · "Concluído" no fim de cada
+rodada). Todas foram resolvidas consultando `GET /follow/cycle/status` e
+`GET /follow/jobs/{id}` ao vivo. **Antes de acreditar num sintoma de tela, consulte o
+estado real** — e antes de negar um relato do usuário, **consulte o banco**
+(`follow_history`, `follow_runs`, `accounts`).
+
+**Pendências (nenhuma bloqueia o uso):**
+- **Unfollow: 0 execuções ao vivo.** Tem 16 asserções com navegador dublê e recebeu o mesmo
+  tratamento do follow, mas nunca rodou contra o IG. Primeira vez com **simulação ligada**.
+- **"Seguiram de volta" não testado ao vivo** com o método novo (cruzar com a própria lista
+  de seguidores). Os **1.500 marcados como verificados com 0 retribuição são dado FALSO** do
+  método antigo (`show_many` não devolve `followed_by`) e se auto-corrigem na próxima
+  checagem.
+- **Disparos WhatsApp: NÃO construir aqui.** A análise do CRM Mobiliza concluiu que ele já
+  tem um superset do que nosso `broadcaster.py` seria. Ver "📲 DISPAROS WHATSAPP" e o
+  `registro.md`.
+- **Métrica "follows por conta até cair"** — recomendada e não construída. Transforma
+  "parece tranquilo" em teto conhecido.
+- **Se o follow voltar a dar 404:** conferir se o log mostra
+  `🔑 tokens da interface: fb_dtsg=…`. Se não mostrar, o `_TOKENS_JS` perdeu a fonte — e
+  o botão "🔬 Capturar requisição real" resolve: um follow manual mostra o formato novo.
+
+**🧪 Testes:** ~25 arquivos no **scratchpad** (não versionados, pasta temporária), hoje
+**~340 asserções**. Rodar com `venv\Scripts\python.exe <arquivo>`. Um teste que falha pode
+ser **mais velho que o fix** — conferir o git log antes de "consertar" o código.
 
 ## ⚡ ESTADO ATUAL — fluxo mudou (2026-06-15)
 **A criação automática de contas pelo desktop foi ABANDONADA** (queimava as contas na hora; proxy/IP era o fator nº1). Novo fluxo, decisão firme do usuário:
@@ -602,8 +608,7 @@ Sintoma: app abria, menu e cards renderizavam, mas **tudo** ficava em "Carregand
   (`'Zerar a fila atual SEM SALVAR?` + newline real). Como **a UI inteira vive num único
   bloco `<script>`**, um erro de sintaxe ali faz **nenhuma linha de JS executar** — o HTML
   estático aparece e nada nunca atualiza. Não era travamento, nem backend, nem internet.
-- **Como o erro entrou:** apliquei o patch via heredoc do shell e o `
-` foi consumido
+- **Como o erro entrou:** apliquei o patch via heredoc do shell e a sequência de escape de nova linha foi consumida
   antes de o Python ler, virando newline de verdade. **Lição:** ao editar o `index.html`
   por script, não usar escapes; e **sempre validar com `node --check`** extraindo o maior
   bloco `<script>` (node está instalado, v24). Uma varredura por aspas simples
