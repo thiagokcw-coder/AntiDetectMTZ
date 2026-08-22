@@ -451,6 +451,49 @@ valores que causaram o problema original · regressão **38 arquivos, ~768 asser
 o custo movendo entre 13 e 16 GB, e o aviso de pausa ociosa removido por ter virado
 impossível).
 
+## 2026-08-22 — "headless sem cliques ainda está dando sinal de bot"
+
+**Evidência nova, medida no banco:** `10122.capmartim` está **`banned`** — a segunda
+queda (a primeira foi `10122.cap.martim.rs`, suspensa). De 7 contas que já operaram, 2
+caíram. A preocupação tem base.
+
+### O que eu comprovo e o que seria chute
+
+**Comprovado no nosso próprio código:** em ~95% dos follows a sessão não gera **evento
+nenhum** de interação. A página do Instagram fica carregada, o JS dela rodando, e só saem
+`fetch` — zero mousemove, zero scroll, zero foco, por 30 minutos, enquanto POSTs voam.
+Essa ausência é o **lado cliente** da mesma anomalia que o `nav_chain` vazio é no lado
+servidor.
+
+**Chute:** que o *headless* em si esteja sendo pego. O Camoufox é construído contra
+exatamente isso (patch no motor, não injeção de JS) e roda com `humanize=True`. Sem
+medição eu não afirmo — e trocar para janela visível atrapalharia a operação de 24h.
+
+### As duas correções — ambas de custo ZERO em dados
+
+**1. Seguir CLICANDO no botão, quando a página já está aberta.** É o único caminho que
+produz um follow indistinguível de humano: quem monta a requisição é o próprio Instagram,
+com `nav_chain`, telemetria de ponteiro e todo o contexto que o nosso `fetch` nunca terá.
+Não vira o padrão porque exige a página inteira (~3 MB) e o plano é de 30 GB — **mas a
+sessão já carrega a página em parte dos follows** (`verPerfilCompletoPct`), e nesses
+clicar **sai de graça**. Falha no clique cai no fetch de sempre.
+
+**Risco que o teste trava:** `:has-text("Seguir")` casaria também com "Seguindo", e o
+clique **desfaria** o follow — estrago silencioso. Por isso o seletor é `:text-is`
+(exato), e a função **recusa clicar** se já houver "Seguindo"/"Solicitado" na tela. O
+sucesso é confirmado pelo próprio rótulo do botão, que é a leitura mais honesta possível:
+a mesma que um humano faria olhando a tela.
+
+**2. `mexer_na_pagina`** antes de cada follow: 1-3 movimentos de mouse em curva e, às
+vezes, um scroll. **Zero requisição de rede** (o teste verifica isso explicitamente), e
+tira a sessão do estado "página viva sem nenhum evento de ponteiro".
+
+### Aberto / próximo
+- **Medir o headless em vez de supor** — carregar uma página de detecção no perfil e ver
+  o que ela acusa. Custa poucos MB e responde a pergunta de vez.
+- **`nav_chain`** continua ausente nos follows por `fetch`. Nos por clique ele vai
+  completo, de graça.
+
 ### Aberto
 - **Ainda não rodou ao vivo.** O primeiro teste deve ser com **simulação ligada** e depois
   um turno curto, conferindo o log (`🧑 além dos follows, esta conta: …`).

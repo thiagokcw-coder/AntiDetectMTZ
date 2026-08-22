@@ -443,6 +443,96 @@ _ALVOS_CURTIR = (
 )
 
 
+# Botao "Seguir" na pagina do perfil. `:text-is` e casamento EXATO -- com
+# `:has-text` o seletor pegaria tambem "Seguindo"/"Solicitado" e clicaria para
+# DESFAZER o follow, que seria um estrago silencioso.
+_ALVOS_SEGUIR = (
+    'button:text-is("Seguir")',
+    'button:text-is("Follow")',
+    'button:text-is("Seguir de volta")',
+    'button:text-is("Follow Back")',
+)
+# Como o Instagram confirma que deu certo (o botao troca de rotulo).
+_SEGUINDO = ('button:text-is("Seguindo")', 'button:text-is("Following")')
+_SOLICITADO = ('button:text-is("Solicitado")', 'button:text-is("Requested")')
+
+
+async def _rotulo_visivel(page, seletores, timeout=1200) -> bool:
+    for sel in seletores:
+        try:
+            if await page.locator(sel).first.is_visible(timeout=timeout):
+                return True
+        except Exception:
+            continue
+    return False
+
+
+async def seguir_clicando(page, username=None, *, rng=None) -> dict:
+    """Segue CLICANDO no botao da interface, na pagina do perfil ja aberta.
+
+    Por que isto importa: quando o clique e real, quem monta a requisicao e o
+    proprio Instagram -- com `nav_chain`, telemetria de ponteiro, `fb_dtsg` e todo
+    o contexto que a nossa versao por `fetch` nunca tem. E o unico caminho que
+    produz um follow indistinguivel de um humano.
+
+    Nao e o caminho padrao porque exige a pagina inteira (~3MB) e o plano e de
+    30 GB/mes. Mas a sessao JA carrega a pagina em parte dos follows
+    (`verPerfilCompletoPct`) -- nesses, clicar sai **de graca**.
+
+    Falha e sempre tolerada: devolve {ok: False, motivo} e o motor cai no fetch."""
+    if await _rotulo_visivel(page, _SEGUINDO + _SOLICITADO, timeout=600):
+        return {"ok": False, "motivo": "ja seguimos esta conta"}
+    alvo = None
+    for sel in _ALVOS_SEGUIR:
+        try:
+            loc = page.locator(sel).first
+            if await loc.is_visible(timeout=1200):
+                alvo = loc
+                break
+        except Exception:
+            continue
+    if alvo is None:
+        return {"ok": False, "motivo": "botao Seguir nao encontrado na pagina"}
+    try:
+        await human.click_locator(page, alvo)
+    except Exception as e:
+        return {"ok": False, "motivo": "falha ao clicar (" + str(e) + ")"}
+    # Confirma pelo proprio rotulo do botao: e a leitura mais honesta que existe,
+    # porque e a mesma que um humano faria olhando a tela.
+    await human.delay(1.0, 2.4)
+    if await _rotulo_visivel(page, _SOLICITADO):
+        return {"ok": True, "requested": True, "via": "clique"}
+    if await _rotulo_visivel(page, _SEGUINDO):
+        return {"ok": True, "requested": False, "via": "clique"}
+    return {"ok": False, "motivo": "cliquei, mas o botao nao confirmou"}
+
+
+async def mexer_na_pagina(page, *, rng=None) -> dict:
+    """Move o mouse e as vezes rola a pagina. NAO faz requisicao nenhuma.
+
+    Existe porque a sessao passava 30 minutos com a pagina do Instagram carregada,
+    o JS dela rodando, e gerava **zero** evento de ponteiro enquanto POSTs saiam.
+    O JS do Instagram observa esses eventos; a ausencia total deles e o lado
+    cliente da mesma anomalia que o `nav_chain` vazio e no lado servidor.
+
+    Custa **zero dados**, que e o que permite fazer isto em todo follow."""
+    r = rng or random
+    feitos = 0
+    try:
+        vp = page.viewport_size or {"width": 1280, "height": 720}
+        for _ in range(r.randint(1, 3)):
+            await human.move_to(page, r.uniform(vp["width"] * 0.15, vp["width"] * 0.85),
+                                r.uniform(vp["height"] * 0.15, vp["height"] * 0.85))
+            feitos += 1
+            await human.micro(0.08, 0.35)
+        if r.random() < 0.45:
+            await human.scroll_down(page, r.randint(120, 420))
+            feitos += 1
+    except Exception:
+        pass          # regra de ouro: ruido nunca derruba a campanha
+    return {"ok": feitos > 0, "eventos": feitos}
+
+
 async def curtir_no_perfil(page, *, rng=None, log=None) -> dict:
     """Curte um post do perfil aberto, CLICANDO na interface.
 
@@ -658,6 +748,9 @@ class Comportamento:
         de filtros ja fez essa leitura -- nao vale gastar a requisicao duas vezes."""
         if not self.ativo or not username:
             return {"ok": False, "tipo": "desligado", "segundos": 0.0}
+        # Mexer o mouse antes de agir custa ZERO dados e tira a sessao do estado
+        # "pagina carregada, JS rodando, nenhum evento de ponteiro por 30 minutos".
+        await mexer_na_pagina(page, rng=self.rng)
         if self.rng.random() >= _pct(self.c.get("verPerfilPct")):
             return {"ok": False, "tipo": "sorteio", "segundos": 0.0}
         completo = self.rng.random() < _pct(self.c.get("verPerfilCompletoPct"))
@@ -824,6 +917,8 @@ class Comportamento:
             partes.append(str(c["perfil_completo"]) + " perfil(is) abertos")
         if c["perfil_leve"]:
             partes.append(str(c["perfil_leve"]) + " perfil(is) lidos")
+        if c.get("cliques_seguir"):
+            partes.append(str(c["cliques_seguir"]) + " follow(s) por CLIQUE na interface")
         if c["curtidas"]:
             partes.append(str(c["curtidas"]) + " curtida(s)")
         for nome, rotulo in (("espiar", "perfil(is) espiados sem seguir"),

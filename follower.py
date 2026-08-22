@@ -1873,11 +1873,30 @@ async def run(profile: dict, queue: list, settings: dict, filters: dict, *,
                     tokens_ui = novos_t
 
             # ── follow ──
-            try:
-                res = await _follow_one(page, acct["id"], acct["username"], extra=hdrs_ui,
-                                        tokens=tokens_ui)
-            except Exception as e:
-                res = {"ok": False, "status": -1, "payload": None, "error": str(e)}
+            # Quando a PÁGINA do perfil já está aberta, segue CLICANDO no botão. Aí
+            # quem monta a requisição é o próprio Instagram — com nav_chain, telemetria
+            # de ponteiro e todo o contexto que a nossa versão por fetch nunca tem.
+            # Não é o padrão porque exige a página inteira (~3MB) e o plano é de 30GB;
+            # mas nesses follows a página já foi carregada, então clicar sai de graça.
+            res = None
+            if (not dry and ctx_perfil.get("tipo") == "completo" and ctx_perfil.get("ok")):
+                clique = await comp.seguir_clicando(page, acct["username"], rng=humano.rng)
+                if clique.get("ok"):
+                    humano.contagem["cliques_seguir"] = \
+                        humano.contagem.get("cliques_seguir", 0) + 1
+                    res = {"ok": True, "via": "clique",
+                           "following": not clique.get("requested"),
+                           "requested": bool(clique.get("requested")),
+                           "status": 200, "payload": {}}
+                elif log and clique.get("motivo") != "ja seguimos esta conta":
+                    log(f"   ↳ botão Seguir não deu certo ({clique.get('motivo')})"
+                        f" — caindo na requisição")
+            if res is None:
+                try:
+                    res = await _follow_one(page, acct["id"], acct["username"], extra=hdrs_ui,
+                                            tokens=tokens_ui)
+                except Exception as e:
+                    res = {"ok": False, "status": -1, "payload": None, "error": str(e)}
 
             # 404 pode ser o ID errado, não a pessoa. O id da fila vem do `node.id` do
             # GraphQL da coleta; o caminho que comprovadamente funciona (o auto-follow
@@ -2041,6 +2060,7 @@ async def run(profile: dict, queue: list, settings: dict, filters: dict, *,
             eh_pausa = str(modo).startswith("pausa")
             if log:
                 log(f"✓ @{acct['username']} — {'solicitada' if requested else 'seguida'}"
+                    + (" · 🖱 CLICANDO no botão" if res.get("via") == "clique" else "")
                     + (f" · {antes_disso}" if antes_disso else "")
                     + f" · {feitos}{('/' + str(cota)) if cota else ''} no turno"
                     + f" · {counts['hour']}/h {counts['day']}/d"
