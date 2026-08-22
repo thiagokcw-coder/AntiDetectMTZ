@@ -170,6 +170,24 @@ def _build_proxy(proxy: dict | None) -> dict | None:
     return p
 
 
+# Espessura do "cromo" da janela que fica FORA da viewport, por SO.
+#
+# MEDIDO em 2026-08-22 comparando o mesmo perfil headless e com janela (diag_headless.py):
+# no headless `outerWidth - innerWidth` dava **0** e na janela real **16** -- ou seja o
+# Camoufox falsifica o `outerWidth`, mas o `innerWidth` entrega que nao ha barra de
+# rolagem. Nenhuma janela de Firefox no Windows tem zero ali, e essa comparacao e uma
+# heuristica conhecida de deteccao. A altura dava 57 contra 65.
+#
+# macOS usa barra de rolagem sobreposta (nao ocupa espaco), entao la o 0 e legitimo.
+_CROMO = {"windows": (16, 65), "linux": (15, 62), "macos": (0, 55)}
+
+
+def _viewport_coerente(fp: dict, largura_janela: int, altura_janela: int):
+    """Viewport que faz `outer - inner` bater com o de uma janela de verdade."""
+    dx, dy = _CROMO.get(_map_os(fp.get("platform", "")), _CROMO["windows"])
+    return max(320, int(largura_janela) - dx), max(240, int(altura_janela) - dy)
+
+
 def _map_os(platform: str) -> str:
     pl = platform.lower()
     if "win" in pl:   return "windows"
@@ -676,6 +694,19 @@ async def run_profile_task(profile: dict, fn, headless: bool = False,
     try:
         cm, ctx = await _open_camoufox(profile, headless, load_extension, load_ig_filler=load_ig_filler)
         page = ctx.pages[0] if ctx.pages else await ctx.new_page()
+        if headless:
+            # Sem isto o headless entrega `outerWidth - innerWidth == 0` (medido em
+            # 2026-08-22): a janela nao tem barra de rolagem porque nao tem janela.
+            # Encolher a viewport pelo cromo do SO faz a conta bater com a de uma
+            # janela real. Best-effort: se falhar, seguimos -- e disfarce, nao trabalho.
+            try:
+                fp = profile.get("fingerprint") or {}
+                w = max(800, int(fp["screen"]["width"] * 0.85))
+                h = max(600, int(fp["screen"]["height"] * 0.85))
+                vw, vh = _viewport_coerente(fp, w, h)
+                await page.set_viewport_size({"width": vw, "height": vh})
+            except Exception:
+                _log(f"profile={pid} nao consegui ajustar a viewport headless")
         return await fn(page)
     finally:
         hb.cancel()
