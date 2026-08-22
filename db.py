@@ -1021,6 +1021,19 @@ def follow_history_map() -> dict:
     return {r["username"]: r["ts_ms"] for r in rows}
 
 
+def follow_history_first_ts(by_account: str):
+    """ts_ms do PRIMEIRO follow que esta conta fez. None se ela nunca seguiu ninguém.
+
+    Serve para estimar a idade da conta quando o cadastro no app é posterior à
+    criação dela (conta nascida no celular e cadastrada aqui depois)."""
+    if not by_account:
+        return None
+    with get_conn() as conn:
+        r = _ex(conn, "SELECT MIN(ts_ms) AS t FROM follow_history WHERE by_account = ?",
+                (by_account,)).fetchone()
+    return (r["t"] if r else None) or None
+
+
 def add_follow_history(username: str, ts_ms: int, by_account: str = None, user_id: str = None,
                        source: str = None):
     with get_conn() as conn:

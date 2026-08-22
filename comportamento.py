@@ -128,6 +128,63 @@ def pausa_entre_rajadas(base_ms, rng=None):
     return round(base * _PAUSA_FATOR * m, 2), longa
 
 
+# ── RAMPA: teto diario que cresce com a IDADE da conta ─────────────────────
+#
+# MEDIDO em 2026-08-22, cruzando quem caiu com quem sobreviveu. O que separa os dois
+# grupos nao e o volume TOTAL -- e o volume no PRIMEIRO dia de vida da conta:
+#
+#   caiu     10122.cap.martim.rs  dia1 243   ·  10122.capmartim  dia1 279 (banida)
+#   viva     cap.martim2026       dia1  58   ·  cap.martim.rs.2026  dia1 100
+#
+# Das quatro contas que estrearam com ~300, duas cairam. As duas que comecaram com
+# 58 e 100 estao vivas -- e a que fez MAIS follows de todas (1.697, pico de 786/dia)
+# tambem esta, porque so nao estreou correndo. Volume total nao explica; estreia sim.
+#
+# Onde a evidencia esta e onde nao esta, para os numeros nao parecerem mais firmes do
+# que sao:
+#   dia 1  -- e AQUI que o dado separa. Seguro observado <= 100 (58 e 100 vivas);
+#             zona de queda observada >= 243. Entre 100 e 243 ninguem mediu. O degrau
+#             fica em 100, o maior valor com sobrevivencia observada.
+#   dia 2+ -- NAO separa: os dois grupos fizeram 336-611 no dia 2, e dos que fizeram
+#             isso alguns cairam e outros nao. Entao os degraus seguintes sao margem
+#             de seguranca, nao medicao -- por isso sobem rapido e somem no dia 4.
+#
+# n pequeno: 2 quedas. E correlacao com mecanismo plausivel (conta recem-nascida e
+# vazia despejando volume), nao prova.
+#
+# (dias_de_vida_ate, teto_do_dia). Depois do ultimo degrau, sem teto -- o freio volta
+# a ser o intervalo.
+RAMPA = ((1, 100), (2, 250), (3, 450))
+
+
+def teto_por_idade(dias, rampa=None):
+    """Teto de follows do dia para uma conta com `dias` de vida (1 = nasceu hoje).
+
+    Devolve 0 quando nao ha teto (conta madura). `dias` desconhecido (None) e
+    tratado como conta NOVA de proposito: errar para o lado do teto baixo custa
+    volume, errar para o outro custa a conta."""
+    degraus = rampa or RAMPA
+    if dias is None:
+        return degraus[0][1]
+    try:
+        d = int(dias)
+    except (TypeError, ValueError):
+        return degraus[0][1]
+    if d < 1:
+        d = 1
+    for ate, teto in degraus:
+        if d <= ate:
+            return teto
+    return 0
+
+
+def descrever_rampa(dias, teto) -> str:
+    """Linha para o log explicar por que esta conta tem (ou nao tem) teto hoje."""
+    if not teto:
+        return f"conta com {dias} dia(s) — fora da rampa, sem teto diário"
+    return f"conta com {dias} dia(s) de vida — rampa limita a {teto} follows hoje"
+
+
 def tamanho_do_bloco(centro, variacao_pct=25, rng=None) -> int:
     """O turno de cada conta deixa de terminar sempre no mesmo numero redondo.
 
@@ -668,6 +725,9 @@ PADROES = {
     "rajadaAtiva": True,
     "rajadaMin": 2,
     "rajadaMax": 5,
+    # Rampa por idade da conta. Ligada por padrao: foi a unica coisa que separou
+    # limpo quem caiu de quem sobreviveu na medicao de 2026-08-22.
+    "rampaAtiva": True,
     "sonoAtivo": False,
     "sonoInicio": 1,
     "sonoFim": 8,

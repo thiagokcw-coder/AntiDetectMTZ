@@ -72,6 +72,16 @@ própria exceção (é teste, não promessa). Ajustes em **InstaFollow → ⚙ P
 **⚠ Ainda NÃO rodou ao vivo** — primeiro com **simulação ligada**, depois um turno curto
 conferindo a linha `🧑 além dos follows, esta conta: …` no terminal.
 
+**🌱 RAMPA POR IDADE DA CONTA (2026-08-22).** Cruzando quem caiu com quem sobreviveu,
+o que separa os dois grupos **não é o volume total — é o volume no PRIMEIRO dia de vida**:
+as que estrearam com 243-300 caíram (2 de 4); as que começaram com **58 e 100** estão
+vivas, inclusive a que depois fez 1.697 follows e pico de 786/dia. Volume total não
+explica; estreia sim. `comportamento.RAMPA` = dia 1 → **100**, dia 2 → 250, dia 3 → 450,
+dia 4+ sem teto. Entra como `maxPerDay` daquela conta, então o limitador que já existe faz
+o resto (com várias contas ela passa a vez; com uma só, espera). Idade desconhecida cai no
+degrau mais baixo de propósito. **n pequeno (2 quedas)** — é correlação com mecanismo
+plausível, não prova.
+
 **O que código não resolve:** a frota continua obviamente uma frota — mesmos 12 alvos,
 mesmo modem, e **nomes que são variações da mesma string** (`10122.cap.martim` ·
 `10122.capmartim` · `10122.capitaomartim` · `cap.martim2026` · `cap.martim.rs.2026`).

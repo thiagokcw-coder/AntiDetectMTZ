@@ -2560,6 +2560,38 @@ def _follow_somar_dados(job, res, feitos, log=None):
             f"{job['dados_gb_mes']} GB no mês")
 
 
+def _idade_da_conta_em_dias(profile: dict):
+    """Há quantos dias esta conta existe. `None` quando não dá para saber.
+
+    Usa a MENOR data entre o cadastro e o primeiro follow registrado: se a conta foi
+    criada no celular e cadastrada aqui depois, o primeiro follow é a evidência mais
+    antiga que temos, e considerá-la mais nova do que é seria injusto com ela."""
+    datas = []
+    try:
+        conta = db.get_account_by_profile(profile.get("id")) or {}
+        if conta.get("created_at"):
+            datas.append(str(conta["created_at"])[:10])
+    except Exception:
+        conta = {}
+    try:
+        u = (conta or {}).get("username")
+        if u:
+            primeiro = db.follow_history_first_ts(u)
+            if primeiro:
+                datas.append(time.strftime("%Y-%m-%d", time.localtime(primeiro / 1000)))
+    except Exception:
+        pass
+    if not datas:
+        return None
+    try:
+        d0 = min(datas)
+        nasceu = time.mktime(time.strptime(d0, "%Y-%m-%d"))
+        hoje = time.mktime(time.strptime(time.strftime("%Y-%m-%d"), "%Y-%m-%d"))
+        return int(round((hoje - nasceu) / 86400)) + 1     # dia do cadastro = dia 1
+    except Exception:
+        return None
+
+
 def _follow_account_key(profile: dict) -> str:
     """Chave do limitador: a CONTA logada no perfil (o teto é por conta, que é o que
     faz a rotação entre perfis valer a pena). Cai no id do perfil se não houver conta."""
@@ -2873,7 +2905,21 @@ async def follow_start(body: FollowStartRequest):
             job["profile_atual"] = p.get("name")
 
             acoes = db.list_follow_actions(key, int((time.time() - 86400) * 1000))
-            cabe, motivo, espera = follower.limiter_check(acoes, settings)
+            # RAMPA: conta recém-nascida tem teto diário menor, que cresce com a
+            # idade. Medido em 2026-08-22 — o que separou quem caiu de quem sobreviveu
+            # não foi o volume total, foi o volume no PRIMEIRO dia de vida. Entra como
+            # `maxPerDay` desta conta, então o limitador que já existe faz o resto:
+            # com várias contas ela passa a vez, com uma só ela espera.
+            s_conta = settings
+            if settings.get("rampaAtiva") is not False:
+                dias = _idade_da_conta_em_dias(p)
+                teto = comportamento.teto_por_idade(dias)
+                if teto:
+                    atual = int(settings.get("maxPerDay") or 0)
+                    # Respeita um teto manual ainda menor, se houver.
+                    s_conta = {**settings, "maxPerDay": min(teto, atual) if atual else teto}
+                    log(f"🌱 {comportamento.descrever_rampa(dias, teto)}")
+            cabe, motivo, espera = follower.limiter_check(acoes, s_conta)
             if not cabe:
                 # Guarda QUANTO falta para esta conta voltar. O ciclo usa o menor
                 # valor entre as contas para dormir exatamente ate a primeira
@@ -2900,7 +2946,7 @@ async def follow_start(body: FollowStartRequest):
 
             antes = job["stats"].get("followed", 0) + job["stats"].get("requested", 0)
             res = await follower.run(
-                p, job["queue"], settings, filters,
+                p, job["queue"], s_conta, filters,
                 history=history, blacklist=blacklist, actions=acoes,
                 use_local=body.use_local, max_actions=por_conta,
                 yield_on_cap=len(pool) > 1,   # com várias contas, teto = passa a vez
