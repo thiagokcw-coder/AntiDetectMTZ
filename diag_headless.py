@@ -112,7 +112,18 @@ _ESPERADO_VARIAR = {"canvas-hash"}
 
 async def _sondar(profile, headless: bool) -> dict:
     async def _fn(page):
-        await page.goto("about:blank")
+        # NAO navegar se a pagina ja esta em about:blank. O contexto persistente abre
+        # a primeira aba ja navegando para la, e um `goto` nosso corre contra ela:
+        # "Navigation to about:blank is interrupted by another navigation to
+        # about:blank" -- foi exatamente o que derrubou a sondagem com janela na
+        # primeira execucao. E se ainda assim falhar, seguimos: a sonda so precisa de
+        # um documento qualquer, nao de uma navegacao bem-sucedida.
+        try:
+            if not (page.url or "").startswith("about:"):
+                await page.goto("about:blank", wait_until="domcontentloaded")
+        except Exception:
+            pass
+        await asyncio.sleep(1.0)          # deixa a janela assentar antes de medir
         return await page.evaluate(_SONDA)
     return await sm.run_profile_task(profile, _fn, headless=headless)
 
@@ -161,7 +172,15 @@ async def main() -> int:
     try:
         visivel = await _sondar(prof, False)
     except Exception as e:
+        # Nao desperdicar a metade que deu certo: grava o que ha e sai avisando.
+        # (na 1a execucao real isto se perdeu por causa de um `goto` concorrente)
         print(f"  falhou: {e}")
+        with open("diag_headless_resultado.json", "w", encoding="utf-8") as f:
+            json.dump({"perfil": prof.get("name"), "headless": oculto,
+                       "janela": None, "erro_janela": str(e)}, f,
+                      indent=2, ensure_ascii=False)
+        print("\n  A sonda HEADLESS deu certo e foi salva em "
+              "diag_headless_resultado.json (sem o comparativo).")
         return 1
 
     difs = []
