@@ -557,6 +557,42 @@ por si (perfil vazio não converte e parece bot) e ajudam a destravar a capacida
 DM ficou **descartada pelo usuário**: *"links e dms são as primeiras coisas a serem
 restritas"*, e a alavanca é pequena (10-20/dia contra 450 follows/dia).
 
+### REGRESSÃO MINHA: o ruído de ponteiro custava 10× mais que o follow
+
+Relato: *"a velocidade parece abaixo do normal"*. Estava, e a culpa era do
+`mexer_na_pagina` que eu tinha subido horas antes.
+
+**Medido, em ordem:**
+
+| | |
+|---|---|
+| intervalo anunciado no log | **7s** |
+| intervalo REAL entre follows | **32s** (mediana) |
+| sobrecarga por follow | **~25s** |
+| o mesmo trabalho ONTEM | **~2s** |
+| latência até o Instagram | **0,35s** — não era a rede |
+
+**Causa:** `human.move_to` faz **16 idas ao navegador por movimento** — 14 pontos do
+bezier mais dois `page.evaluate` para guardar a posição do cursor. Com 1-3 movimentos
+mais um scroll de 3-8 passos, dava **até 56 idas por follow**. Isso é barato numa página
+estática (por isso serve no aquecimento), mas o instagram.com é React pesado: cada evento
+de ponteiro dispara handlers, e o round-trip fica caro.
+
+**Fix:** bezier de 4 pontos, no máximo 2 movimentos, scroll de um evento só, e a posição
+do cursor guardada no processo em vez de relida do navegador. **De até 56 idas para no
+máximo 9**, média 6,3.
+
+O sinal continua existindo — há eventos de ponteiro reais, em curva (o teste verifica que
+três pontos consecutivos não são colineares, porque linha reta seria outra assinatura).
+
+**O teste novo é de CUSTO, não de comportamento**: conta idas ao navegador e falha se o
+pior caso passar de 10. Era o tipo de regressão que a suíte não pegaria, porque tudo
+"funcionava" — só que dez vezes mais devagar.
+
+**Lição:** eu medi o custo em DADOS de cada coisa que adicionei, e não medi o custo em
+TEMPO. Numa página pesada, round-trip de input é caro, e o orçamento de tempo por follow é
+o próprio intervalo configurado.
+
 ### Aberto
 - **Ainda não rodou ao vivo.** O primeiro teste deve ser com **simulação ligada** e depois
   um turno curto, conferindo o log (`🧑 além dos follows, esta conta: …`).

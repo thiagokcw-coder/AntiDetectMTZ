@@ -27,6 +27,7 @@ Regra de ouro do modulo: **nada aqui pode derrubar a campanha**. Toda rotina que
 toca a pagina e best-effort e engole a propria excecao. Ruido de comportamento e
 acessorio; seguir e o trabalho.
 """
+import asyncio
 import hashlib
 import random
 import time
@@ -564,7 +565,20 @@ async def seguir_clicando(page, username=None, *, rng=None) -> dict:
     return {"ok": False, "motivo": "cliquei, mas o botao nao confirmou"}
 
 
-async def mexer_na_pagina(page, *, rng=None) -> dict:
+# Pontos por movimento de mouse. O `human._move_bezier` usa 14 e ainda faz dois
+# `page.evaluate` para guardar a posicao do cursor -- 16 idas ao navegador por
+# movimento. Isso e barato numa pagina estatica (e por isso serve no aquecimento),
+# mas o Instagram e React pesado: CADA evento de ponteiro dispara handlers, e o
+# round-trip fica caro.
+#
+# MEDIDO em 2026-08-22: com 1-3 movimentos + scroll dava ate 56 idas por follow e
+# levava o trabalho de ~2s para ~20s -- o dobro do intervalo configurado virando
+# tempo morto. Com 4 pontos e no maximo 2 movimentos, o sinal continua existindo
+# (ha eventos de ponteiro de verdade, em curva) e o custo cai uma ordem de grandeza.
+_PONTOS_MOUSE = 4
+
+
+async def mexer_na_pagina(page, *, rng=None, estado=None) -> dict:
     """Move o mouse e as vezes rola a pagina. NAO faz requisicao nenhuma.
 
     Existe porque a sessao passava 30 minutos com a pagina do Instagram carregada,
@@ -572,22 +586,35 @@ async def mexer_na_pagina(page, *, rng=None) -> dict:
     O JS do Instagram observa esses eventos; a ausencia total deles e o lado
     cliente da mesma anomalia que o `nav_chain` vazio e no lado servidor.
 
-    Custa **zero dados**, que e o que permite fazer isto em todo follow."""
+    Custa zero dados. `estado` guarda a posicao do cursor entre chamadas, o que
+    evita os dois `page.evaluate` por movimento que o `human.move_to` faz."""
     r = rng or random
-    feitos = 0
+    pos = estado if isinstance(estado, dict) else {}
+    eventos = 0
     try:
         vp = page.viewport_size or {"width": 1280, "height": 720}
-        for _ in range(r.randint(1, 3)):
-            await human.move_to(page, r.uniform(vp["width"] * 0.15, vp["width"] * 0.85),
-                                r.uniform(vp["height"] * 0.15, vp["height"] * 0.85))
-            feitos += 1
-            await human.micro(0.08, 0.35)
-        if r.random() < 0.45:
-            await human.scroll_down(page, r.randint(120, 420))
-            feitos += 1
+        x0 = pos.get("x", vp["width"] * 0.5)
+        y0 = pos.get("y", vp["height"] * 0.5)
+        for _ in range(r.randint(1, 2)):
+            x1 = r.uniform(vp["width"] * 0.15, vp["width"] * 0.85)
+            y1 = r.uniform(vp["height"] * 0.15, vp["height"] * 0.85)
+            # Bezier curto: curva de verdade, poucos pontos.
+            cx = (x0 + x1) / 2 + r.uniform(-60, 60)
+            cy = (y0 + y1) / 2 + r.uniform(-60, 60)
+            for i in range(1, _PONTOS_MOUSE + 1):
+                t = i / _PONTOS_MOUSE
+                await page.mouse.move((1 - t) ** 2 * x0 + 2 * (1 - t) * t * cx + t * t * x1,
+                                      (1 - t) ** 2 * y0 + 2 * (1 - t) * t * cy + t * t * y1)
+                eventos += 1
+            x0, y0 = x1, y1
+            await asyncio.sleep(r.uniform(0.05, 0.2))
+        if r.random() < 0.35:
+            await page.mouse.wheel(0, r.randint(140, 420))
+            eventos += 1
+        pos["x"], pos["y"] = x0, y0
     except Exception:
         pass          # regra de ouro: ruido nunca derruba a campanha
-    return {"ok": feitos > 0, "eventos": feitos}
+    return {"ok": eventos > 0, "eventos": eventos}
 
 
 async def curtir_no_perfil(page, *, rng=None, log=None) -> dict:
@@ -780,6 +807,7 @@ class Comportamento:
                                          self.rng)
         self._na_rajada = 0
         self._ultima_rajada = self._rajada
+        self._cursor = {}          # posicao do mouse, para nao reler do navegador
         # Trilha do turno -- e o que permite VER a variedade em vez de confiar nela.
         # O usuario pediu explicitamente para conseguir "prevenir comportamento
         # repetitivo", e para isso ele precisa dos numeros, nao de uma media.
@@ -810,7 +838,7 @@ class Comportamento:
             return {"ok": False, "tipo": "desligado", "segundos": 0.0}
         # Mexer o mouse antes de agir custa ZERO dados e tira a sessao do estado
         # "pagina carregada, JS rodando, nenhum evento de ponteiro por 30 minutos".
-        await mexer_na_pagina(page, rng=self.rng)
+        await mexer_na_pagina(page, rng=self.rng, estado=self._cursor)
         if self.rng.random() >= _pct(self.c.get("verPerfilPct")):
             return {"ok": False, "tipo": "sorteio", "segundos": 0.0}
         completo = self.rng.random() < _pct(self.c.get("verPerfilCompletoPct"))
