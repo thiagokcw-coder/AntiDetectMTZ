@@ -2527,12 +2527,33 @@ def _follow_config() -> dict:
             "filters": {**follower.DEFAULT_FILTERS, **f}}
 
 
+def _ciclo_dados(quando=None) -> str:
+    """Chave do CICLO de cobrança atual ('AAAA-MM-DD' = o dia em que ele começou).
+
+    Não é o mês do calendário: o plano do usuário renova num dia qualquer (o dele
+    virou dia 22). Contar por mês faria o medidor zerar em 1º de setembro enquanto o
+    plano ainda tinha três semanas de uso acumulado — e a leitura ficaria otimista
+    justo perto do teto, que é onde ela precisa ser certa."""
+    try:
+        dia = int(db.get_setting("data_plan_dia", "1") or 1)
+    except Exception:
+        dia = 1
+    dia = max(1, min(28, dia))          # 28 evita o buraco de fevereiro
+    t = time.localtime(quando if quando is not None else time.time())
+    ano, mes = t.tm_year, t.tm_mon
+    if t.tm_mday < dia:                 # ainda no ciclo aberto no mês passado
+        mes -= 1
+        if mes == 0:
+            ano, mes = ano - 1, 12
+    return f"{ano:04d}-{mes:02d}-{dia:02d}"
+
+
 def _follow_dados_mes(quando=None) -> dict:
-    """Consumo de dados acumulado por MÊS (chave 'AAAA-MM' → bytes).
+    """Consumo de dados acumulado por CICLO (chave = início do ciclo → bytes).
 
     Fica numa setting em vez de tabela: é um contador, não histórico — e assim não
-    há migração. O plano do usuário é de 30 GB/mês e o modem é a internet do PC
-    inteiro, então este número é restrição de projeto."""
+    há migração. O plano do usuário é de 30 GB e o modem é a internet do PC inteiro,
+    então este número é restrição de projeto."""
     try:
         d = json.loads(db.get_setting("follow_data_usage", "") or "{}")
     except Exception:
@@ -2545,7 +2566,7 @@ def _follow_somar_dados(job, res, feitos, log=None):
     b = int(res.get("dados_bytes") or 0)
     if b <= 0:
         return
-    mes = time.strftime("%Y-%m")
+    mes = _ciclo_dados()
     d = _follow_dados_mes()
     d[mes] = int(d.get(mes) or 0) + b
     try:
@@ -2554,6 +2575,7 @@ def _follow_somar_dados(job, res, feitos, log=None):
         logger.exception("follow: falha ao gravar consumo de dados")
     job["dados_mb_turno"] = res.get("dados_mb")
     job["dados_gb_mes"] = round(d[mes] / (1024 ** 3), 2)
+    job["dados_ciclo"] = mes
     if log:
         por = f" · ~{(b / 1024 / max(1, feitos)):.0f} KB por follow" if feitos else ""
         log(f"📶 este turno gastou {res.get('dados_mb')} MB{por} · "
@@ -3410,17 +3432,46 @@ def follow_config_set(body: FollowConfigRequest):
 
 @app.get("/follow/data-usage")
 def follow_data_usage():
-    """Consumo MEDIDO de dados por mês. Substitui a estimativa da tela — que já
-    errou uma vez, mostrando 1,5 GB onde o custo real era ~76 GB/mês."""
+    """Consumo MEDIDO de dados no ciclo de cobrança atual. Substitui a estimativa da
+    tela — que já errou duas vezes, por 50x e depois por 5x."""
     d = _follow_dados_mes()
-    mes = time.strftime("%Y-%m")
-    bytes_mes = int(d.get(mes) or 0)
+    ciclo = _ciclo_dados()
+    bytes_ciclo = int(d.get(ciclo) or 0)
+    try:
+        dia = max(1, min(28, int(db.get_setting("data_plan_dia", "1") or 1)))
+    except Exception:
+        dia = 1
+    # Quantos dias faltam para o plano renovar — é o que decide se dá para gastar.
+    ini = time.mktime(time.strptime(ciclo, "%Y-%m-%d"))
+    passados = max(0, int((time.time() - ini) / 86400))
     return {
-        "mes": mes,
-        "bytes": bytes_mes,
-        "gb": round(bytes_mes / (1024 ** 3), 2),
+        "ciclo": ciclo,
+        "mes": ciclo,                    # compat com quem já lia `mes`
+        "dia_renovacao": dia,
+        "dias_no_ciclo": passados,
+        "bytes": bytes_ciclo,
+        "gb": round(bytes_ciclo / (1024 ** 3), 2),
         "historico": {k: round(v / (1024 ** 3), 2) for k, v in sorted(d.items())},
     }
+
+
+@app.post("/follow/data-usage/reset")
+def follow_data_usage_reset():
+    """Zera o contador e marca HOJE como o dia de renovação do plano.
+
+    As duas coisas juntas de propósito: quem clica aqui acabou de renovar, e sem
+    fixar o dia o medidor voltaria a zerar sozinho na virada do mês — dando leitura
+    otimista justo perto do teto."""
+    hoje = time.localtime()
+    dia = max(1, min(28, hoje.tm_mday))
+    db.set_setting("data_plan_dia", str(dia))
+    d = _follow_dados_mes()
+    ciclo = _ciclo_dados()
+    antes = round(int(d.get(ciclo) or 0) / (1024 ** 3), 2)
+    d[ciclo] = 0
+    db.set_setting("follow_data_usage", json.dumps(d))
+    logger.info("dados: contador zerado (era %.2f GB) · renovacao dia %s", antes, dia)
+    return {"ok": True, "zerado_gb": antes, "ciclo": ciclo, "dia_renovacao": dia}
 
 
 @app.get("/follow/history")

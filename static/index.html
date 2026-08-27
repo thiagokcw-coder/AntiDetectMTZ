@@ -1384,6 +1384,7 @@
           <div style="font-weight:600">📊 Métricas</div>
           <div style="display:flex;gap:6px">
             <button class="btn btn-success btn-sm" onclick="followExportCsv(this)" title="CSV com todas as pessoas já seguidas (nunca repetidas), a conta que seguiu, a origem e se ainda está seguindo">⬇ Exportar CSV</button>
+            <button class="btn btn-secondary btn-sm" onclick="zerarUsoDeDados(this)" title="Zera o contador de dados e marca HOJE como o dia em que o plano renova">📶 Zerar dados do plano</button>
             <button class="btn btn-sm" onclick="followCheckBack(this)" title="Confere quem retribuiu o follow. Só leitura — pergunta o status de ~50 pessoas por requisição, a mesma rota que a interface usa ao abrir uma lista">🤝 Conferir quem seguiu de volta</button>
             <button class="btn btn-ghost btn-sm" onclick="loadFollowMetrics()">↻ Atualizar</button>
           </div>
@@ -4750,10 +4751,13 @@ function followHumanoHint() {
   // Estimativas grosseiras: perfil JSON ~50KB · página de perfil ~3MB · feed ~2,5MB ·
   // explorar ~4MB (grade de imagens) · busca e espiar ~50KB cada.
   // Mix quando o conteúdo pesado é permitido: espiar 50 · busca 35 · feed 12 · explorar 3.
-  const CHEAP = 0.05;
-  const custoMixPesado = 0.50 * CHEAP + 0.35 * CHEAP + 0.12 * 2.5 + 0.03 * 4;
+  // MEDIDO em 2026-08-22 pelo medidor de bytes, cruzando tres turnos reais:
+  // pagina pesada ~10,6 MB (nao 2,5-3 como eu estimava) e ~9 MB fixos para abrir a
+  // sessao. A previsao antiga mostrava ~15 GB/mes onde o real era ~73.
+  const CHEAP = 0.05, PESADA = 10.6, SESSAO = 9.0;
+  const custoMixPesado = 0.50 * CHEAP + 0.35 * CHEAP + 0.12 * PESADA + 0.03 * PESADA;
   const porPausa = rajada ? Math.max(1, (rMin + rMax) / 2) : 1;
-  const mbPerfil = (ler / 100) * ((cheio / 100) * 3 + (1 - cheio / 100) * 0.05);
+  const mbPerfil = (ler / 100) * ((cheio / 100) * PESADA + (1 - cheio / 100) * CHEAP);
   // A volta SEMPRE faz pelo menos 1 ação; `conteudoPesadoPct` decide se a PRIMEIRA
   // pode ser cara. As demais são sempre baratas. Mais uma a cada ~3 follows da rajada.
   const seg = fwNum('fw-segundaAcaoPct', 65);
@@ -4761,7 +4765,9 @@ function followHumanoHint() {
   const primeira = (pesado / 100) * custoMixPesado + (1 - pesado / 100) * CHEAP;
   const custoVolta = primeira + ((seg / 100) + extras) * CHEAP;
   const mbLeitura = custoVolta / porPausa;
-  const mbPorFollow = mbPerfil + mbLeitura;
+  // A sessao abre uma vez por TURNO, entao dilui pelo tamanho do bloco.
+  const blocoTurno = fwNum('fw-followsPerAccount', 100) || 100;
+  const mbPorFollow = mbPerfil + mbLeitura + SESSAO / blocoTurno;
   const gbMes = mbPorFollow * (window._fwFollowsDia || 2000) * 30 / 1024;
   const partes = [];
   if (rajada) {
@@ -4793,8 +4799,12 @@ function followHumanoHint() {
     + (gbMes > 25 ? ' — <b>estoura o plano de 30 GB</b>, e o modem é a internet do PC inteiro' : ''));
   const real = window._fwDados;
   if (real && real.gb !== undefined) {
-    partes.push(`📊 <b>medido de verdade em ${real.mes}: ${real.gb} GB</b>`
-      + ' — este é o número que vale; o de cima é só previsão.');
+    const usado = real.gb, resta = Math.max(0, 30 - usado);
+    const cor2 = usado > 25 ? '#ef4444' : (usado > 15 ? '#f59e0b' : '#22c55e');
+    partes.push(`📊 <b>medido: <span style="color:${cor2}">${usado} GB</span> de 30</b> `
+      + `— restam ${resta.toFixed(1)} GB, ciclo aberto em ${real.ciclo || real.mes}`
+      + (real.dias_no_ciclo != null ? ` (dia ${real.dias_no_ciclo})` : '')
+      + '. Este é o número que vale; o de cima é previsão.');
   }
   partes.push('💡 A leitura <b>leve</b> do perfil custa ~50 KB e é ela que corrige o sinal principal: '
     + 'a 2.000 follows/dia dá <b>~3 GB/mês</b>. Quem come o plano é <b>abrir a página inteira</b> (~3 MB) '
@@ -4906,6 +4916,23 @@ async function followCyclePoll() {
 
   clearTimeout(_cicloTimer);
   if (s.running) _cicloTimer = setTimeout(followCyclePoll, 4000);
+}
+
+async function zerarUsoDeDados(btn) {
+  if (!confirm('Zerar o contador de dados e marcar HOJE como o dia de renovação do plano?')) return;
+  const orig = btn ? btn.textContent : '';
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ zerando…'; }
+  try {
+    const r = await api('POST', '/follow/data-usage/reset');
+    // Relê para a previsão e o resumo passarem a mostrar o ciclo novo na hora.
+    window._fwDados = await api('GET', '/follow/data-usage');
+    followHumanoHint(); followPrefsResumo();
+    toast(`✓ Zerado (eram ${r.zerado_gb} GB) — o plano passa a renovar todo dia ${r.dia_renovacao}`, 'success');
+  } catch (e) {
+    toast('Não consegui zerar: ' + e.message, 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = orig; }
+  }
 }
 
 async function followExportCsv(btn) {

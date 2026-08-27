@@ -401,9 +401,20 @@ _RESERVA_VOLTA = (9.0, 18.0)
 # volta mais rica -- e a densidade deixa de depender de como a rajada esta configurada.
 _FOLLOWS_POR_ACAO_EXTRA = 3
 
-# Custo estimado de cada leitura, em MB. Usado so para a previsao na tela -- o
-# numero que vale e o do MedidorDeDados, que conta os bytes de verdade.
-CUSTO_MB = {"leve": 0.05, "pagina": 3.0, "feed": 2.5, "explorar": 4.0, "busca": 0.05}
+# Custo de cada acao, em MB. MEDIDO em 2026-08-22 pelo MedidorDeDados, cruzando tres
+# turnos reais -- nao e mais estimativa:
+#
+#   turno vazio (so abriu a sessao + 3 leituras) ............  8,95 MB  -> custo FIXO
+#   turno de 21 follows (1 pagina + 1 feed + 22 leves) .....  31,2  MB
+#   turno de 108 follows (7 paginas + 4 feeds + 128 leves) . 132,25 MB
+#
+# Resolvendo: pagina pesada ~10,6 MB (os dois turnos concordam) e sessao ~9 MB.
+# A minha estimativa anterior era 3 MB por pagina -- errei por 3,5x, e a previsao na
+# tela mostrava ~15 GB/mes onde o real e ~73 GB.
+CUSTO_MB = {"leve": 0.05, "pagina": 10.6, "feed": 10.6, "explorar": 10.6, "busca": 0.05}
+# Abrir a sessao (instagram.com + bundles + colher headers) custa isto UMA vez por
+# turno, entao dilui pelo tamanho do bloco.
+CUSTO_MB_SESSAO = 9.0
 
 
 def sortear_leitura(rng=None, so_baratas=False) -> str:
