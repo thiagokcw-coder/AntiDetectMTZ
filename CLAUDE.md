@@ -101,6 +101,14 @@ rota sempre esteve certa. Sem ele o IG devolve **404, não 403**, e foi isso que
 diagnóstico. Headers e tokens são **colhidos** do tráfego da própria interface (rotacionam;
 fixar quebraria na virada). Ver "🎯 CAUSA DO 404 MEDIDA".
 
+**A ordem do rodízio é por DESCANSO, não pela lista (2026-08-27).** O pool vinha na
+ordem dos checkboxes, então toda execução abria com a mesma conta — ela levava a maior
+carga e "a conta X sempre abre" é padrão por si. Agora `_dividir` ordena por **menos ações
+nas últimas 24h**, desempatando por **quem está parada há mais tempo** (o resumo conta a
+janela mas guarda o último de SEMPRE, senão duas contas paradas há dias empatariam em
+zero). Como quem trabalha sobe no contador, **a ordem se reveza sozinha** — sem guardar
+estado. O terminal mostra: `🔀 ordem por descanso: A(0/24h) → B(22/24h) → C(133/24h)`.
+
 **Como o ritmo funciona hoje** (3 iterações do usuário até chegar aqui):
 - **Sem teto por hora nem por dia.** O freio é o **intervalo** entre follows.
 - **O descanso é o RÓDIZIO:** a conta faz seu bloco (`followsPerAccount`, 100), passa a vez

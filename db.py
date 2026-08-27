@@ -1238,6 +1238,22 @@ def list_follow_actions(account_key: str, since_ms: int = 0) -> list:
     return [int(r["ts_ms"]) for r in rows]
 
 
+def follow_actions_resumo(since_ms: int = 0) -> dict:
+    """{account_key: (quantas ações desde `since_ms`, ts da ÚLTIMA ação)}.
+
+    Uma consulta só para TODAS as contas, em vez de uma por conta — serve para
+    ordenar o rodízio pela conta mais descansada antes de começar."""
+    # A contagem é da janela, mas o MAX é de SEMPRE — de propósito. Filtrar tudo pela
+    # janela faria duas contas paradas há dias empatarem em (0, 0), e o desempate por
+    # "quem está parada há mais tempo" se perderia justo entre as mais descansadas.
+    with get_conn() as conn:
+        rows = _ex(conn,
+            "SELECT account_key, SUM(CASE WHEN ts_ms > ? THEN 1 ELSE 0 END) AS n, "
+            "MAX(ts_ms) AS ult FROM follow_actions GROUP BY account_key",
+            (int(since_ms or 0),)).fetchall()
+    return {r["account_key"]: (int(r["n"] or 0), int(r["ult"] or 0)) for r in rows}
+
+
 def add_follow_action(account_key: str, ts_ms: int):
     """Registra UMA ação da conta (alimenta o limitador).
 

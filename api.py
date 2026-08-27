@@ -2892,6 +2892,25 @@ async def follow_start(body: FollowStartRequest):
         hora/dia da conta continua valendo — vale o que vier primeiro. O histórico é
         GLOBAL, então duas contas nunca seguem a mesma pessoa."""
         centro_bloco = max(0, int(settings.get("followsPerAccount") or 0))
+
+        # ORDEM: começa pela conta mais DESCANSADA, não pela primeira da lista.
+        #
+        # O pool vinha na ordem dos checkboxes, então toda execução abria com a mesma
+        # conta — ela levava a maior carga e "a conta X sempre abre" é um padrão por si.
+        # Ordena por menos ações nas últimas 24h e, no empate, por quem está parada há
+        # mais tempo. Como quem trabalha sobe no contador, a ordem se reveza sozinha
+        # nas execuções seguintes, sem precisar guardar estado.
+        if len(pool) > 1:
+            try:
+                resumo = db.follow_actions_resumo(int((time.time() - 86400) * 1000))
+                pool.sort(key=lambda p: resumo.get(_follow_account_key(p), (0, 0)))
+                ordem = " → ".join(
+                    f"{_follow_account_key(p)}({resumo.get(_follow_account_key(p), (0, 0))[0]}/24h)"
+                    for p in pool)
+                log(f"🔀 ordem por descanso: {ordem}")
+            except Exception:
+                logger.exception("follow: falha ao ordenar o pool por descanso")
+
         if len(pool) > 1:
             log(f"👥 {len(pool)} contas revezando"
                 + (f", trocando a cada ~{centro_bloco} follow(s)" if centro_bloco else
