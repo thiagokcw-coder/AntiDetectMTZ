@@ -832,31 +832,56 @@ async def capture_follow(profile, log=None, should_stop=None, timeout=300) -> di
 # o valor real era 22845. Portanto: colher os dois, nunca calcular.
 _TOKENS_JS = r"""
 () => {
-  const out = { fb_dtsg: '', jazoest: '' };
-  try {
-    if (typeof require === 'function') {
-      const d = require('DTSGInitialData');
-      if (d && d.token) out.fb_dtsg = String(d.token);
-    }
-  } catch (e) {}
+  // Colhe TODOS os candidatos e depois escolhe -- em vez de aceitar o primeiro.
+  //
+  // MEDIDO em 2026-08-27 comparando com a captura da propria interface: o token
+  // valido tem a forma `token:user_id:timestamp` (84 chars). O `DTSGInitialData`,
+  // que era a nossa primeira fonte, devolve so um PREFIXO de 22 chars -- e como ele
+  // preenchia o campo, os fallbacks que pegariam o completo nunca eram alcancados.
+  // Com o token truncado o Instagram responde 404 (nao 403), que foi o 404 que
+  // travou a conta 10122.cap.martim enquanto ela seguia normalmente pela interface.
+  const out = { fb_dtsg: '', jazoest: '', fonte: '' };
+  const cands = [];
+  const add = (t, j, fonte) => { if (t) cands.push({ t: String(t), j: j ? String(j) : '', fonte: fonte }); };
+
+  // 1) formulario -- o par fb_dtsg/jazoest vem junto e e o que a interface submete
   try {
     const i = document.querySelector('input[name="fb_dtsg"]');
-    if (i && i.value && !out.fb_dtsg) out.fb_dtsg = String(i.value);
     const j = document.querySelector('input[name="jazoest"]');
-    if (j && j.value) out.jazoest = String(j.value);
+    if (i && i.value) add(i.value, j && j.value, 'form');
   } catch (e) {}
+
+  // 2) modulos do bootstrap. DTSGInitData ANTES do InitialData: e o que costuma
+  //    trazer o token completo.
+  try {
+    if (typeof require === 'function') {
+      for (const mod of ['DTSGInitData', 'DTSGInitialData']) {
+        try { const d = require(mod); if (d && d.token) add(d.token, null, mod); } catch (e) {}
+      }
+    }
+  } catch (e) {}
+
+  // 3) HTML cru -- a primeira regex ja exige a forma completa
   try {
     const html = document.documentElement.innerHTML;
-    if (!out.fb_dtsg) {
-      const m = html.match(/"dtsg":\s*\{\s*"token":\s*"([^"]+)"/)
-             || html.match(/"token":"(NA[A-Za-z0-9_\-:]{20,})"/);
-      if (m) out.fb_dtsg = m[1];
-    }
-    if (!out.jazoest) {
-      const m2 = html.match(/jazoest["'=:\s]+(\d{4,})/);
-      if (m2) out.jazoest = m2[1];
-    }
+    const regras = [
+      [/"token":"(NA[A-Za-z0-9_\-]{10,}:\d+:\d+)"/, 'html-completo'],
+      [/"dtsg":\s*\{\s*"token":\s*"([^"]+)"/,       'html-dtsg'],
+      [/"token":"(NA[A-Za-z0-9_\-:]{20,})"/,          'html-token']
+    ];
+    for (const [re, nome] of regras) { const m = html.match(re); if (m) add(m[1], null, nome); }
+    const mj = html.match(/jazoest["'=:\s]+(\d{4,})/);
+    if (mj) out.jazoest = mj[1];
   } catch (e) {}
+
+  // ESCOLHE: prefere o que tem a forma completa; senao, o mais longo.
+  const completo = cands.filter(c => /^[^:]+:\d+:\d+$/.test(c.t))[0];
+  const esc = completo || cands.sort((a, b) => b.t.length - a.t.length)[0];
+  if (esc) {
+    out.fb_dtsg = esc.t;
+    out.fonte = esc.fonte + (completo ? ' (completo)' : ' (PARCIAL)');
+    if (esc.j) out.jazoest = esc.j;
+  }
   return out;
 }
 """
@@ -882,10 +907,20 @@ async def colher_tokens_ui(page, log=None) -> dict:
         for k in ("fb_dtsg", "jazoest"):
             if not achado[k] and da_pagina.get(k):
                 achado[k] = str(da_pagina[k])
+    # O token válido tem a forma `token:user_id:timestamp`. Um prefixo curto (só a
+    # primeira parte) faz o Instagram responder 404 — medido em 2026-08-27 comparando
+    # com a captura da interface, e foi o que travou a 10122.cap.martim enquanto ela
+    # seguia normalmente pela tela. Denunciar isso no log evita repetir a investigação.
+    achado["completo"] = bool(re.match(r"^[^:]+:\d+:\d+$", achado["fb_dtsg"] or ""))
     if log:
-        if achado["fb_dtsg"]:
-            log(f"🔑 tokens da interface: fb_dtsg={achado['fb_dtsg'][:18]}… "
+        if achado["fb_dtsg"] and achado["completo"]:
+            log(f"🔑 tokens da interface: fb_dtsg={achado['fb_dtsg'][:18]}…"
+                f"(completo, {len(achado['fb_dtsg'])} chars) "
                 f"jazoest={achado['jazoest'] or '(não achei)'}")
+        elif achado["fb_dtsg"]:
+            log(f"⚠ fb_dtsg PARCIAL ({len(achado['fb_dtsg'])} chars, sem :user:timestamp) — "
+                f"o Instagram devolve 404 com token truncado. Se os follows falharem, "
+                f"é isto.")
         else:
             log("⚠ não achei o fb_dtsg da página — a interface manda esse token no corpo do "
                 "follow; sem ele o POST pode ser recusado (foi a causa medida do 404)")
