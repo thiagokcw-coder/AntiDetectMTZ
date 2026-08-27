@@ -514,13 +514,20 @@
         </div>
         <div class="form-group">
           <label>Sistema Operacional</label>
-          <select id="f-os">
+          <select id="f-os" onchange="document.getElementById('f-os-mobile').style.display = (this.value === 'android' ? '' : 'none')">
             <option value="random">Aleatório (recomendado — varia entre perfis)</option>
             <option value="windows">Windows</option>
             <option value="macos">macOS</option>
             <option value="linux">Linux</option>
+            <option value="android">📱 Android (celular) — para postar STORY</option>
           </select>
           <div class="form-hint">Cada conta deve ter seu próprio perfil. "Aleatório" sorteia o dispositivo para os perfis não ficarem todos iguais.</div>
+          <div class="form-hint" id="f-os-mobile" style="display:none;color:#f59e0b">
+            📱 O Instagram só deixa <b>postar story</b> na visão mobile, e é para isso que este perfil serve.
+            Use-o como um <b>segundo perfil da conta</b>, com <b>login próprio</b> — é o que acontece de verdade quando
+            alguém usa o app no celular. <b>Não</b> troque o sistema de um perfil que já está logado e seguindo:
+            isso é o evento “login de novo dispositivo”, que é o que queima conta.
+          </div>
         </div>
         <div class="form-group">
           <label>Escolher do pool de proxies (opcional)</label>

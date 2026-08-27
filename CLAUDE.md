@@ -310,6 +310,26 @@ ser **mais velho que o fix** — conferir o git log antes de "consertar" o códi
 - Proxies do usuário = **residenciais**.
 - Code review/edições: **mudanças pequenas e testadas** (o código já quebrou várias vezes com refactors grandes às pressas).
 
+## 📱 PERFIL ANDROID — só para postar STORY (2026-08-27)
+O Instagram **só deixa postar story na visão mobile**. O Camoufox suporta
+`os="android"` nativamente (UA `Android 16; Mobile`, platform `Linux armv81`, 5 pontos
+de toque), então **não há gambiarra de user-agent**. Escolha "📱 Android" ao criar o
+perfil; `fingerprint._android()` monta tela de celular em retrato (360-412 px) e o resto
+vem do Camoufox.
+
+Peças que precisavam saber disso, e que o teste cobre: `_map_os` (ARM → android, antes
+caía no fallback `linux`); a **janela não é reduzida a 85%** (num celular a janela É a
+tela); `_CROMO["android"] = (0,0)` (sem moldura nem barra de rolagem, então `outer ==
+inner` é legítimo lá, ao contrário do desktop); e `_PARES_WEBGL_ANDROID` — o banco WebGL
+do Camoufox só cobre win/mac/lin, e sem essa lista a GPU do perfil mobile **variaria a
+cada sessão**. Os pares foram colhidos do próprio Camoufox (400 amostras): Adreno 81%,
+Mali 10%, PowerVR 8%.
+
+**⚠ REGRA: use em perfil NOVO, com login próprio.** Trocar o SO de um perfil que já tem
+sessão viva é o evento **"login de novo dispositivo"** — a mesma coisa que já queimou
+contas neste projeto. O caminho seguro é um SEGUNDO perfil para a conta, onde você faz
+login: o Instagram vê "essa pessoa entrou pelo celular", que é o que acontece de verdade.
+
 ## Fingerprint (fingerprint.py + Camoufox)
 `fingerprint.py` (browserforge, browser="firefox") guarda só campos para exibição; **Camoufox só consome `platform`(OS) e `screen`**. O fingerprint REAL é gerado pelo Camoufox no motor: Canvas, WebGL(GPU), Audio, fontes, navigator, **TLS/JA3, HTTP/2** (ver `session_manager.py` cabeçalho). Idioma/timezone vêm do **geoip** (IP do proxy) em runtime. Resumo: o que o app exibe é simples; o real é profundo. **Gotcha:** travar `Screen` na resolução EXATA pode quebrar a geração do fingerprint no browserforge — por isso `_open_camoufox` tem cascata de fallback (pin_screen→sem pin→sem geoip→sem constrain_screen).
 

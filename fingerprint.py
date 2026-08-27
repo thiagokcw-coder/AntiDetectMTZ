@@ -33,9 +33,43 @@ def _pick_os(os: str) -> str:
     return os
 
 
+# Telas de celular comuns no Brasil (largura x altura em CSS px, retrato).
+# Usadas só quando o perfil é ANDROID -- o gerador desktop nunca produz estas.
+_TELAS_ANDROID = [
+    (360, 800), (393, 873), (412, 915), (384, 854), (360, 780), (412, 892),
+]
+
+
+def _android() -> dict:
+    """Fingerprint de celular Android.
+
+    MOTIVO (2026-08-27): o Instagram só deixa POSTAR STORY na visão mobile. O
+    Camoufox suporta `os="android"` nativamente e monta o conjunto coerente
+    (UA `Android 16; Mobile`, platform `Linux armv81`, 5 pontos de toque), então
+    não há gambiarra de user-agent aqui -- este dict só declara a intenção, e quem
+    gera o fingerprint de verdade é o Camoufox em runtime.
+
+    ⚠ Use em perfil NOVO. Trocar o SO de um perfil com sessão viva é o evento
+    "login de novo dispositivo", que é justamente o que queima conta."""
+    w, h = random.choice(_TELAS_ANDROID)
+    return {
+        "fp_seed": random.getrandbits(63),
+        "platform": "Linux armv81",          # o que o _map_os lê para escolher android
+        "screen": {"width": w, "height": h, "colorDepth": 24, "pixelDepth": 24},
+        "userAgent": "Mozilla/5.0 (Android 16; Mobile; rv:150.0) Gecko/150.0 Firefox/150.0",
+        "hardwareConcurrency": random.choice([4, 6, 8]),
+        "deviceMemory": None,
+        "language": "pt-BR",
+        "timezone": "America/Sao_Paulo",
+        "isMobile": True,
+    }
+
+
 def generate(os: str = "windows") -> dict:
+    if str(os).lower() in ("android", "mobile"):
+        return _android()
     os = _pick_os(os)
-    # device='desktop': o projeto é desktop-only (Camoufox é Firefox desktop).
+    # device='desktop': as demais opções são desktop (Camoufox é Firefox desktop).
     fp = _generator.generate(os=os, device="desktop")
 
     hw = getattr(fp.navigator, "hardwareConcurrency", None) or random.choice([4, 8, 12, 16])

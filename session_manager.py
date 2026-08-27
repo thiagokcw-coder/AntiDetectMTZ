@@ -179,7 +179,9 @@ def _build_proxy(proxy: dict | None) -> dict | None:
 # heuristica conhecida de deteccao. A altura dava 57 contra 65.
 #
 # macOS usa barra de rolagem sobreposta (nao ocupa espaco), entao la o 0 e legitimo.
-_CROMO = {"windows": (16, 65), "linux": (15, 62), "macos": (0, 55)}
+_CROMO = {"windows": (16, 65), "linux": (15, 62), "macos": (0, 55),
+          # Celular: sem moldura e sem barra de rolagem ocupando espaco.
+          "android": (0, 0)}
 
 
 def _viewport_coerente(fp: dict, largura_janela: int, altura_janela: int):
@@ -189,14 +191,34 @@ def _viewport_coerente(fp: dict, largura_janela: int, altura_janela: int):
 
 
 def _map_os(platform: str) -> str:
-    pl = platform.lower()
+    pl = (platform or "").lower()
     if "win" in pl:   return "windows"
     if "mac" in pl:   return "macos"
+    # Android se declara como `Linux armv81` -- e ARM, nao um desktop Linux. Sem
+    # este teste ANTES do fallback, o perfil mobile abriria como desktop e o
+    # Instagram nunca mostraria a tela de postar story (2026-08-27).
+    if "arm" in pl or "android" in pl:
+        return "android"
     return "linux"
 
 
+def _eh_mobile(fp: dict) -> bool:
+    """O perfil é de celular? Muda janela, viewport e o cromo esperado."""
+    return bool(fp) and (fp.get("isMobile") is True
+                         or _map_os(fp.get("platform", "")) == "android")
+
+
 # Mapeia o OS do perfil para a sigla usada pelo banco WebGL do Camoufox.
-_WEBGL_OS = {"windows": "win", "macos": "mac", "linux": "lin"}
+_WEBGL_OS = {"windows": "win", "macos": "mac", "linux": "lin", "android": "and"}
+
+# Pares (vendor, renderer) de celular. COLHIDOS do proprio Camoufox em 2026-08-27
+# (400 amostras com os="android"), na ordem de frequencia que ele usa -- o banco
+# `get_possible_pairs()` dele so cobre win/mac/lin.
+_PARES_WEBGL_ANDROID = [
+    ("Qualcomm", "Adreno (TM) 650, or similar"),                    # ~81%
+    ("ARM", "Mali-T760, or similar"),                               # ~10%
+    ("Imagination Technologies", "PowerVR SGX 540, or similar"),    # ~8%
+]
 
 
 def _profile_seed(profile: dict) -> int:
@@ -230,6 +252,13 @@ def _stable_webgl(profile: dict) -> tuple[str, str] | None:
     fp = profile.get("fingerprint") or {}
     os_key = _WEBGL_OS.get(_map_os(fp.get("platform", "windows")))
     pairs = (get_possible_pairs() or {}).get(os_key) if os_key else None
+    if not pairs and os_key == "and":
+        # O banco de pares do Camoufox só cobre win/mac/lin, mas ele SABE gerar GPU
+        # de celular. Sem uma lista aqui, a placa do perfil mobile passaria a variar
+        # a cada sessão — justamente o que esta função existe para impedir.
+        # A lista abaixo foi COLHIDA do próprio Camoufox (400 amostras com
+        # os="android"), com a frequência que ele usa.
+        pairs = _PARES_WEBGL_ANDROID
     if not pairs:
         return None
     rnd = random.Random(_profile_seed(profile) ^ 0x5745_4247)  # 'WEBG'
@@ -519,10 +548,14 @@ def _camoufox_kwargs(profile: dict, headless: bool, load_extension: bool = False
     w = fp["screen"]["width"]
     h = fp["screen"]["height"]
 
+    # Num celular a "janela" É a tela — não há moldura de janela para descontar,
+    # e reduzir para 85% daria um aparelho de largura impossível.
+    janela = ((w, h) if _eh_mobile(fp)
+              else (max(800, int(w * 0.85)), max(600, int(h * 0.85))))
     kw = dict(
         headless=headless,
         os=_map_os(fp["platform"]),
-        window=(max(800, int(w * 0.85)), max(600, int(h * 0.85))),
+        window=janela,
         proxy=proxy,
         addons=addons,
         persistent_context=True,
