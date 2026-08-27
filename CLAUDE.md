@@ -2,10 +2,105 @@
 
 > Notas de contexto para o Claude. App de **gestão de contas Instagram** (Camoufox/Firefox antidetect + Playwright). Backend FastAPI (`api.py`/`main.py`), frontend em `static/index.html`. **Multiplataforma (Windows + macOS).** Idioma do usuário: **português**.
 
-## 📍 ONDE PARAMOS — leia isto primeiro (2026-08-21)
+## 📍 ONDE PARAMOS — leia isto primeiro (2026-08-27)
 
-> Histórico detalhado da sessão (hipóteses que morreram, para não refazer o caminho):
-> **`registro.md`**.
+> Histórico detalhado, com as hipóteses que morreram (para ninguém refazer o caminho):
+> **`registro.md`** — sessões em ordem decrescente de data.
+
+### 🎯 O OBJETIVO, antes de qualquer coisa
+
+O produto **não é seguir de volta, nem converter para um grupo — é NOTIFICAR.** O nome da
+conta (`10122.capitaomartim` = nome + número) aparece em toda notificação de follow, e é
+essa a carga. Os 12 alvos são mídia local do RS. O indicador é:
+
+```
+entregas = contas × dias de vida × ritmo
+```
+
+**Eu otimizei para a coisa errada três vezes antes de perguntar** (achei que era follow-back,
+depois que era captação para grupo, depois quis trocar o nome da conta "porque não comunica
+nada" — era exatamente o oposto). **Pergunte o que é o produto antes de otimizar.**
+
+### 📊 Estado da frota (27/08) — 3 contas vivas, 8.400+ notificações entregues
+
+| conta | status | total | observação |
+|---|---|---|---|
+| `10122.capitaomartim` | ativa | 1.830 | a mais produtiva |
+| `cap.martim.rs.2026` | ativa | 1.384 | |
+| `cap.martim2026` | ativa | 1.223 | |
+| `10122.cap.martim` | **banida 27/08** | 1.134 | ver abaixo |
+| `10122.capmartim` | banida 22/08 | 1.017 | |
+| `10122.cap.martim.rs` | suspensa 20/08 | 710 | fora do cadastro |
+| `cap.martim.poa.2026` | **roubada**, não banida | 1.121 | fora do cadastro |
+
+### 🩸 A lição mais cara do dia: não insista com conta que recusa
+
+`10122.cap.martim` dava 404 em todo follow desde 22/08 — e **aquele 404 era, na prática, um
+freio**. Consertei a causa (ver abaixo), ela voltou a agir, fez 81 follows em 23 minutos e
+foi **banida três horas depois**. Não dá para provar causalidade, mas a leitura plausível é
+que o conserto removeu o freio.
+
+Daí a **quarentena** (`quarentenaDias`, padrão 3): turno que termina com o sinal de 404 põe
+a conta de molho e o pool a tira do ródizio. Antes ela era retestada a cada volta.
+
+**E um sinal novo, medido:** `x-ig-www-claim = 0` marca conta que o Instagram já trata
+diferente — o header é emitido pelo servidor, e a sessão que nunca o recebe é sessão visada.
+Das três contas de uma execução, só a que tinha claim 0 caiu. Como ela fez 81 follows *com*
+claim zerado, é **sintoma, não causa**. Conta com claim 0 = conta para deixar parada.
+
+### 🔑 O 404 tinha DUAS causas, as duas nossas, as duas achadas por CAPTURA
+
+O botão **"🔬 Capturar requisição real"** resolveu em minutos o que dias de hipótese não
+resolveram. **Quando o follow der 404, capture antes de teorizar.**
+
+1. **`fb_dtsg` truncado** — o válido é `token:user_id:timestamp` (84 chars); líamos
+   `DTSGInitialData` primeiro, que devolve só o prefixo (22 chars). Com token truncado o IG
+   responde **404, não 403**.
+2. **Headers em PLACEHOLDER** — `x-ig-www-claim: 0` e `x-instagram-ajax: 1` em vez de
+   `hmac.…` e do número da build.
+
+**As duas eram o mesmo erro de raciocínio:** aceitar o primeiro (ou o último) valor que
+chega, em vez de **escolher o melhor**. Hoje a coleta junta todos os candidatos e escolhe;
+o claim também é lido da resposta (`x-ig-set-www-claim`); e o log denuncia os dois casos.
+
+### 📶 Dados: o medidor virou a fonte da verdade
+
+Minha estimativa errou **duas vezes** (uma por 50×, outra por 4×). Custos MEDIDOS: página
+pesada **~10,6 MB**, sessão **~9 MB fixos por turno**. O contador segue o **ciclo do plano**
+(renova dia 22, não no calendário) e há botão **📶 Zerar dados do plano**. Plano: **30 GB**,
+e o modem é a internet do PC inteiro.
+
+### ✅ Outras entregas de 27/08
+- **Ordem do ródizio por DESCANSO** — não começa mais sempre pela mesma conta; se reveza
+  sozinha, sem guardar estado.
+- **Perfil ANDROID** (`os="android"` no Novo Perfil) para **postar story**, que o Instagram
+  só permite na visão mobile. ⚠ Perfil NOVO com login próprio — trocar o SO de um perfil
+  com sessão viva é o evento "login de novo dispositivo".
+- **Rampa por idade** (dia 1 → 100, dia 2 → 250, dia 3 → 450, depois livre).
+
+### ⏳ ABERTO — o que fazer a seguir
+1. **Story pelo perfil Android: NÃO TESTADO.** Falta saber se a visão mobile do Instagram no
+   Firefox oferece mesmo o upload de story.
+2. **`cap.martim2026` com o fix dos headers: não confirmado ao vivo.**
+3. **Criar conta direto no Camoufox pelo modem 4G** — teste pendente, decide se vale
+   construir o assistente de criação. O código de cadastro está pronto e parado desde junho
+   esperando exatamente um IP bom (ver `registro.md`, sessão de 22/08).
+4. **Unfollow: 0 execuções ao vivo** — descartado pelo usuário por economia (reciclar custa
+   2 ações por notificação contra 1 numa conta nova) e o teto de 7.500 nunca foi atingido.
+5. **Sono desligado** é o maior sinal que sobrou no comportamento.
+6. **A frota é agrupável e nenhum código resolve:** mesmos 12 alvos, mesmo modem, e nomes
+   que são variações da mesma string.
+
+### 🧪 Testes
+**44 arquivos, ~881 asserções**, no **scratchpad** (não versionados). Rodar com
+`venv\Scripts\python.exe <arquivo>`. Um teste que falha pode ser **mais velho que o fix** —
+confira o git log antes de "consertar" o código.
+
+### ⚖️ REGRA DE OURO desta base: MEDIR antes de mexer
+Repetidamente o sintoma apontou para o lugar errado e a medição corrigiu. Antes de acreditar
+num sintoma de tela, consulte `GET /follow/cycle/status`, `GET /follow/jobs/{id}` e o banco
+(`follow_history`, `follow_runs`, `accounts`). E **antes de negar um relato do usuário,
+consulte o banco** — ele esteve certo todas as vezes.
 
 ### 🧬 O ruído humano entrou (2026-08-21) — `comportamento.py`
 
