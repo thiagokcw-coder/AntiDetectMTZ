@@ -685,16 +685,57 @@ _SPY_BODY = r"""
     return out;
   };
 
+  // ESCOLHE o melhor valor em vez de deixar o ultimo sobrescrever.
+  //
+  // MEDIDO em 2026-08-27 comparando com a captura da interface: o navegador manda
+  // `x-ig-www-claim: 0` e `x-instagram-ajax: 1` nas requisicoes ANTES de o Instagram
+  // emitir os valores reais (hmac.… e o numero da build, 1046176126). Como qualquer
+  // requisicao sobrescrevia a anterior, um placeholder tardio apagava o valor bom --
+  // e o nosso POST saia com claim=0 e ajax=1 enquanto a interface mandava os de
+  // verdade. Mesma familia do fb_dtsg truncado: aceitar o que chega, em vez de escolher.
+  const ehPlaceholder = (k, v) => (k === 'x-ig-www-claim' && !/^hmac\./.test(v))
+                               || (k === 'x-instagram-ajax' && !/^\d{4,}$/.test(v))
+                               || (k === 'fb_dtsg' && !/^[^:]+:\d+:\d+$/.test(v));
+  const melhorQue = (k, novo, atual) => {
+    if (!novo) return false;
+    if (!atual) return true;
+    const pNovo = ehPlaceholder(k, novo), pAtual = ehPlaceholder(k, atual);
+    if (pNovo !== pAtual) return !pNovo;   // valor real vence placeholder
+    return true;                            // igualmente bons: o mais fresco vence
+  };
+
   const colher = (hs, corpo) => {
     try {
       const doB = doCorpo(corpo);
       const temHeader = hs && (hs['x-ig-www-claim'] || hs['x-instagram-ajax']);
       if (!temHeader && !doB.fb_dtsg && !doB.jazoest) return;
       const guardados = JSON.parse(localStorage.getItem('__if_hdrs') || '{}');
-      if (hs) INTERESSANTES.forEach((k) => { if (hs[k]) guardados[k] = hs[k]; });
-      if (doB.fb_dtsg) guardados.fb_dtsg = doB.fb_dtsg;
-      if (doB.jazoest) guardados.jazoest = doB.jazoest;
+      if (hs) INTERESSANTES.forEach((k) => {
+        if (melhorQue(k, hs[k], guardados[k])) guardados[k] = hs[k];
+      });
+      // fb_dtsg e jazoest andam em PAR: trocar um sem o outro daria corpo incoerente.
+      if (melhorQue('fb_dtsg', doB.fb_dtsg, guardados.fb_dtsg)) {
+        guardados.fb_dtsg = doB.fb_dtsg;
+        if (doB.jazoest) guardados.jazoest = doB.jazoest;
+      } else if (doB.jazoest && !guardados.jazoest) {
+        guardados.jazoest = doB.jazoest;
+      }
       guardar('__if_hdrs', guardados, 0);
+    } catch (e) {}
+  };
+
+  // O claim NASCE na RESPOSTA (`x-ig-set-www-claim`); o cliente so o ecoa depois.
+  // Ler dali nao depende de flagrar uma requisicao que ja o carregue.
+  const daResposta = (resp) => {
+    try {
+      const c = resp && resp.headers && resp.headers.get('x-ig-set-www-claim');
+      if (c && /^hmac\./.test(c)) {
+        const g = JSON.parse(localStorage.getItem('__if_hdrs') || '{}');
+        if (melhorQue('x-ig-www-claim', c, g['x-ig-www-claim'])) {
+          g['x-ig-www-claim'] = c;
+          guardar('__if_hdrs', g, 0);
+        }
+      }
     } catch (e) {}
   };
 
@@ -718,7 +759,10 @@ _SPY_BODY = r"""
       registrar('fetch', m, url,
                 cabecalhos((init && init.headers) || (input && input.headers)), corpo);
     } catch (e) {}
-    return origFetch.apply(this, arguments);
+    return origFetch.apply(this, arguments).then((resp) => {
+      try { daResposta(resp); } catch (e) {}
+      return resp;
+    });
   };
 
   const xOpen = XMLHttpRequest.prototype.open;
@@ -961,6 +1005,18 @@ async def colher_headers_dinamicos(page, log=None) -> dict:
         if hs.get("x-ig-www-claim") or hs.get("x-instagram-ajax"):
             log("🧬 headers da interface colhidos: "
                 + " · ".join(f"{k}={str(v)[:22]}" for k, v in sorted(hs.items())))
+            # `0` e `1` sao os placeholders que o navegador manda antes de o Instagram
+            # emitir os valores reais. Sair com eles foi a causa medida de um 404 que
+            # persistiu mesmo depois de o fb_dtsg ficar completo (2026-08-27).
+            ruins = []
+            if not str(hs.get("x-ig-www-claim") or "").startswith("hmac."):
+                ruins.append(f"x-ig-www-claim={hs.get('x-ig-www-claim') or '(vazio)'}")
+            if not re.match(r"^\d{4,}$", str(hs.get("x-instagram-ajax") or "")):
+                ruins.append(f"x-instagram-ajax={hs.get('x-instagram-ajax') or '(vazio)'}")
+            if ruins:
+                log("⚠ headers ainda no valor de PLACEHOLDER: " + " · ".join(ruins)
+                    + " — a interface manda hmac.… e o número da build. Se os follows"
+                      " derem 404, é provavelmente isto.")
         else:
             log("⚠ não colhi os headers dinâmicos da interface (x-ig-www-claim etc.) — "
                 "seguindo com os headers básicos; se der 404, é provavelmente isso")
