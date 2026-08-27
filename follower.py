@@ -54,6 +54,11 @@ DEFAULT_SETTINGS = {
     "backoff403Ms": 600000,         # 10 min (limite leve)
     "backoff400Ms": 3600000,        # 1 h (limite duro)
     "maxConsecutiveFailures": 3,
+    # Dias de molho para a conta que devolve 404 no follow. Insistir numa conta que
+    # recusa foi o que precedeu o banimento da 10122.cap.martim em 2026-08-27: ela
+    # falhava desde 22/08, um conserto nosso a fez voltar a agir, ela emplacou 81
+    # follows e foi banida três horas depois. 0 desliga (não recomendado).
+    "quarentenaDias": 3,
     "maxAttemptsPerAccount": 3,
     "harvestLimit": 200,
     "harvestPageDelayMs": 2500,

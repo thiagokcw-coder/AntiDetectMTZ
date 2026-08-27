@@ -2614,6 +2614,41 @@ def _idade_da_conta_em_dias(profile: dict):
         return None
 
 
+def _quarentena_ler() -> dict:
+    """{account_key: {"ate": epoch, "motivo": str}} — contas em descanso forçado."""
+    try:
+        d = json.loads(db.get_setting("follow_quarentena", "") or "{}")
+    except Exception:
+        d = {}
+    return d if isinstance(d, dict) else {}
+
+
+def _quarentena_por(key: str, dias: int, motivo: str):
+    """Põe a conta de molho por `dias`.
+
+    MOTIVO (2026-08-27): a `10122.cap.martim` devolvia 404 no follow desde 22/08 —
+    e aquele 404 constante era, na prática, um freio. Quando um conserto nosso a
+    fez voltar a agir, ela emplacou 81 follows em 23 minutos e foi **banida três
+    horas depois**. Conta que responde "não" precisa ser deixada em paz, não
+    retestada a cada volta do ródizio: insistir é o que transforma bloqueio de ação
+    em banimento."""
+    if not key or dias <= 0:
+        return
+    q = _quarentena_ler()
+    q[key] = {"ate": int(time.time() + dias * 86400), "motivo": motivo}
+    try:
+        db.set_setting("follow_quarentena", json.dumps(q))
+    except Exception:
+        logger.exception("follow: falha ao gravar quarentena")
+
+
+def _quarentena_ativa(key: str):
+    """Segundos que faltam, ou 0 se a conta está liberada."""
+    info = _quarentena_ler().get(key) or {}
+    falta = int(info.get("ate") or 0) - int(time.time())
+    return falta if falta > 0 else 0
+
+
 def _follow_account_key(profile: dict) -> str:
     """Chave do limitador: a CONTA logada no perfil (o teto é por conta, que é o que
     faz a rotação entre perfis valer a pena). Cai no id do perfil se não houver conta."""
@@ -2891,7 +2926,33 @@ async def follow_start(body: FollowStartRequest):
         Com 3 contas e bloco de 100, uma fila de 300 sai 100/100/100. O teto por
         hora/dia da conta continua valendo — vale o que vier primeiro. O histórico é
         GLOBAL, então duas contas nunca seguem a mesma pessoa."""
+        # `nonlocal` porque a quarentena REATRIBUI o pool logo abaixo. Sem isto o
+        # Python trata `pool` como local em toda a função e o primeiro `len(pool)`
+        # estoura UnboundLocalError antes de qualquer turno rodar — foi o que dois
+        # testes pegaram assim que a quarentena entrou.
+        nonlocal pool
         centro_bloco = max(0, int(settings.get("followsPerAccount") or 0))
+
+        # QUARENTENA: tira do rodízio quem está de molho, antes de qualquer coisa.
+        # Sem isto a conta que recusa era retestada a cada volta — três follows
+        # queimados por volta, e a insistência que precedeu o banimento de 27/08.
+        if len(pool) > 1:
+            liberados, presos = [], []
+            for p in pool:
+                falta = _quarentena_ativa(_follow_account_key(p))
+                (presos if falta else liberados).append((p, falta))
+            if presos and liberados:
+                for p, falta in presos:
+                    info = _quarentena_ler().get(_follow_account_key(p)) or {}
+                    log(f"🚧 {_follow_account_key(p)} de molho por mais "
+                        f"{follower.human_duration(falta)} — {info.get('motivo') or 'quarentena'}")
+                pool = [p for p, _ in liberados]
+            elif presos:
+                # Todas de molho: prefere trabalhar com a que sai primeiro a parar tudo.
+                presos.sort(key=lambda x: x[1])
+                log(f"⚠ todas as contas estão de molho — usando {_follow_account_key(presos[0][0])}, "
+                    f"a que sai primeiro")
+                pool = [presos[0][0]]
 
         # ORDEM: começa pela conta mais DESCANSADA, não pela primeira da lista.
         #
@@ -3013,6 +3074,13 @@ async def follow_start(body: FollowStartRequest):
             # todas derem 404, o resumo no fim diz que é sistêmico.
             if res.get("conta_404"):
                 contas_404 += 1
+                # De molho: insistir numa conta que responde "não" foi o que precedeu
+                # o banimento da 10122.cap.martim em 2026-08-27.
+                dias_q = max(0, int(settings.get("quarentenaDias") or 3))
+                if dias_q:
+                    _quarentena_por(key, dias_q, "404 no follow (bloqueio de ação)")
+                    log(f"🚧 {key} entra em quarentena por {dias_q} dia(s) — insistir "
+                        f"numa conta que recusa é o que vira banimento")
                 log(f"↪ testando a próxima conta para saber se o 404 é desta conta ou geral")
                 if contas_404 >= len(pool):
                     job["error"] = ("todas as contas deram 404 no follow (a leitura funciona) — "
