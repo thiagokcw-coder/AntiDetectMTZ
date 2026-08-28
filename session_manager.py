@@ -208,17 +208,103 @@ def _eh_mobile(fp: dict) -> bool:
                          or _map_os(fp.get("platform", "")) == "android")
 
 
-# Mapeia o OS do perfil para a sigla usada pelo banco WebGL do Camoufox.
-_WEBGL_OS = {"windows": "win", "macos": "mac", "linux": "lin", "android": "and"}
+# O Camoufox NAO aceita os="android": `check_valid_os` (camoufox/utils.py) so
+# admite windows/macos/linux e levanta InvalidOS. MEDIDO em 2026-08-27 --
+# a nota anterior ("o Camoufox suporta android nativamente") estava ERRADA, e com
+# ela o perfil de celular simplesmente nao abria: as 5 tentativas da cascata de
+# _open_camoufox passavam o mesmo `os`, entao todas levantavam.
+#
+# Android E Linux, entao ele entra como linux -- e o proprio Camoufox concorda:
+# `determine_ua_os` com UA de Android devolve "lin", que e o que ele usa para
+# escolher fontes e GPU. A cara de celular vem do `config`, aplicado NO MOTOR
+# (_config_mobile) -- nao de injecao de JS, que este projeto descartou por ser
+# detectavel, nem de extensao trocando cabecalho, que mudaria so o header e
+# deixaria navigator/tela/toque dizendo desktop.
+_OS_CAMOUFOX = {"android": "linux"}
 
-# Pares (vendor, renderer) de celular. COLHIDOS do proprio Camoufox em 2026-08-27
-# (400 amostras com os="android"), na ordem de frequencia que ele usa -- o banco
-# `get_possible_pairs()` dele so cobre win/mac/lin.
-_PARES_WEBGL_ANDROID = [
-    ("Qualcomm", "Adreno (TM) 650, or similar"),                    # ~81%
-    ("ARM", "Mali-T760, or similar"),                               # ~10%
-    ("Imagination Technologies", "PowerVR SGX 540, or similar"),    # ~8%
-]
+# Usado so se o fingerprint do perfil nao trouxer o seu (perfis antigos).
+_UA_ANDROID = ("Mozilla/5.0 (Android 16; Mobile; rv:150.0) "
+               "Gecko/150.0 Firefox/150.0")
+
+
+def _os_para_camoufox(os_interno: str) -> str:
+    """Traduz o rotulo interno (que conhece "android") para o que o Camoufox aceita."""
+    return _OS_CAMOUFOX.get(os_interno, os_interno)
+
+
+def _altura_de_janela_possivel(h: int) -> int:
+    """Nao adianta pedir janela mais alta que o monitor: ela abre CORTADA.
+
+    MEDIDO em 2026-08-27 num 1366x768 -- as telas de celular em retrato tem
+    640-915 de altura, e as maiores simplesmente nao cabem. Perfis criados ANTES
+    do fingerprint passar a escolher tela que cabe caem aqui e continuam usaveis.
+    Largura nunca encolhe: e ela que faz o Instagram servir a visao mobile.
+    """
+    try:
+        from screeninfo import get_monitors
+        alturas = [m.height for m in (get_monitors() or []) if m.height]
+        if alturas:
+            return max(480, min(int(h), min(alturas) - 100))
+    except Exception:
+        pass
+    return int(h)
+
+
+def _config_mobile(fp: dict, altura_janela: int | None = None) -> dict:
+    """Propriedades de celular aplicadas NO MOTOR do Camoufox.
+
+    Funciona porque o `merge_into` dele (camoufox/utils.py) so preenche chave que
+    ainda NAO existe -- entao o que passamos aqui vence o fingerprint gerado. Ele
+    tambem tira um retrato do que o usuario setou ANTES de gerar, e por isso as
+    correcoes internas (fix_navigator_arch, fix_screen_no_taskbar,
+    clamp_window_dimensions) nao sobrescrevem nada disto.
+
+    Sem este config o perfil abre como DESKTOP -- foi exatamente o que aconteceu
+    ao vivo em 2026-08-27, com o Instagram servindo a tela de login de PC.
+    """
+    tela = fp.get("screen") or {}
+    w = int(tela.get("width") or 412)
+    h = int(tela.get("height") or 915)
+    alt = int(altura_janela or h)
+    return {
+        "navigator.userAgent": fp.get("userAgent") or _UA_ANDROID,
+        "navigator.platform": "Linux armv81",
+        "navigator.oscpu": "Linux armv81",
+        "navigator.appVersion": "5.0 (Android)",
+        # O que separa "celular" de "desktop com o UA trocado". Um site que so
+        # olha o UA se engana; um que olha maxTouchPoints/pointer nao.
+        "navigator.maxTouchPoints": 5,
+        "navigator.hardwareConcurrency": int(fp.get("hardwareConcurrency") or 8),
+        "screen.width": w, "screen.height": h,
+        "screen.availWidth": w, "screen.availHeight": h,
+        # Num celular nao ha moldura nem barra de rolagem ocupando espaco, entao
+        # outer == inner e legitimo (por isso _CROMO["android"] e (0, 0)).
+        # A ALTURA pode ser menor que a da tela quando o monitor nao comporta o
+        # aparelho inteiro -- e isso e realista, nao um remendo: num celular de
+        # verdade a barra do navegador e as do sistema tambem comem altura, entao
+        # innerHeight < screen.height e o normal.
+        "window.outerWidth": w, "window.outerHeight": alt,
+        "window.innerWidth": w, "window.innerHeight": alt,
+        "window.screenX": 0, "window.screenY": 0,
+        "window.devicePixelRatio": 2.625,
+    }
+
+
+# Mapeia o OS do perfil para a sigla usada pelo banco WebGL do Camoufox.
+# NAO ha "and": o banco dele cobre win/mac/lin e mais nada, e o perfil de celular
+# entra como LINUX (ver _os_para_camoufox), entao cai numa GPU de desktop.
+#
+# MEDIDO em 2026-08-27, e por isso a lista de pares Adreno/Mali que existia aqui
+# foi removida: nao adianta passar um par de celular a mao, porque
+# `sample_webgl("lin", "Qualcomm", "Adreno (TM) 650, or similar")` responde
+# `No WebGL data found for vendor ... and renderer ...` -- o par precisa existir
+# no banco DAQUELE SO, e nao ha nenhuma GPU ARM nos tres. (A nota antiga dizia
+# que os pares tinham sido colhidos do Camoufox com os="android"; nao podiam ter
+# sido, porque ele nao tem base android nenhuma.)
+#
+# CONSEQUENCIA CONHECIDA: o perfil mobile declara UA de Android e reporta GPU de
+# desktop. E a incoerencia que sobra neste caminho -- ver _config_mobile.
+_WEBGL_OS = {"windows": "win", "macos": "mac", "linux": "lin"}
 
 
 def _profile_seed(profile: dict) -> int:
@@ -250,15 +336,10 @@ def _stable_webgl(profile: dict) -> tuple[str, str] | None:
     except Exception:
         return None
     fp = profile.get("fingerprint") or {}
-    os_key = _WEBGL_OS.get(_map_os(fp.get("platform", "windows")))
+    # Pelo OS que o CAMOUFOX ve (celular = linux), senao o perfil mobile ficaria
+    # sem par fixo e a GPU voltaria a ser sorteada a cada launch.
+    os_key = _WEBGL_OS.get(_os_para_camoufox(_map_os(fp.get("platform", "windows"))))
     pairs = (get_possible_pairs() or {}).get(os_key) if os_key else None
-    if not pairs and os_key == "and":
-        # O banco de pares do Camoufox só cobre win/mac/lin, mas ele SABE gerar GPU
-        # de celular. Sem uma lista aqui, a placa do perfil mobile passaria a variar
-        # a cada sessão — justamente o que esta função existe para impedir.
-        # A lista abaixo foi COLHIDA do próprio Camoufox (400 amostras com
-        # os="android"), com a frequência que ele usa.
-        pairs = _PARES_WEBGL_ANDROID
     if not pairs:
         return None
     rnd = random.Random(_profile_seed(profile) ^ 0x5745_4247)  # 'WEBG'
@@ -550,11 +631,12 @@ def _camoufox_kwargs(profile: dict, headless: bool, load_extension: bool = False
 
     # Num celular a "janela" É a tela — não há moldura de janela para descontar,
     # e reduzir para 85% daria um aparelho de largura impossível.
-    janela = ((w, h) if _eh_mobile(fp)
+    eh_mobile = _eh_mobile(fp)
+    janela = ((w, _altura_de_janela_possivel(h)) if eh_mobile
               else (max(800, int(w * 0.85)), max(600, int(h * 0.85))))
     kw = dict(
         headless=headless,
-        os=_map_os(fp["platform"]),
+        os=_os_para_camoufox(_map_os(fp["platform"])),
         window=janela,
         proxy=proxy,
         addons=addons,
@@ -563,6 +645,10 @@ def _camoufox_kwargs(profile: dict, headless: bool, load_extension: bool = False
         humanize=True,
         i_know_what_im_doing=True,
     )
+    if eh_mobile:
+        # Aplicado no motor. Vem ANTES do fingerprint gerado justamente porque o
+        # merge_into do Camoufox nao sobrescreve chave que ja existe.
+        kw["config"] = _config_mobile(fp, altura_janela=janela[1])
     if geoip:
         # Antes: True (derivava do IP de saída → timezone variava com o proxy).
         # Agora: IP fixo BR (Porto Alegre) → timezone/idioma/geolocation sempre Brasil.
@@ -581,7 +667,14 @@ def _camoufox_kwargs(profile: dict, headless: bool, load_extension: bool = False
     if webgl:
         kw["webgl_config"] = webgl
 
-    if constrain_screen:
+    # Em celular NAO se prende a tela: o browserforge nao consegue gerar cabecalhos
+    # para uma Screen de telefone -- MEDIDO em 2026-08-27, ele levanta
+    # `No headers based on this input can be generated`. Isso derrubava tanto o
+    # _stable_fingerprint (perfil mobile voltaria a trocar de aparelho a cada
+    # sessao) quanto o launch, que so se salvava no 4o fallback da cascata.
+    # E nao faz falta: a geometria de telefone vem do config, que vence de qualquer
+    # jeito -- prender a Screen aqui seria dizer a mesma coisa por um canal que quebra.
+    if constrain_screen and not eh_mobile:
         from browserforge.fingerprints import Screen
         if pin_screen:
             screen = Screen(min_width=w, max_width=w, min_height=h, max_height=h)
@@ -734,8 +827,14 @@ async def run_profile_task(profile: dict, fn, headless: bool = False,
             # janela real. Best-effort: se falhar, seguimos -- e disfarce, nao trabalho.
             try:
                 fp = profile.get("fingerprint") or {}
-                w = max(800, int(fp["screen"]["width"] * 0.85))
-                h = max(600, int(fp["screen"]["height"] * 0.85))
+                if _eh_mobile(fp):
+                    # Num celular a janela E a tela: encolher para 85% (ou subir
+                    # para o piso de 800x600) daria um aparelho impossivel.
+                    w = int(fp["screen"]["width"])
+                    h = int(fp["screen"]["height"])
+                else:
+                    w = max(800, int(fp["screen"]["width"] * 0.85))
+                    h = max(600, int(fp["screen"]["height"] * 0.85))
                 vw, vh = _viewport_coerente(fp, w, h)
                 await page.set_viewport_size({"width": vw, "height": vh})
             except Exception:

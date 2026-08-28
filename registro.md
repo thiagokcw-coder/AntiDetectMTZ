@@ -7,6 +7,119 @@
 
 ---
 
+## 2026-08-28 — O perfil Android: funcionou, e mesmo assim voltamos atrás
+
+Dia inteiro numa pergunta só — postar story sem depender do celular — e a resposta
+chegou por medição, não por dedução. Duas vezes.
+
+### A nota de ontem estava errada, e o perfil não abria
+
+Registrei em 27/08 que "o Camoufox suporta `os="android"` nativamente". **Não suporta.**
+
+```
+check_valid_os("android") -> InvalidOS: Camoufox does not support the OS: 'android'
+```
+
+`camoufox/utils.py` só admite windows/macos/linux, e como as **5 tentativas** da cascata de
+`_open_camoufox` passam o mesmo `os`, todas levantavam. O sintoma que o usuário viu foi a
+tela de login de **desktop** — e eu tinha "validado" as peças em volta sem nunca abrir o
+navegador. Duas outras afirmações caíram junto: os pares WebGL Adreno/Mali **não podiam**
+ter sido colhidos do Camoufox (ele não tem base android), e `sample_webgl` recusa par que
+não exista no banco daquele SO.
+
+**Lição:** eu testei as engrenagens e não liguei o motor. Componente validado não é
+funcionalidade validada.
+
+### O caminho que funciona: `os="linux"` + `config` no motor
+
+Android **é** Linux, e o próprio Camoufox concorda (`determine_ua_os` com UA de Android
+devolve `lin`). A cara de celular passou a vir do `config` — UA, `platform Linux armv81`,
+`maxTouchPoints: 5`, tela e janela do aparelho — aplicado **no motor**, porque o
+`merge_into` dele só preenche chave que ainda não existe: o que passamos vence o
+fingerprint gerado.
+
+Não é injeção de JS (descartada por detectável) nem extensão trocando cabeçalho — esta
+mudaria só o header HTTP e deixaria navigator, tela e toque dizendo desktop, contradição
+pior que qualquer um dos dois estados puros.
+
+**Bug que o próprio teste pegou:** prender a `Screen` numa tela de telefone faz o
+browserforge levantar `No headers based on this input can be generated`. Isso derrubava o
+`_stable_fingerprint` — ou seja, o perfil mobile trocaria de aparelho a cada sessão,
+justamente o que aquela função existe para impedir.
+
+**E o monitor é restrição:** 1366×768 tem ~668 de altura útil, e as telas de celular em
+retrato têm 780 a 915. Nenhuma cabia — a janela nascia cortada. Entraram resoluções Android
+curtas (360×720, 360×640) e um corte de altura para perfis criados antes.
+
+### O teste ao vivo, e a resposta que encerra a investigação
+
+**O mobile web TEM criação de story** — a URL é `/create/…` e a imagem sobe. Isso derruba
+a suposição de que story fosse recurso exclusivo de app.
+
+**Mas o conjunto de stickers é reduzido, e o de LINK não está lá.** E o link era o ponto:
+o destino é o grupo de WhatsApp, e em 22/08 o Instagram já tinha recusado link na bio em
+3 contas.
+
+No caminho ainda apareceu um bloqueio anterior: *"gire seu dispositivo para adicionar ao
+seu story"*. O Instagram leu `screen.orientation`, que **sai do monitor real** — e o motor
+do Camoufox não tem propriedade nenhuma de orientação (medido: 10 chaves de `screen.*`,
+nenhuma de orientação). Não é vazamento teórico; **é um que vimos o site agir em cima.**
+
+### A decisão: voltar para desktop
+
+Palavras do usuário, e ele está certo: *"fica algo híbrido que não é android nem firefox"*.
+Sob o UA de Android sobram **GPU de desktop**, **fontes de Linux desktop** e **orientação
+paisagem**.
+
+O que decide não é a incoerência, é que a **justificativa evaporou**:
+
+1. O modo existia para dar o story com link. O link não está lá.
+2. Ele quebra o que funciona — follow por clique, leitura de perfil e o ruído do
+   `comportamento.py` foram construídos e medidos contra a visão desktop.
+3. E o único caminho que ainda pode dar o sticker — **instagrapi via `sessionid`** — não
+   precisa de perfil mobile para nada. Precisa de uma sessão, e qualquer perfil tem uma.
+
+`_OS_PADRAO_CONTA` voltou a `host`. O suporte a mobile fica **dormente e testado**: um
+setting (`novo_perfil_os = android`) o traz de volta se um dia o sticker aparecer no web.
+
+### Exportar sessão: a lacuna que o perfil estreito revelou
+
+Havia `import-session` e não havia export — pegar cookies dependia do Cookie-Editor
+**dentro** do navegador, que fica inutilizável numa janela de 360px. Mas o
+`ig_session.export_cookies()` já lia o jar **headless e sem nenhuma requisição ao
+Instagram**; só faltava endpoint. Agora tem, com botão no modal da conta. Some a
+dependência de extensão, em qualquer perfil.
+
+### Estado da frota
+
+`10122.capitaomartim` (1.830) e `cap.martim2026` (1.223) **não estão mais no cadastro** e o
+`user_data` delas não está em disco — a exclusão de perfil apaga em cascata e faz
+`shutil.rmtree`. Sobraram no cadastro: `cap.martim.rs.2026` (ativa) e as duas banidas.
+
+O ativo acumulado sobreviveu, porque é global e não entra na cascata: **`follow_history`
+com 8.492 pessoas seguidas, 7 contas, 432 retribuições (6,7%)**.
+
+### ⚠ Armadilha para a próxima sessão: nem tudo no scratchpad é teste
+
+Rodei a regressão varrendo os scratchpads antigos e **vários arquivos ali são utilitários
+que EDITAM a documentação** (`ordena_registro.py`, `atualiza_onde_paramos.py`,
+`consolida_registro.py`, `fix_ironia.py`). Eles reescreveram `registro.md` e `CLAUDE.md`,
+duplicando seções; restaurei com `git checkout`. **Rode `test_*.py`, não `*.py`.**
+
+### Aberto
+- **O sticker de link pela API privada** (`instagrapi.photo_upload_to_story` com
+  `StoryLink`) é o único caminho que resta. Duas peças já existem: `ig_session.export_cookies`
+  lê o `sessionid` sem tocar o Instagram, e `login_by_sessionid` entra **sem login novo** —
+  que é o que queimava conta em 26/07 (*"não é a velocidade nem o cap — é o LOGIN"*).
+  **Risco não medido:** cabeçalhos de aparelho inventados sobre sessão nascida no navegador.
+- **E pode não ser problema de superfície:** se a capacidade de link estiver travada por
+  idade/confiança, a API não contorna — o que resolve é tempo e posts. O encaminhamento de
+  22/08 segue válido: número ou `wa.me` **escrito na arte**.
+- **Story pelo perfil Android: respondido e encerrado** — existe, mas sem link.
+- Criar conta pelo modem 4G, unfollow ao vivo e o sono desligado continuam abertos.
+
+---
+
 ## 2026-08-27 — O 404 tinha DUAS causas, e uma conta pagou a conta
 
 Dia longo. Resumo do que mudou, e o que sobrou aberto.

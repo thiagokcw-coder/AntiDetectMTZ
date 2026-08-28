@@ -2,7 +2,30 @@
 
 > Notas de contexto para o Claude. App de **gestão de contas Instagram** (Camoufox/Firefox antidetect + Playwright). Backend FastAPI (`api.py`/`main.py`), frontend em `static/index.html`. **Multiplataforma (Windows + macOS).** Idioma do usuário: **português**.
 
-## 📍 ONDE PARAMOS — leia isto primeiro (2026-08-27)
+## 📍 ONDE PARAMOS — leia isto primeiro (2026-08-28)
+
+### 🆕 28/08 em três linhas
+1. **Story pelo perfil Android: respondido e ENCERRADO.** O mobile web tem criação de
+   story, mas **não tem o sticker de link** — que era o ponto. O padrão de perfil voltou
+   para desktop; o suporte mobile fica dormente atrás do setting `novo_perfil_os`.
+   Detalhes na seção "📱 PERFIL ANDROID" e no `registro.md`.
+2. **A frota encolheu:** `10122.capitaomartim` e `cap.martim2026` saíram do cadastro e o
+   `user_data` delas não está em disco (excluir perfil apaga em cascata + `rmtree`).
+   Restam **`cap.martim.rs.2026` ativa** e duas banidas. O `follow_history` está
+   **intacto**: 8.492 seguidas, 432 retribuições (6,7%).
+3. **Novo:** botão **⬇ Exportar deste perfil** no modal da conta — lê a sessão headless,
+   sem requisição ao Instagram e sem depender do Cookie-Editor.
+
+### 📌 O único caminho que resta para o link no story
+`instagrapi.photo_upload_to_story(..., links=[StoryLink(...)])` alimentado por
+`ig_session.export_cookies` → `login_by_sessionid` (**sem login novo**, que é o que
+queimava conta em 26/07). Não construído. Risco não medido: cabeçalhos de aparelho
+inventados sobre sessão nascida no navegador. E pode nem ser problema de superfície — se
+a capacidade de link estiver travada por idade da conta, o que resolve é tempo e posts.
+
+---
+
+## 📍 Contexto anterior (2026-08-27)
 
 > Histórico detalhado, com as hipóteses que morreram (para ninguém refazer o caminho):
 > **`registro.md`** — sessões em ordem decrescente de data.
@@ -406,19 +429,88 @@ ser **mais velho que o fix** — conferir o git log antes de "consertar" o códi
 - Code review/edições: **mudanças pequenas e testadas** (o código já quebrou várias vezes com refactors grandes às pressas).
 
 ## 📱 PERFIL ANDROID — só para postar STORY (2026-08-27)
-O Instagram **só deixa postar story na visão mobile**. O Camoufox suporta
-`os="android"` nativamente (UA `Android 16; Mobile`, platform `Linux armv81`, 5 pontos
-de toque), então **não há gambiarra de user-agent**. Escolha "📱 Android" ao criar o
-perfil; `fingerprint._android()` monta tela de celular em retrato (360-412 px) e o resto
-vem do Camoufox.
+O Instagram **só deixa postar story na visão mobile**.
 
-Peças que precisavam saber disso, e que o teste cobre: `_map_os` (ARM → android, antes
-caía no fallback `linux`); a **janela não é reduzida a 85%** (num celular a janela É a
-tela); `_CROMO["android"] = (0,0)` (sem moldura nem barra de rolagem, então `outer ==
-inner` é legítimo lá, ao contrário do desktop); e `_PARES_WEBGL_ANDROID` — o banco WebGL
-do Camoufox só cobre win/mac/lin, e sem essa lista a GPU do perfil mobile **variaria a
-cada sessão**. Os pares foram colhidos do próprio Camoufox (400 amostras): Adreno 81%,
-Mali 10%, PowerVR 8%.
+### ⚠ CORREÇÃO: o Camoufox NÃO suporta `os="android"`
+
+A primeira versão desta seção afirmava que suportava nativamente. **Estava errada, e o
+perfil não abria** — a tela que aparecia era a de login de desktop. Medido:
+
+```
+check_valid_os("android") -> InvalidOS: Camoufox does not support the OS: 'android'
+```
+
+`camoufox/utils.py` só admite `windows`/`macos`/`linux`, e como as **5 tentativas** da
+cascata de `_open_camoufox` passam o mesmo `os`, todas levantavam. Duas outras afirmações
+daquele texto também caíram: os pares Adreno/Mali **não podiam** ter sido colhidos do
+Camoufox (ele não tem base android nenhuma), e `sample_webgl("lin", "Qualcomm", "Adreno…")`
+responde `No WebGL data found` — o par precisa existir no banco **daquele** SO.
+
+### Como funciona hoje: `os="linux"` + `config` no motor
+
+Android **é** Linux, e o próprio Camoufox concorda (`determine_ua_os` com UA de Android
+devolve `lin`). O `os` que vai para ele é traduzido por `_os_para_camoufox`; a cara de
+celular vem de `_config_mobile` — UA Android, `platform Linux armv81`,
+`maxTouchPoints: 5`, tela e janela do aparelho, `devicePixelRatio`.
+
+Funciona porque o `merge_into` do Camoufox **só preenche chave que ainda não existe**: o
+que passamos vence o fingerprint gerado. É spoof **no motor** — não injeção de JS (que o
+projeto descartou por detectável) nem extensão trocando cabeçalho, que mudaria só o header
+HTTP e deixaria navigator/tela/toque dizendo desktop: contradição pior que qualquer um dos
+dois estados puros.
+
+Peças que precisavam saber: `_map_os` (ARM → android, rótulo INTERNO); a **janela não é
+reduzida a 85%** (num celular a janela É a tela); `_CROMO["android"] = (0,0)`; e a
+**Screen não é prendida** em perfil mobile — o browserforge levanta `No headers based on
+this input can be generated` com tela de telefone, o que derrubava o `_stable_fingerprint`
+(o perfil trocaria de aparelho a cada sessão) e só se salvava no 4º fallback da cascata.
+
+### 📏 O monitor é a restrição: 1366×768 não comporta um celular em retrato
+
+Sintoma real: a janela mobile abriu **cortada**. Medido — o monitor tem **768** de altura
+(≈668 úteis depois do cromo e da barra de tarefas) e as telas de `_TELAS_ANDROID` iam de
+**780 a 915**. Nenhuma cabia.
+
+Dois consertos, um para cada ponta:
+- `fingerprint._telas_que_cabem()` só sorteia tela que cabe no monitor (entraram as
+  resoluções Android curtas **360×720** e **360×640** — reais, não inventadas para caber);
+- `session_manager._altura_de_janela_possivel()` **corta a altura da janela** de perfis
+  criados antes disso, para eles continuarem usáveis.
+
+**A largura nunca encolhe** — é ela que faz o Instagram servir a visão mobile. E a altura
+declarada passou a ser a **real** da janela, com `screen.height` seguindo a do aparelho:
+num celular de verdade a barra do navegador também come altura, então
+`innerHeight < screen.height` é o normal, não um remendo.
+
+**A incoerência que sobra, conhecida:** sem GPU ARM em nenhum banco, o perfil declara UA
+de Android e reporta **GPU de desktop**; as fontes idem (o `fonts.json` do Camoufox só tem
+win/mac/lin). São as peças menos verificáveis deste caminho.
+
+**Validado:** py_compile + **26 asserções** (`test_perfil_mobile.py`) — o `os` que chega no
+Camoufox é linux · UA/platform/toque/tela chegam no `CAMOU_CONFIG_*` (remontado das partes,
+que no Windows são picadas em 2047 chars) · o UA gerado **não** sobrescreve o nosso ·
+fingerprint e GPU estáveis entre aberturas · regressão do perfil desktop intacta.
+
+### 📱 É O PADRÃO das contas desde 27/08 (a pedido: "até segunda ordem")
+
+Perfil criado pela aba **Contas** ("+ Adicionar conta" com perfil novo, e o "criar perfil"
+de conta sem perfil) nasce **android** — `api._os_perfil_novo()`, antes `_host_profile_os`.
+Só vale para perfil NOVO; os que já existem não mudam (trocar o SO de sessão viva é o
+evento "login de novo dispositivo").
+
+Reverter é **setting, não deploy**: `novo_perfil_os` = `windows`/`macos`/`linux`/`android`,
+ou `host` para voltar ao SO do PC. Valor inválido cai no padrão.
+
+**⚠ O QUE ISSO ARRASTA JUNTO, e ainda não foi medido:** o Instagram passa a servir a visão
+**mobile** para essas contas, e tudo neste projeto foi construído e medido contra a visão
+**desktop**. As rotas de API (o follow por `fetch`) não dependem do DOM, mas **dependem**:
+o follow por CLIQUE (`:text-is("Seguir")`), o ruído de `comportamento.py` (feed/explorar/
+busca e a curtida clicando) e, possivelmente, o Spider — a paginação profunda vive na
+GraphQL **pública web**, e a superfície mobile é justamente a que capa em ~48.
+
+**⚠ AINDA NÃO ABERTO AO VIVO** — falta um perfil Android subir e confirmar que o Instagram
+serve a visão mobile. **E a pergunta que decide tudo segue sem resposta: o Instagram web
+mobile oferece mesmo upload de story?**
 
 **⚠ REGRA: use em perfil NOVO, com login próprio.** Trocar o SO de um perfil que já tem
 sessão viva é o evento **"login de novo dispositivo"** — a mesma coisa que já queimou

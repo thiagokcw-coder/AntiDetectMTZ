@@ -3810,11 +3810,12 @@ async function accountDetail(id) {
         <div id="ma-proxy-result" style="font-size:12px;color:var(--muted);margin-top:6px"></div>
       </div>
       <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--border)">
-        <div style="font-weight:600;font-size:13px;margin-bottom:4px">🔑 Importar sessão do celular</div>
+        <div style="font-weight:600;font-size:13px;margin-bottom:4px">🔑 Sessão do Instagram</div>
         <div class="form-hint" style="margin-bottom:6px">Para conta que só loga no app/celular. No <b>Firefox Android</b> (no 4G), entre no <b>instagram.com</b>, exporte os cookies com o <b>Cookie-Editor</b> e cole o JSON aqui. O perfil fica logado <b>sem login novo</b>. O <b>sessionid</b> é httpOnly — só a extensão pega, copiar do navegador não.</div>
         <textarea id="ma-cookies" rows="3" placeholder='[{"name":"sessionid","value":"...","domain":".instagram.com"}, ...]' style="width:100%;box-sizing:border-box;padding:8px;background:var(--surface);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:12px;font-family:ui-monospace,Consolas,monospace;resize:vertical"></textarea>
         <div style="margin-top:6px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
           <button class="btn btn-primary btn-sm" onclick="importAccountSession('${a.id}', this)">Importar sessão</button>
+          <button class="btn btn-sm" onclick="exportAccountSession('${a.id}', this)" title="Lê os cookies deste perfil sem nenhuma requisição ao Instagram">⬇ Exportar deste perfil</button>
           <span id="ma-cookies-result" style="font-size:12px;color:var(--muted)"></span>
         </div>
       </div>` : '');
@@ -3870,6 +3871,27 @@ async function importAccountSession(id, btn) {
       out.innerHTML = `<span style="color:var(--yellow)">importou ${r.imported} cookie(s); não deu pra confirmar o login (${escapeHtml(r.error || '?')})</span>`;
     }
   } catch (e) { stop(); toast(e.message || 'Erro ao importar', 'error'); out.textContent = ''; }
+}
+
+// Lê a sessão DESTE perfil e joga no campo, pronta para colar noutro.
+// Antes isso dependia do Cookie-Editor dentro do navegador — que fica inutilizável
+// em janela estreita. Aqui o perfil abre headless e o jar é lido SEM tocar o
+// Instagram, então funciona em qualquer perfil.
+async function exportAccountSession(id, btn) {
+  const ta = document.getElementById('ma-cookies');
+  const out = document.getElementById('ma-cookies-result');
+  const stop = runBtnCountdown(btn, 25);
+  out.textContent = '';
+  try {
+    const r = await api('GET', `/accounts/${encodeURIComponent(id)}/export-session`, null, 180000);
+    stop();
+    ta.value = JSON.stringify(r.cookies, null, 2);
+    const n = (r.resumo && r.resumo.ig) || (r.cookies || []).length;
+    const ds = r.resumo && r.resumo.ds_user_id;
+    out.innerHTML = `<span style="color:var(--green)">✓ ${n} cookie(s) do instagram.com${ds ? ' (id ' + escapeHtml(String(ds)) + ')' : ''} — copie o campo acima</span>`;
+    try { ta.focus(); ta.select(); } catch (e) {}
+    toast('Sessão exportada para o campo', 'success');
+  } catch (e) { stop(); toast(e.message || 'Erro ao exportar', 'error'); out.textContent = ''; }
 }
 
 // Countdown num botão enquanto uma ação demorada roda. Conta de `estSeconds`

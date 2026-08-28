@@ -1173,8 +1173,32 @@ class AccountCreateRequest(BaseModel):
     proxy: Optional[str] = None        # só p/ profile_id="__new__"; vazio = conexão local (internet do celular)
 
 
-def _host_profile_os() -> str:
-    """SO do fingerprint do perfil novo = SO real do PC (coerência ao abrir no PC)."""
+# SO com que nasce o perfil de uma CONTA. `host` = o SO real do PC.
+#
+# Foi ANDROID por algumas horas em 27/08 e VOLTOU para desktop em 28/08, depois do
+# teste ao vivo. O motivo da volta não é estética — é que a justificativa caiu: o
+# mobile web TEM criação de story, mas **não tem o sticker de link**, que era o
+# ponto. E o disfarce mostrou-se fino num ponto que não dá para consertar: o
+# Instagram pediu "gire seu dispositivo", lendo `screen.orientation`, que sai do
+# monitor real e para o qual o motor do Camoufox não tem propriedade nenhuma.
+#
+# Some-se que o perfil mobile quebra o que funciona (follow por clique, leitura de
+# perfil e o ruído do comportamento.py foram medidos contra a visão desktop), e que
+# o único caminho que ainda pode dar o sticker — instagrapi via `sessionid` — não
+# precisa de perfil mobile para nada.
+#
+# O suporte a mobile continua no código, testado e dormente: basta o setting
+# `novo_perfil_os` = windows | macos | linux | android | host.
+_OS_PADRAO_CONTA = "host"
+
+
+def _os_perfil_novo() -> str:
+    """SO do fingerprint de um perfil criado pela aba Contas."""
+    escolhido = str(db.get_setting("novo_perfil_os", "") or "").strip().lower()
+    if escolhido not in ("windows", "macos", "linux", "android", "host"):
+        escolhido = _OS_PADRAO_CONTA
+    if escolhido != "host":
+        return escolhido
     s = _platform.system()
     return "macos" if s == "Darwin" else "windows" if s == "Windows" else "linux"
 
@@ -1215,7 +1239,7 @@ def accounts_create(body: AccountCreateRequest):
             if proxy_dict is None:
                 raise HTTPException(400, "Proxy inválido (use host:porta:usuário:senha ou URL)")
         name = (body.username or body.email or "conta").strip()[:40] or "conta"
-        pid = prof.create(name=name, os=_host_profile_os(), proxy=proxy_dict)["id"]
+        pid = prof.create(name=name, os=_os_perfil_novo(), proxy=proxy_dict)["id"]
     elif pid and not get_profile(pid):
         raise HTTPException(404, "Perfil informado não existe")
     data = body.model_dump()
@@ -1268,8 +1292,41 @@ def accounts_create_profile(account_id: str, body: CreateProfileForAccountReques
         if proxy_dict is None:
             raise HTTPException(400, "Proxy inválido (use host:porta:usuário:senha ou URL)")
     name = (a.get("username") or a.get("email") or "conta")[:40] or "conta"
-    pid = prof.create(name=name, os=_host_profile_os(), proxy=proxy_dict)["id"]
+    pid = prof.create(name=name, os=_os_perfil_novo(), proxy=proxy_dict)["id"]
     return acc.edit(account_id, {"profile_id": pid})
+
+
+@app.get("/accounts/{account_id}/export-session")
+async def accounts_export_session(account_id: str):
+    """Lê a SESSÃO do Instagram do perfil da conta, para colar em outro perfil.
+
+    Existia só o import: pegar os cookies dependia da extensão Cookie-Editor dentro
+    do navegador — que fica inutilizável em janela estreita (o caso do perfil
+    mobile). Este endpoint não precisa de janela: `export_cookies` abre o perfil
+    headless e lê o jar, **sem nenhuma requisição ao Instagram**.
+
+    O formato devolvido é o mesmo que o `parse_cookies_input` aceita, então dá para
+    colar direto no campo de importar. O valor do sessionid vai no corpo (é o
+    ponto), mas NUNCA em log — só o resumo, que o omite.
+    """
+    import ig_session as igs
+    a = acc.get_account(account_id)
+    if not a:
+        raise HTTPException(404, "Conta não encontrada")
+    p = get_profile(a.get("profile_id")) if a.get("profile_id") else None
+    if not p:
+        raise HTTPException(400, "Esta conta não tem perfil vinculado.")
+    try:
+        cookies = await igs.export_cookies(p)
+    except Exception as e:
+        raise HTTPException(500, f"Não consegui ler os cookies do perfil: {e}")
+    resumo = igs.summarize(cookies)
+    logger.info("export-session conta=%s perfil=%s resumo=%s", account_id, p.get("id"), resumo)
+    if not resumo.get("has_sessionid"):
+        raise HTTPException(400, "O perfil não tem o cookie 'sessionid' — ou seja, não "
+                                 "há sessão do Instagram para exportar. Abra o perfil e "
+                                 "confirme que a conta está logada.")
+    return {"cookies": cookies, "resumo": resumo}
 
 
 class ImportSessionRequest(BaseModel):

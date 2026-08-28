@@ -37,7 +37,38 @@ def _pick_os(os: str) -> str:
 # Usadas só quando o perfil é ANDROID -- o gerador desktop nunca produz estas.
 _TELAS_ANDROID = [
     (360, 800), (393, 873), (412, 915), (384, 854), (360, 780), (412, 892),
+    # Telas CURTAS, para monitor baixo. Em retrato o celular e mais alto que a
+    # area util de um monitor 1366x768 -- sem estas, toda janela mobile nascia
+    # CORTADA nele (medido em 2026-08-27). Sao resolucoes reais de Android, nao
+    # numeros inventados para caber.
+    (360, 720), (360, 640),
 ]
+
+# Cromo do Firefox + barra de tarefas: o que a janela precisa alem da pagina.
+_MARGEM_JANELA = 100
+
+
+def _altura_util() -> int | None:
+    """Altura que sobra no monitor para uma janela. None se nao der para saber."""
+    try:
+        from screeninfo import get_monitors
+        alturas = [m.height for m in (get_monitors() or []) if m.height]
+        return min(alturas) - _MARGEM_JANELA if alturas else None
+    except Exception:
+        return None
+
+
+def _telas_que_cabem() -> list:
+    """So telas que cabem no monitor -- senao o perfil nasce impossivel de usar.
+
+    Se nenhuma couber, devolve a mais baixa (o session_manager ainda corta a
+    janela na hora de abrir; aqui e so para nao escolher a pior de proposito).
+    """
+    util = _altura_util()
+    if not util:
+        return _TELAS_ANDROID
+    cabem = [t for t in _TELAS_ANDROID if t[1] <= util]
+    return cabem or [min(_TELAS_ANDROID, key=lambda t: t[1])]
 
 
 def _android() -> dict:
@@ -51,7 +82,7 @@ def _android() -> dict:
 
     ⚠ Use em perfil NOVO. Trocar o SO de um perfil com sessão viva é o evento
     "login de novo dispositivo", que é justamente o que queima conta."""
-    w, h = random.choice(_TELAS_ANDROID)
+    w, h = random.choice(_telas_que_cabem())
     return {
         "fp_seed": random.getrandbits(63),
         "platform": "Linux armv81",          # o que o _map_os lê para escolher android
