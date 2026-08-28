@@ -809,6 +809,17 @@ class IgCreateManualRequest(BaseModel):
     warmup_minutes: float = 15    # aquece o navegador antes de abrir p/ você preencher
 
 
+@app.get("/instagram/sugerir-usernames")
+def ig_sugerir_usernames(base: str = "", n: int = 8):
+    """Sugestoes de @ para ESCOLHER. Puro: nao cria perfil, nao gasta e-mail.
+
+    O cadastro manual impunha um username so, de persona aleatoria. Mas neste
+    projeto a notificacao de follow carrega o @ -- o nome E a carga -- entao
+    quem escolhe tem que ser o usuario, com o tema dele.
+    """
+    return {"base": base, "sugestoes": ig.sugerir_usernames(base, n)}
+
+
 @app.post("/instagram/create-manual")
 async def ig_create_manual(body: IgCreateManualRequest):
     """Modo manual — o app só prepara o BÁSICO (perfil + e-mail) e gera os dados

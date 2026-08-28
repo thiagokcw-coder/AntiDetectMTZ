@@ -151,6 +151,80 @@ def _slugify(name: str) -> str:
     return s[:20] or "user"
 
 
+# Sufixos que aparecem em conta real brasileira. Nao ha "bot" nenhum aqui: sao
+# marcas de regiao, de oficialidade e de ano, que e como gente de verdade
+# desempata um @ ja tomado.
+_SUFIXOS_SUGESTAO = ["rs", "poa", "br", "oficial", "ofc", "real", "2026", "26"]
+
+
+def _limpar_username(u: str) -> str:
+    """Deixa no formato que o Instagram aceita: letras, numeros, ponto e underscore."""
+    import re as _re
+    u = _re.sub(r"[^a-z0-9._]", "", (u or "").lower())
+    u = _re.sub(r"[._]{2,}", ".", u).strip("._")
+    return u[:30]
+
+
+def sugerir_usernames(base: str = "", n: int = 8) -> list:
+    """N sugestoes de @ para a pessoa ESCOLHER -- nao uma imposicao.
+
+    Antes o cadastro manual gerava UM username de uma persona aleatoria e so
+    deixava copiar. Isso ignora o que este projeto descobriu sobre o produto: a
+    notificacao de follow carrega o @, entao **o nome E a carga**, nao um detalhe
+    cosmetico. Um `gabrielribeiro123` nao comunica nada.
+
+    - Com `base` (ex.: "capitao martim"): variacoes daquela string -- juncoes,
+      separadores, prefixo numerico, sufixo de regiao/ano.
+    - Sem `base`: personas brasileiras aleatorias, o comportamento antigo, so que
+      varias em vez de uma.
+
+    ⚠ TENSAO CONHECIDA: variar a mesma string agrupa a frota sozinha (`cap.martim`
+    / `capmartim` / `10122.capitaomartim` sao obviamente a mesma familia, e isso
+    esta anotado como problema que nenhum codigo resolve). Quem decide o meio
+    termo entre "o nome comunica" e "a frota nao se denuncia" e o usuario -- por
+    isso aqui sao SUGESTOES.
+    """
+    n = max(1, min(int(n or 8), 24))
+    vistos, saida = set(), []
+
+    def guardar(u):
+        u = _limpar_username(u)
+        if len(u) >= 4 and u not in vistos:
+            vistos.add(u)
+            saida.append(u)
+
+    tokens = [t for t in re.split(r"[^a-zA-Z0-9]+", str(base or "")) if t]
+    if tokens:
+        tokens = [t.lower() for t in tokens]
+        juncoes = ["".join(tokens)]
+        if len(tokens) > 1:
+            juncoes += [".".join(tokens), "_".join(tokens)]
+        guardar(juncoes[0])
+        # Uma volta so por forma, para nao sair tudo com o mesmo enfeite.
+        for _ in range(n * 4):
+            if len(saida) >= n:
+                break
+            j = random.choice(juncoes)
+            forma = random.random()
+            if forma < 0.30:
+                guardar(f"{j}{random.choice(_SUFIXOS_SUGESTAO)}")
+            elif forma < 0.50:
+                guardar(f"{j}.{random.choice(_SUFIXOS_SUGESTAO)}")
+            elif forma < 0.70:
+                guardar(f"{_random_suffix(random.randint(4, 5))}.{j}")
+            elif forma < 0.85:
+                guardar(f"{j}{_random_suffix(random.randint(2, 4))}")
+            else:
+                guardar(f"{j}_{random.choice(_SUFIXOS_SUGESTAO)}")
+    else:
+        for _ in range(n * 4):
+            if len(saida) >= n:
+                break
+            guardar(_gen_username(gen_full_name()))
+
+    return saida[:n]
+
+
 def _gen_username(full_name: str) -> str:
     """Gera um username plausível.
     Prefere nomes mais curtos e "humanos" (com 2-4 dígitos ou sufixo comum)

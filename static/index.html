@@ -1862,6 +1862,17 @@
       <div class="form-hint" style="margin-top:6px">A janela do cadastro abre sozinha quando o aquecimento terminar. Já pode copiar os dados abaixo enquanto espera.</div>
     </div>
     <div id="manual-ready-hint" class="form-hint" style="margin-bottom:12px;display:none">A janela do Camoufox abriu na tela de cadastro. Copie cada dado abaixo e digite você mesmo. <b>Não feche este popup.</b></div>
+    <div style="margin-bottom:12px;padding:10px;background:var(--surface2);border:1px solid var(--border);border-radius:8px">
+      <div style="font-weight:600;font-size:13px;margin-bottom:2px">Escolha o @ da conta</div>
+      <div class="form-hint" style="margin-bottom:8px">O @ aparece em <b>toda notificação de follow</b> — é ele que comunica. Digite um tema e escolha uma sugestão, ou invente o seu na janela.</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <input id="manual-base" placeholder="tema (ex.: capitao martim)" oninput="manualSugerirDebounce()"
+               style="flex:1;min-width:170px;padding:8px 10px;background:var(--surface);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px">
+        <button class="btn btn-sm" onclick="manualSugerir()">🎲 Sugerir</button>
+      </div>
+      <div id="manual-sugestoes" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px"></div>
+      <div id="manual-escolhido" class="form-hint" style="margin-top:6px"></div>
+    </div>
     <div id="manual-fields" style="display:flex;flex-direction:column;gap:8px"></div>
 
     <div style="margin-top:16px;border-top:1px solid var(--border);padding-top:12px">
@@ -5748,7 +5759,7 @@ async function createManual() {
       ['Senha', r.password],
       ['Nome', r.full_name],
       ['Nascimento (dia/mês/ano)', `${bd.day||''}/${bd.month||''}/${bd.year||''}`],
-      ['Username (sugestão)', r.username],
+      ['Username (só um palpite — escolha acima)', r.username],
     ];
     document.getElementById('manual-fields').innerHTML = window._manualData.map(([label, val], i) => `
       <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:8px 10px">
@@ -5764,10 +5775,51 @@ async function createManual() {
     cv.textContent = '—'; cv.style.color = 'var(--muted)';
     document.getElementById('manual-code-copy').style.display = 'none';
     document.getElementById('manual-code-hint').textContent = 'O código de verificação você pega no provedor do e-mail comprado e digita na janela do Camoufox.';
+    window._manualProfileId = r.profile_id || null;
+    document.getElementById('manual-escolhido').textContent = '';
+    document.getElementById('manual-sugestoes').innerHTML = '';
+    manualSugerir();          // ja abre com opcoes; o campo de tema refina
     document.getElementById('modal-manual').classList.add('open');
     startManualWarmBar(r.warmup_minutes || 0);
   } catch (e) {
     toast(e.message || 'Erro ao preparar conta manual', 'error');
+  }
+}
+
+// Sugestoes de @ para ESCOLHER. O gerador antigo impunha um username de persona
+// aleatoria -- mas aqui a notificacao de follow carrega o @, entao o nome e a
+// carga, e quem escolhe tem que ser o usuario.
+let _manualSugTimer = null;
+
+function manualSugerirDebounce() {
+  clearTimeout(_manualSugTimer);
+  _manualSugTimer = setTimeout(manualSugerir, 500);
+}
+
+async function manualSugerir() {
+  const base = (document.getElementById('manual-base').value || '').trim();
+  const alvo = document.getElementById('manual-sugestoes');
+  try {
+    const r = await api('GET', `/instagram/sugerir-usernames?base=${encodeURIComponent(base)}&n=8`);
+    alvo.innerHTML = (r.sugestoes || []).map(u => `
+      <button class="btn btn-ghost btn-sm" onclick="manualEscolher('${escapeHtml(u)}')"
+              style="font-family:ui-monospace,Consolas,monospace;font-size:12px">${escapeHtml(u)}</button>`).join('')
+      || '<span class="form-hint">nenhuma sugestão</span>';
+  } catch (e) {
+    alvo.innerHTML = `<span class="form-hint">não consegui sugerir: ${escapeHtml(e.message || 'erro')}</span>`;
+  }
+}
+
+// Escolher copia o @ e renomeia o PERFIL, para a lista de perfis bater com a
+// conta que voce vai criar (antes o perfil ficava com o nome gerado que voce
+// descartou).
+async function manualEscolher(u) {
+  copyText(u);
+  document.getElementById('manual-escolhido').innerHTML =
+    `✓ <b>${escapeHtml(u)}</b> copiado — cole no campo de usuário da janela do Camoufox`;
+  const pid = window._manualProfileId;
+  if (pid) {
+    try { await api('PATCH', `/profiles/${encodeURIComponent(pid)}`, { name: u.slice(0, 40) }); } catch (e) {}
   }
 }
 
