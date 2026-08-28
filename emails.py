@@ -93,6 +93,22 @@ def claim_free_email(profile_id: str = None) -> "dict|None":
     return None
 
 
+def list_free(limit: int = 50) -> list:
+    """E-mails LIVRES (comprados, ainda sem perfil) — só LEITURA, não reserva.
+
+    Existe porque o cadastro manual reservava um e-mail no instante em que o modal
+    abria: abrir e desistir queimava um e-mail da lista. Agora o modal mostra os
+    livres, você escolhe, e a reserva acontece na escolha.
+    """
+    saida = []
+    for em in db.list_emails():
+        if (em.get("status") or "free") == "free" and not em.get("profile_id"):
+            saida.append(em)
+            if len(saida) >= max(1, int(limit or 50)):
+                break
+    return saida
+
+
 def get_email(email_id: str):
     return db.get_email(email_id)
 

@@ -1873,7 +1873,55 @@
       <div id="manual-sugestoes" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px"></div>
       <div id="manual-escolhido" class="form-hint" style="margin-top:6px"></div>
     </div>
-    <div id="manual-fields" style="display:flex;flex-direction:column;gap:8px"></div>
+    <!-- Todos os campos EDITAVEIS. Antes chegavam prontos e so davam para copiar:
+         nao dava para trocar a senha, o nome ou a data sem recomecar a criacao. -->
+    <div id="manual-fields" style="display:flex;flex-direction:column;gap:10px">
+      <div>
+        <div style="font-size:11px;color:var(--muted);margin-bottom:3px">E-mail</div>
+        <div style="display:flex;gap:6px">
+          <select id="mf-email-sel" onchange="manualPegarEmail()" style="width:100%;box-sizing:border-box;padding:7px 9px;background:var(--surface);border:1px solid var(--border);border-radius:7px;color:var(--text);font-size:13px"></select>
+          <button class="btn btn-ghost btn-sm" onclick="copyText(document.getElementById('mf-email').value)">Copiar</button>
+        </div>
+        <input id="mf-email" placeholder="ou digite outro e-mail" style="width:100%;box-sizing:border-box;padding:7px 9px;background:var(--surface);border:1px solid var(--border);border-radius:7px;color:var(--text);font-size:13px;margin-top:5px">
+        <div id="mf-email-hint" class="form-hint" style="margin-top:3px"></div>
+      </div>
+
+      <div>
+        <div style="font-size:11px;color:var(--muted);margin-bottom:3px">Senha</div>
+        <div style="display:flex;gap:6px">
+          <input id="mf-senha" style="width:100%;box-sizing:border-box;padding:7px 9px;background:var(--surface);border:1px solid var(--border);border-radius:7px;color:var(--text);font-size:13px">
+          <button class="btn btn-ghost btn-sm" onclick="manualOutro('senha')" title="gerar outra">🎲</button>
+          <button class="btn btn-ghost btn-sm" onclick="copyText(document.getElementById('mf-senha').value)">Copiar</button>
+        </div>
+      </div>
+
+      <div>
+        <div style="font-size:11px;color:var(--muted);margin-bottom:3px">Nome</div>
+        <div style="display:flex;gap:6px">
+          <input id="mf-nome" style="width:100%;box-sizing:border-box;padding:7px 9px;background:var(--surface);border:1px solid var(--border);border-radius:7px;color:var(--text);font-size:13px">
+          <button class="btn btn-ghost btn-sm" onclick="manualOutro('nome')" title="gerar outro">🎲</button>
+          <button class="btn btn-ghost btn-sm" onclick="copyText(document.getElementById('mf-nome').value)">Copiar</button>
+        </div>
+      </div>
+
+      <div>
+        <div style="font-size:11px;color:var(--muted);margin-bottom:3px">Nascimento (dia / mês / ano)</div>
+        <div style="display:flex;gap:6px">
+          <input id="mf-dia" type="number" min="1" max="31" style="width:100%;box-sizing:border-box;padding:7px 9px;background:var(--surface);border:1px solid var(--border);border-radius:7px;color:var(--text);font-size:13px;max-width:70px">
+          <input id="mf-mes" type="number" min="1" max="12" style="width:100%;box-sizing:border-box;padding:7px 9px;background:var(--surface);border:1px solid var(--border);border-radius:7px;color:var(--text);font-size:13px;max-width:70px">
+          <input id="mf-ano" type="number" min="1900" max="2015" style="width:100%;box-sizing:border-box;padding:7px 9px;background:var(--surface);border:1px solid var(--border);border-radius:7px;color:var(--text);font-size:13px;max-width:90px">
+          <button class="btn btn-ghost btn-sm" onclick="manualOutro('nascimento')" title="gerar outro">🎲</button>
+        </div>
+      </div>
+
+      <div>
+        <div style="font-size:11px;color:var(--muted);margin-bottom:3px">Username</div>
+        <div style="display:flex;gap:6px">
+          <input id="mf-user" style="width:100%;box-sizing:border-box;padding:7px 9px;background:var(--surface);border:1px solid var(--border);border-radius:7px;color:var(--text);font-size:13px">
+          <button class="btn btn-ghost btn-sm" onclick="copyText(document.getElementById('mf-user').value)">Copiar</button>
+        </div>
+      </div>
+    </div>
 
     <div style="margin-top:16px;border-top:1px solid var(--border);padding-top:12px">
       <div style="font-weight:600;color:var(--text);margin-bottom:6px">Código de verificação do e-mail</div>
@@ -5751,25 +5799,8 @@ async function createManual() {
     toast('Preparando conta manual… aquecendo o navegador (a janela abre ao terminar)');
     const r = await api('POST', '/instagram/create-manual', { use_proxy_pool: !useLocal, os: 'random', warmup_minutes: warmMin });
     const bd = r.birthday || {};
-    const emailRow = r.email_suggested
-      ? ['E-mail (sugestão — comprado)', r.email]
-      : ['E-mail', '⚠ Nenhum e-mail livre — cadastre na aba Emails ou use o seu'];
-    window._manualData = [
-      emailRow,
-      ['Senha', r.password],
-      ['Nome', r.full_name],
-      ['Nascimento (dia/mês/ano)', `${bd.day||''}/${bd.month||''}/${bd.year||''}`],
-      ['Username (só um palpite — escolha acima)', r.username],
-    ];
-    document.getElementById('manual-fields').innerHTML = window._manualData.map(([label, val], i) => `
-      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:8px 10px">
-        <div style="min-width:0">
-          <div style="font-size:11px;color:var(--muted)">${escapeHtml(label)}</div>
-          <div style="font-size:14px;color:var(--text);word-break:break-all">${escapeHtml(String(val||''))}</div>
-        </div>
-        <button class="btn btn-ghost btn-sm" onclick="copyText(window._manualData[${i}][1])">Copiar</button>
-      </div>`).join('');
-    _manualEmail = r.email || null;
+    manualPreencher(r);
+    _manualEmail = null;
     _manualCode = null;
     const cv = document.getElementById('manual-code-val');
     cv.textContent = '—'; cv.style.color = 'var(--muted)';
@@ -5784,6 +5815,63 @@ async function createManual() {
   } catch (e) {
     toast(e.message || 'Erro ao preparar conta manual', 'error');
   }
+}
+
+// Preenche o formulario editavel. Os valores chegam como PONTO DE PARTIDA --
+// todos podem ser trocados na mao ou regerados no dado.
+function manualPreencher(r) {
+  const bd = r.birthday || {};
+  document.getElementById('mf-senha').value = r.password || '';
+  document.getElementById('mf-nome').value = r.full_name || '';
+  document.getElementById('mf-dia').value = bd.day || '';
+  document.getElementById('mf-mes').value = bd.month || '';
+  document.getElementById('mf-ano').value = bd.year || '';
+  document.getElementById('mf-user').value = r.username || '';
+  document.getElementById('mf-email').value = '';
+
+  const livres = r.emails_livres || [];
+  const sel = document.getElementById('mf-email-sel');
+  sel.innerHTML = livres.length
+    ? '<option value="">— escolher um e-mail livre —</option>' +
+      livres.map(e => `<option value="${escapeHtml(e.id)}">${escapeHtml(e.address)}</option>`).join('')
+    : '<option value="">— nenhum e-mail livre cadastrado —</option>';
+  document.getElementById('mf-email-hint').textContent = livres.length
+    ? livres.length + ' e-mail(s) livre(s). O escolhido só é reservado quando você seleciona.'
+    : 'Cadastre e-mails na aba Emails, ou digite um abaixo.';
+}
+
+// Reservar o e-mail acontece AQUI, na escolha -- antes o modal reservava sozinho
+// ao abrir, e abrir sem seguir adiante queimava um e-mail da lista.
+async function manualPegarEmail() {
+  const sel = document.getElementById('mf-email-sel');
+  const id = sel.value;
+  if (!id) return;
+  const endereco = sel.options[sel.selectedIndex].textContent;
+  document.getElementById('mf-email').value = endereco;
+  _manualEmail = endereco;
+  const hint = document.getElementById('mf-email-hint');
+  try {
+    await api('POST', '/instagram/vincular-email',
+              { profile_id: window._manualProfileId || '', email_id: id });
+    hint.textContent = 'reservado para este perfil';
+  } catch (e) {
+    hint.textContent = 'não consegui reservar: ' + (e.message || 'erro') + ' (dá para usar mesmo assim)';
+  }
+}
+
+// Trocar UM campo sem recomeçar a criação inteira.
+async function manualOutro(qual) {
+  try {
+    const r = await api('GET', '/instagram/sugerir-dados');
+    if (qual === 'senha') document.getElementById('mf-senha').value = r.password || '';
+    if (qual === 'nome')  document.getElementById('mf-nome').value = r.full_name || '';
+    if (qual === 'nascimento') {
+      const bd = r.birthday || {};
+      document.getElementById('mf-dia').value = bd.day || '';
+      document.getElementById('mf-mes').value = bd.month || '';
+      document.getElementById('mf-ano').value = bd.year || '';
+    }
+  } catch (e) { toast(e.message || 'Erro ao gerar', 'error'); }
 }
 
 // Sugestoes de @ para ESCOLHER. O gerador antigo impunha um username de persona
@@ -5815,6 +5903,7 @@ async function manualSugerir() {
 // descartou).
 async function manualEscolher(u) {
   copyText(u);
+  document.getElementById('mf-user').value = u;
   document.getElementById('manual-escolhido').innerHTML =
     `✓ <b>${escapeHtml(u)}</b> copiado — cole no campo de usuário da janela do Camoufox`;
   const pid = window._manualProfileId;

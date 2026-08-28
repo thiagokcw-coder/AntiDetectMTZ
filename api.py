@@ -809,6 +809,36 @@ class IgCreateManualRequest(BaseModel):
     warmup_minutes: float = 15    # aquece o navegador antes de abrir p/ você preencher
 
 
+class VincularEmailRequest(BaseModel):
+    profile_id: str
+    email_id: str
+
+
+@app.post("/instagram/vincular-email")
+def ig_vincular_email(body: VincularEmailRequest):
+    """Reserva o e-mail ESCOLHIDO para o perfil. É aqui que o e-mail sai da lista
+    de livres — na sua escolha, não na abertura do modal."""
+    em = eb.get_email(body.email_id)
+    if not em:
+        raise HTTPException(404, "E-mail não encontrado")
+    if not get_profile(body.profile_id):
+        raise HTTPException(404, "Perfil não encontrado")
+    db.update_email(body.email_id, profile_id=body.profile_id)
+    return {"ok": True, "address": em.get("address")}
+
+
+@app.get("/instagram/sugerir-dados")
+def ig_sugerir_dados():
+    """Um jogo novo de senha / nome / nascimento. Puro: não toca perfil nem e-mail.
+
+    Serve o botão "gerar outro" de cada campo — antes o modal entregava um valor
+    só e você não podia trocar sem recomeçar a criação inteira.
+    """
+    return {"password": ig.gen_password(),
+            "full_name": ig.gen_full_name(),
+            "birthday": ig.gen_birthday()}
+
+
 @app.get("/instagram/sugerir-usernames")
 def ig_sugerir_usernames(base: str = "", n: int = 8):
     """Sugestoes de @ para ESCOLHER. Puro: nao cria perfil, nao gasta e-mail.
@@ -845,11 +875,12 @@ async def ig_create_manual(body: IgCreateManualRequest):
         profile_id = prof.create(name=(body.base or "conta"), os=body.os, proxy=proxy)["id"]
         already_warm = False
 
-    # E-mail: SUGERE um e-mail comprado já cadastrado (livre) e o liga ao perfil.
-    # Não gera mais catch-all. Se não houver e-mail livre, segue sem e-mail (você
-    # digita o seu na janela) e a UI avisa para cadastrar na aba Emails.
-    em = eb.claim_free_email(profile_id)
-    email_addr = em["address"] if em else ""
+    # E-mail: apenas LISTA os livres — quem escolhe é você, na tela.
+    # Antes ele reservava um automaticamente aqui, então abrir o modal e desistir
+    # queimava um e-mail da lista. A reserva passou para /instagram/vincular-email,
+    # que só roda quando você escolhe.
+    livres = eb.list_free()
+    email_addr = ""
 
     # 2) Gera os dados (mesmos geradores do fluxo automático)
     base = email_addr.split("@")[0].split("+")[0] if email_addr else (body.base or "")
@@ -894,8 +925,9 @@ async def ig_create_manual(body: IgCreateManualRequest):
 
     return {
         "profile_id": profile_id,
-        "email": email_addr,          # sugestão (e-mail comprado livre) ou "" se não houver
-        "email_suggested": bool(email_addr),
+        "email": email_addr,          # vazio: você escolhe na tela
+        "email_suggested": False,
+        "emails_livres": [{"id": e["id"], "address": e["address"]} for e in livres],
         "password": password,
         "full_name": full_name,
         "username": username,
