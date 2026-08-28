@@ -5178,3 +5178,38 @@ def learning_summary():
         "by_outcome": by_outcome,
         "by_proxy": by_proxy,
     }
+
+
+# ─── Conhecimento do projeto (aba "O que aprendemos") ─────────────────────────
+# A base fica em `conhecimento.json` ao lado do codigo, versionada junto: e o
+# mesmo lugar que eu atualizo a cada sessao, entao a aba nunca fica velha por
+# esquecimento de mexer em HTML. O registro narrativo continua no `registro.md`,
+# servido cru aqui embaixo -- um e a CONCLUSAO, o outro e COMO se chegou nela.
+_RAIZ = Path(__file__).parent
+
+
+@app.get("/conhecimento")
+def conhecimento_listar():
+    """Base curada: o que funciona, o que nao funciona, o que esta aberto."""
+    f = _RAIZ / "conhecimento.json"
+    if not f.exists():
+        raise HTTPException(404, "conhecimento.json nao encontrado")
+    try:
+        # Lido a cada chamada de proposito: editar o arquivo reflete na hora,
+        # sem reiniciar o app.
+        import json as _json
+        return _json.loads(f.read_text(encoding="utf-8"))
+    except Exception as e:
+        raise HTTPException(500, f"conhecimento.json invalido: {e}")
+
+
+@app.get("/conhecimento/registro")
+def conhecimento_registro():
+    """O `registro.md` cru — o historico por sessao, com as hipoteses que morreram."""
+    f = _RAIZ / "registro.md"
+    if not f.exists():
+        return {"texto": "", "erro": "registro.md nao encontrado"}
+    txt = f.read_text(encoding="utf-8")
+    # splitlines em vez de contar quebras: escape de nova linha ja foi
+    # consumido por heredoc nesta base antes (ver CLAUDE.md), entao evito.
+    return {"texto": txt, "linhas": len(txt.splitlines())}

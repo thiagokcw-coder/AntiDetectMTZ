@@ -2,6 +2,33 @@
 
 > Notas de contexto para o Claude. App de **gestão de contas Instagram** (Camoufox/Firefox antidetect + Playwright). Backend FastAPI (`api.py`/`main.py`), frontend em `static/index.html`. **Multiplataforma (Windows + macOS).** Idioma do usuário: **português**.
 
+## 🧠 ABA "O QUE APRENDEMOS" — mantenha-a viva (2026-08-28)
+
+Aba nova (`page-conhecimento`, primeiro item do menu) com as conclusões do projeto
+agrupadas por estado: **✅ funciona · ❌ não funciona · ⏳ em aberto · 📡 sinal · 🧭 lição**,
+com busca, filtro por área e o `registro.md` inteiro num painel recolhível.
+
+**O conteúdo NÃO está no HTML.** Vem de dois arquivos versionados:
+- **`conhecimento.json`** — a base curada (hoje 44 itens). Cada item tem
+  `area · estado · titulo · detalhe · evidencia · data`. **O campo `evidencia` é
+  obrigatório na prática:** esta base já perdeu dias com afirmação sem medição, e um item
+  sem evidência é justamente o que não deveria virar conhecimento.
+- **`registro.md`** — a narrativa por sessão, servida crua.
+
+Endpoints: `GET /conhecimento` (relê o arquivo a cada chamada — editar reflete na hora,
+sem reiniciar o app) e `GET /conhecimento/registro`.
+
+**⚠ RITUAL DE FIM DE SESSÃO:** ao registrar uma sessão no `registro.md`, atualize também o
+`conhecimento.json` — mova o que foi resolvido de `aberto` para `funciona`/`nao_funciona`,
+acrescente o que foi medido, e mexa no `atualizado`. Se isso não virar hábito, a aba vira
+mais uma coisa desatualizada e teria sido melhor não existir.
+
+**Validado:** endpoints exercitados direto (44 itens, registro com 1.007 linhas) + a aba
+conferida no navegador com servidor descartável: 44 cards, contadores por estado, filtro de
+área (7 opções), filtro de estado (14 em "não funciona"), busca ("sticker" → 2), estado
+vazio, e o painel do registro abrindo com 55 mil caracteres. `node --check` OK, 0 id
+duplicado.
+
 ## 📍 ONDE PARAMOS — leia isto primeiro (2026-08-28)
 
 ### 🆕 28/08 em três linhas

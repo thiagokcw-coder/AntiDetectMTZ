@@ -281,6 +281,10 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4v16"/><path d="M4 4h12l-2 4 2 4H4"/></svg>
       Comece aqui
     </div>
+    <div class="nav-item" data-page-link="conhecimento" onclick="showPage('conhecimento')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+      O que aprendemos
+    </div>
 
     <!-- Fluxo de criação, na ordem: perfil (dispositivo) → criar a conta IG → cadastrar -->
     <div class="nav-section">Criação &amp; contas</div>
@@ -340,6 +344,55 @@
 
   <main>
     <!-- START / COMECE AQUI -->
+    <!-- Aba viva do que o projeto ja aprendeu. O conteudo NAO fica aqui: vem de
+         `conhecimento.json` (a base curada, versionada) e do `registro.md` (o
+         historico). Assim atualizar e editar um arquivo, nao mexer em HTML. -->
+    <div class="page" id="page-conhecimento">
+      <div class="page-header">
+        <div>
+          <div class="page-title">O que aprendemos</div>
+          <div class="page-sub" id="ck-sub">Carregando…</div>
+        </div>
+      </div>
+
+      <div class="card" id="ck-objetivo" style="margin-bottom:14px"></div>
+
+      <div class="card" style="margin-bottom:14px">
+        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+          <input id="ck-busca" placeholder="Buscar (ex.: 404, sticker, proxy, cursor…)" oninput="renderConhecimento()"
+                 style="flex:1;min-width:220px;padding:8px 10px;background:var(--surface);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px">
+          <select id="ck-area" onchange="renderConhecimento()"
+                  style="padding:8px 10px;background:var(--surface);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px">
+            <option value="">Todas as áreas</option>
+          </select>
+          <select id="ck-estado" onchange="renderConhecimento()"
+                  style="padding:8px 10px;background:var(--surface);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px">
+            <option value="">Tudo</option>
+            <option value="funciona">✅ Funciona</option>
+            <option value="nao_funciona">❌ Não funciona</option>
+            <option value="aberto">⏳ Em aberto</option>
+            <option value="sinal">📡 Sinal</option>
+            <option value="licao">🧭 Lição</option>
+          </select>
+          <button class="btn btn-sm" onclick="loadConhecimento(this)">↻ Atualizar</button>
+        </div>
+        <div id="ck-contadores" style="display:flex;gap:14px;flex-wrap:wrap;margin-top:10px;font-size:12px;color:var(--muted)"></div>
+      </div>
+
+      <div id="ck-lista"></div>
+
+      <div class="card" style="margin-top:14px">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+          <div>
+            <div style="font-weight:600;font-size:13px">📓 Histórico completo (registro.md)</div>
+            <div class="form-hint">A narrativa por sessão — inclusive as hipóteses que morreram, para ninguém refazer o caminho.</div>
+          </div>
+          <button class="btn btn-sm" onclick="toggleRegistro(this)">Mostrar</button>
+        </div>
+        <pre id="ck-registro" style="display:none;margin-top:10px;max-height:520px;overflow:auto;white-space:pre-wrap;word-break:break-word;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:12px;font-size:12px;line-height:1.55;font-family:ui-monospace,Consolas,monospace"></pre>
+      </div>
+    </div>
+
     <div class="page active" id="page-start">
       <div class="page-header">
         <div>
@@ -1956,6 +2009,7 @@ function showPage(name) {
   if (name === 'follow') loadFollow();
   if (name === 'monitored') loadMonitored();
   if (name === 'start') loadStartProxyHealth();
+  if (name === 'conhecimento') loadConhecimento();
   if (name === 'localdata') loadLocalData();
 }
 
@@ -3892,6 +3946,118 @@ async function exportAccountSession(id, btn) {
     try { ta.focus(); ta.select(); } catch (e) {}
     toast('Sessão exportada para o campo', 'success');
   } catch (e) { stop(); toast(e.message || 'Erro ao exportar', 'error'); out.textContent = ''; }
+}
+
+// ── Aba "O que aprendemos" ────────────────────────────────
+// A base vem de conhecimento.json (curada) e do registro.md (narrativa). Nada de
+// conteudo chumbado aqui: atualizar o projeto = editar o arquivo, nao o HTML.
+let _ckDados = null;
+
+const CK_ESTADOS = {
+  funciona:     { rotulo: '✅ Funciona',      cor: 'var(--green)'  },
+  nao_funciona: { rotulo: '❌ Não funciona',  cor: 'var(--red)'    },
+  aberto:       { rotulo: '⏳ Em aberto',     cor: 'var(--yellow)' },
+  sinal:        { rotulo: '📡 Sinal',         cor: 'var(--muted)'  },
+  licao:        { rotulo: '🧭 Lição',         cor: 'var(--muted)'  },
+};
+// Ordem deliberada: o que funciona primeiro, o que nao funciona logo em seguida
+// (e o que mais economiza tempo de quem chega), e as licoes por ultimo.
+const CK_ORDEM = ['funciona', 'nao_funciona', 'aberto', 'sinal', 'licao'];
+
+async function loadConhecimento(btn) {
+  const stop = btn ? runBtnCountdown(btn, 5) : () => {};
+  try {
+    _ckDados = await api('GET', '/conhecimento');
+    stop();
+    const itens = _ckDados.itens || [];
+    document.getElementById('ck-sub').textContent =
+      `${itens.length} conclusões registradas · atualizado em ${_ckDados.atualizado || '?'}`;
+
+    const obj = _ckDados.objetivo || {};
+    document.getElementById('ck-objetivo').innerHTML = obj.produto ? `
+      <div style="font-weight:600;font-size:13px;margin-bottom:6px">🎯 O objetivo, antes de qualquer coisa</div>
+      <div style="font-size:13px;line-height:1.6">${escapeHtml(obj.produto)}</div>
+      ${obj.indicador ? `<div style="margin-top:8px;font-family:ui-monospace,Consolas,monospace;font-size:12px;color:var(--muted)">${escapeHtml(obj.indicador)}</div>` : ''}
+      ${obj.alvos ? `<div style="margin-top:4px;font-size:12px;color:var(--muted)">Alvos: ${escapeHtml(obj.alvos)}</div>` : ''}` : '';
+
+    const sel = document.getElementById('ck-area');
+    const areas = [...new Set(itens.map(i => i.area))].sort();
+    const atual = sel.value;
+    sel.innerHTML = '<option value="">Todas as áreas</option>' +
+      areas.map(a => `<option value="${escapeHtml(a)}">${escapeHtml(a)}</option>`).join('');
+    sel.value = atual;
+    renderConhecimento();
+  } catch (e) {
+    stop();
+    document.getElementById('ck-sub').textContent = 'não consegui carregar: ' + (e.message || 'erro');
+  }
+}
+
+function renderConhecimento() {
+  if (!_ckDados) return;
+  const itens = _ckDados.itens || [];
+  const q = (document.getElementById('ck-busca').value || '').trim().toLowerCase();
+  const area = document.getElementById('ck-area').value;
+  const estado = document.getElementById('ck-estado').value;
+
+  document.getElementById('ck-contadores').innerHTML = CK_ORDEM.map(k => {
+    const n = itens.filter(i => i.estado === k).length;
+    if (!n) return '';
+    const m = CK_ESTADOS[k];
+    return `<span style="color:${m.cor}">${m.rotulo}: <b>${n}</b></span>`;
+  }).join('');
+
+  const filtrados = itens.filter(i => {
+    if (area && i.area !== area) return false;
+    if (estado && i.estado !== estado) return false;
+    if (!q) return true;
+    return [i.titulo, i.detalhe, i.evidencia, i.area].join(' ').toLowerCase().includes(q);
+  });
+
+  const alvo = document.getElementById('ck-lista');
+  if (!filtrados.length) {
+    alvo.innerHTML = '<div class="card" style="color:var(--muted);font-size:13px">Nada encontrado com esse filtro.</div>';
+    return;
+  }
+
+  alvo.innerHTML = CK_ORDEM.map(k => {
+    const doGrupo = filtrados.filter(i => i.estado === k)
+      .sort((a, b) => String(b.data).localeCompare(String(a.data)));
+    if (!doGrupo.length) return '';
+    const m = CK_ESTADOS[k];
+    return `
+      <div style="margin-bottom:18px">
+        <div style="font-weight:600;font-size:13px;color:${m.cor};margin-bottom:8px">${m.rotulo} <span style="color:var(--muted);font-weight:400">(${doGrupo.length})</span></div>
+        ${doGrupo.map(i => `
+          <div class="card" style="margin-bottom:8px;border-left:3px solid ${m.cor}">
+            <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:baseline">
+              <div style="font-weight:600;font-size:13px">${escapeHtml(i.titulo)}</div>
+              <div style="font-size:11px;color:var(--muted);white-space:nowrap">${escapeHtml(i.area)} · ${escapeHtml(i.data)}</div>
+            </div>
+            <div style="font-size:13px;line-height:1.6;margin-top:6px">${escapeHtml(i.detalhe)}</div>
+            ${i.evidencia ? `<div style="font-size:12px;color:var(--muted);margin-top:6px"><b>Evidência:</b> ${escapeHtml(i.evidencia)}</div>` : ''}
+          </div>`).join('')}
+      </div>`;
+  }).join('');
+}
+
+async function toggleRegistro(btn) {
+  const el = document.getElementById('ck-registro');
+  if (el.style.display !== 'none') {
+    el.style.display = 'none'; btn.textContent = 'Mostrar'; return;
+  }
+  btn.textContent = 'Carregando…';
+  try {
+    if (!el.dataset.carregado) {
+      const r = await api('GET', '/conhecimento/registro', null, 60000);
+      el.textContent = r.texto || '(vazio)';
+      el.dataset.carregado = '1';
+    }
+    el.style.display = ''; btn.textContent = 'Ocultar';
+  } catch (e) {
+    btn.textContent = 'Mostrar';
+    toast(e.message || 'Não consegui ler o registro.md', 'error');
+  }
 }
 
 // Countdown num botão enquanto uma ação demorada roda. Conta de `estSeconds`
