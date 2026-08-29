@@ -50,13 +50,25 @@ def _fonte(tamanho: int):
     return ImageFont.load_default()
 
 
-def _texto_do_link(link: str) -> str:
-    """O que aparece no chip. O Instagram mostra o domínio, não a URL inteira."""
+def _texto_do_link(link: str, rotulo: str = "") -> str:
+    """O que aparece escrito no chip.
+
+    Padrão: só o DOMÍNIO. O sticker do Instagram nunca mostra a URL inteira, e
+    caminho longo (`chat.whatsapp.com/HpTiqPpQmR3DRQLAkS2tME`) além de feio não
+    cabe no chip — foi o que apareceu no primeiro teste com arte real.
+
+    `rotulo` sobrepõe: contas reais escrevem "ENTRE NO GRUPO" em vez da URL, e
+    isso converte melhor do que um endereço que ninguém lê.
+    """
+    if (rotulo or "").strip():
+        r = rotulo.strip()
+        return (r[:28] + "…") if len(r) > 29 else r
     t = (link or "").strip()
     for prefixo in ("https://", "http://"):
         if t.lower().startswith(prefixo):
             t = t[len(prefixo):]
-    return (t[:38] + "…") if len(t) > 39 else t or "link"
+    t = t.split("/")[0].split("?")[0]          # só o domínio
+    return (t[:28] + "…") if len(t) > 29 else t or "link"
 
 
 def _encaixar(img: Image.Image) -> Image.Image:
@@ -73,7 +85,7 @@ def _encaixar(img: Image.Image) -> Image.Image:
 
 
 def compor(dados: bytes, link: str, x: float, y: float,
-           largura: float, altura: float) -> dict:
+           largura: float, altura: float, rotulo: str = "") -> dict:
     """Desenha o chip do link na imagem e devolve o arquivo pronto para publicar.
 
     x/y são o CENTRO do retângulo, e largura/altura o tamanho — todos de 0 a 1,
@@ -92,7 +104,7 @@ def compor(dados: bytes, link: str, x: float, y: float,
     # Chip claro com texto escuro, que é como o sticker de link aparece hoje.
     d.rounded_rectangle(caixa, radius=raio, fill=(255, 255, 255, 235))
 
-    texto = _texto_do_link(link)
+    texto = _texto_do_link(link, rotulo)
     tam = max(14, int(ch * 0.34))
     fonte = _fonte(tam)
     # Encolhe até caber com folga: texto estourando a borda seria pior que pequeno.

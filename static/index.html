@@ -373,6 +373,10 @@
             <input id="st-link" value="https://wa.me/" placeholder="https://wa.me/5551..." oninput="storyDesenharPrevia()"
                    style="width:100%;box-sizing:border-box;padding:8px 10px;background:var(--surface);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px">
           </div>
+          <div style="flex:1;min-width:160px">
+            <div style="font-size:11px;color:var(--muted);margin-bottom:3px">Texto do chip (opcional)</div>
+            <input id="st-rotulo" placeholder="ex.: ENTRE NO GRUPO" oninput="storyDesenharPrevia()" style="width:100%;box-sizing:border-box;padding:8px 10px;background:var(--surface);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px">
+          </div>
           <div>
             <div style="font-size:11px;color:var(--muted);margin-bottom:3px">Imagem (vertical, 9:16)</div>
             <input id="st-arquivo" type="file" accept="image/*" onchange="storyCarregarImagem(event)" style="font-size:12px">
@@ -388,7 +392,7 @@
           <img id="st-img" alt="" style="display:none;max-width:100%;max-height:60vh;vertical-align:top">
           <div id="st-vazio" style="padding:40px 24px;color:var(--muted);font-size:13px">Escolha uma imagem acima.</div>
           <div id="st-rect" style="display:none;position:absolute;border:2px solid #fff;background:rgba(255,255,255,.82);border-radius:14px;cursor:move;box-shadow:0 2px 10px rgba(0,0,0,.35)">
-            <div id="st-rect-txt" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#141414;font-weight:700;font-size:12px;overflow:hidden;white-space:nowrap"></div>
+            <div id="st-rect-txt" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:0 8px;color:#141414;font-weight:700;font-size:12px;overflow:hidden;white-space:nowrap"></div>
             <div id="st-handle" style="position:absolute;right:-7px;bottom:-7px;width:14px;height:14px;background:var(--accent);border:2px solid #fff;border-radius:50%;cursor:nwse-resize"></div>
           </div>
         </div>
@@ -4122,10 +4126,17 @@ function storyAplicarRect() {
     `centro ${_stRect.x.toFixed(3)} / ${_stRect.y.toFixed(3)} · tamanho ${_stRect.largura.toFixed(3)} × ${_stRect.altura.toFixed(3)}`;
 }
 
+// Espelha o que o backend desenha: rotulo se houver, senao SO o dominio. O
+// sticker do Instagram nunca mostra a URL inteira -- e caminho longo nao cabe no
+// chip, que foi o que apareceu no primeiro teste com arte real.
 function storyDesenharPrevia() {
-  let t = (document.getElementById('st-link').value || '').trim();
-  t = t.replace(/^https?:\/\//i, '');
-  document.getElementById('st-rect-txt').textContent = t.length > 39 ? t.slice(0, 38) + '…' : (t || 'link');
+  const rotulo = (document.getElementById('st-rotulo').value || '').trim();
+  let t = rotulo;
+  if (!t) {
+    t = (document.getElementById('st-link').value || '').trim().replace(/^https?:\/\//i, '');
+    t = t.split('/')[0].split('?')[0];
+  }
+  document.getElementById('st-rect-txt').textContent = t.length > 29 ? t.slice(0, 28) + '…' : (t || 'link');
 }
 
 // Arrastar para mover, canto para redimensionar. Preso dentro da imagem: um
@@ -4177,6 +4188,7 @@ async function storyCompor(btn) {
     fd.append('link', link);
     fd.append('x', _stRect.x); fd.append('y', _stRect.y);
     fd.append('largura', _stRect.largura); fd.append('altura', _stRect.altura);
+    fd.append('rotulo', (document.getElementById('st-rotulo').value || '').trim());
     const resp = await fetch('/story/compor', { method: 'POST', body: fd });
     if (!resp.ok) throw new Error((await resp.json().catch(() => ({}))).detail || ('HTTP ' + resp.status));
     const r = await resp.json();

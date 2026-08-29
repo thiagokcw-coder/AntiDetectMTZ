@@ -5285,13 +5285,14 @@ def story_contas():
 @app.post("/story/compor")
 async def story_compor(imagem: UploadFile = File(...), link: str = Form(...),
                        x: float = Form(0.5), y: float = Form(0.75),
-                       largura: float = Form(0.62), altura: float = Form(0.08)):
+                       largura: float = Form(0.62), altura: float = Form(0.08),
+                       rotulo: str = Form("")):
     """Desenha o chip do link na arte. Nao publica nada."""
     dados = await imagem.read()
     if not dados:
         raise HTTPException(400, "Imagem vazia")
     try:
-        return story_mod.compor(dados, link, x, y, largura, altura)
+        return story_mod.compor(dados, link, x, y, largura, altura, rotulo)
     except Exception as e:
         raise HTTPException(400, f"Nao consegui compor: {e}")
 
