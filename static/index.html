@@ -2797,9 +2797,12 @@ function renderProfilesGrid() {
     // Conta IG vinculada: card fica VERDE quando há conta logada (status active).
     const logged = p.account_status === 'active';
     const hasAcct = !!p.account_status;
+    // Perfil SEM conta cadastrada pode ter uma conta logada mesmo assim -- a sessao
+    // fica no user_data e o app nao descobre sozinho de quem e.
     const acctRow = hasAcct
       ? `<div class="card-row">Conta: <span style="color:${logged ? '#16a34a' : 'var(--text)'}">${p.account_username ? '@'+escapeHtml(p.account_username) : '(sem username)'} ${logged ? '✅ logada' : '· '+escapeHtml(p.account_status)}</span></div>`
-      : '';
+      : `<div class="card-row" id="det-${safeId}">Conta: <span style="color:var(--muted)">nenhuma cadastrada</span>
+           <button class="btn btn-ghost btn-sm" style="margin-left:6px" onclick="detectarConta('${p.id}', this)">🔍 descobrir</button></div>`;
     return `
     <div class="card${logged ? ' has-logged' : ''}" id="card-${safeId}">
       <div class="card-header">
@@ -4069,6 +4072,48 @@ async function exportAccountSession(id, btn) {
     try { ta.focus(); ta.select(); } catch (e) {}
     toast('Sessão exportada para o campo', 'success');
   } catch (e) { stop(); toast(e.message || 'Erro ao exportar', 'error'); out.textContent = ''; }
+}
+
+// Descobre a conta logada num perfil ORFAO (sem conta cadastrada).
+// A sessao se guarda sozinha no user_data do perfil, mas o app nunca soube DE QUEM
+// ela era: o detect_status devolve o estado (ativa/suspensa/banida) e nunca o
+// username. O ds_user_id sai do cookie, o username custa uma requisicao.
+async function detectarConta(pid, btn) {
+  // o card usa id='det-' + escapeHtml(p.id); com UUID isso e o proprio id.
+  const linha = document.getElementById('det-' + pid);
+  const stop = runBtnCountdown(btn, 40);
+  try {
+    const r = await api('POST', `/profiles/${encodeURIComponent(pid)}/detectar-conta`, null, 180000);
+    stop();
+    if (!linha) return;
+    if (r.ja_cadastrada) {
+      linha.innerHTML = `Conta: <span>@${escapeHtml(r.username || '')}</span> <span style="color:var(--muted)">(já cadastrada)</span>`;
+      return;
+    }
+    if (r.logado && r.username) {
+      // Cadastrar e um passo SEPARADO de proposito: descobrir e leitura, cadastrar
+      // mexe no registro, e voce pode ter motivo para nao querer essa conta ali.
+      linha.innerHTML =
+        `Conta: <span style="color:var(--green)">@${escapeHtml(r.username)}</span> logada aqui
+         <button class="btn btn-primary btn-sm" style="margin-left:6px"
+                 onclick="cadastrarContaDetectada('${escapeHtml(pid)}', '${escapeHtml(r.username)}', this)">cadastrar</button>`;
+    } else {
+      linha.innerHTML = `Conta: <span style="color:var(--muted)">${escapeHtml(r.detalhe || 'não está logado')}</span>`;
+    }
+  } catch (e) {
+    stop();
+    toast(e.message || 'Erro ao descobrir a conta', 'error');
+  }
+}
+
+async function cadastrarContaDetectada(pid, username, btn) {
+  const stop = runBtnCountdown(btn, 8);
+  try {
+    await api('POST', '/accounts', { username: username, profile_id: pid, status: 'active' });
+    stop();
+    toast('@' + username + ' cadastrada', 'success');
+    loadProfiles();
+  } catch (e) { stop(); toast(e.message || 'Erro ao cadastrar', 'error'); }
 }
 
 // ── Story Creator ─────────────────────────────────────────

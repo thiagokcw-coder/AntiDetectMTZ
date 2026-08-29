@@ -397,6 +397,22 @@
       "titulo": "Manual que passa de 150 mil chars é cortado — e você não sabe onde",
       "detalhe": "O CLAUDE.md chegou a 222 mil caracteres porque cada sessão empilhou narrativa nele. Acima do limite o Claude Code corta, e não dá para saber qual parte se perde: toda sessão passa a trabalhar com um manual truncado em lugar imprevisível. A divisão certa é: CLAUDE.md = **como o sistema é hoje**; registro.md = **como se chegou nele**; conhecimento.json = **as conclusões**.",
       "evidencia": "poda de 28/08: 222 → 106 mil chars, 25 seções movidas verbatim para o apêndice do registro.md, com resumo do fato durável no lugar. Conferido: 0 seções perdidas, 14 fatos-chave ainda presentes no manual."
+    },
+    {
+      "area": "contas",
+      "estado": "funciona",
+      "data": "2026-08-28",
+      "titulo": "Descobrir qual conta está logada num perfil órfão",
+      "detalhe": "A sessão se guarda sozinha no `user_data` do perfil, e ao FECHAR uma janela manual o app já re-verifica o status — mas só quando o perfil já está vinculado a uma conta. Perfil logado e sem cadastro ficava invisível, porque o `detect_status` devolve o estado (ativa/suspensa/banida) e nunca o username. Agora o `ds_user_id` sai do cookie (sem requisição) e o username custa uma. Botão 🔍 descobrir no card do perfil; cadastrar é passo separado.",
+      "evidencia": "POST /profiles/{id}/detectar-conta · ig_session.descobrir_conta"
+    },
+    {
+      "area": "story",
+      "estado": "aberto",
+      "data": "2026-08-28",
+      "titulo": "Destaque (highlight) pela API: existe, não construído",
+      "detalhe": "instagrapi tem `highlight_create(title, story_ids, cover_story_id)`, `highlight_add_stories`, mudar título e capa. Pede **story_ids**: destaque se monta de stories que já existem. No web, a janela de destaque abriu vazia — hipótese não medida: não há story no arquivo para escolher (o de teste foi apagado). O Camoufox renderizou a janela normalmente, então não parece ser ele.",
+      "evidencia": "leitura de instagrapi/mixins/highlight.py + print do usuário com a lista vazia"
     }
   ]
 }

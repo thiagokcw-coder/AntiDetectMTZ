@@ -1372,6 +1372,32 @@ async def accounts_export_session(account_id: str):
     return {"cookies": cookies, "resumo": resumo}
 
 
+@app.post("/profiles/{profile_id}/detectar-conta")
+async def profile_detectar_conta(profile_id: str):
+    """Descobre QUAL conta esta logada num perfil que nao tem conta cadastrada.
+
+    O furo que isto fecha: a sessao se guarda sozinha no perfil, e o app ja
+    re-verifica o status ao fechar uma janela manual -- mas so quando o perfil ja
+    esta vinculado a uma conta. Perfil orfao ficava invisivel, porque o
+    `detect_status` devolve o estado e nunca o username.
+    """
+    import ig_session as igs
+    p = get_profile(profile_id)
+    if not p:
+        raise HTTPException(404, "Perfil nao encontrado")
+    ja = db.get_account_by_profile(profile_id)
+    if ja:
+        return {"logado": True, "username": ja.get("username"),
+                "ja_cadastrada": True, "account_id": ja.get("id"),
+                "detalhe": "este perfil ja esta vinculado a uma conta"}
+    try:
+        r = await igs.descobrir_conta(p)
+    except Exception as e:
+        raise HTTPException(400, f"{type(e).__name__}: {e}")
+    r["ja_cadastrada"] = False
+    return r
+
+
 class ImportSessionRequest(BaseModel):
     cookies: str = ""   # texto colado: JSON do Cookie-Editor, header, ou só o sessionid
 

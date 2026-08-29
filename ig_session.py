@@ -143,6 +143,45 @@ async def import_cookies(profile: dict, cookies: list, only_auth: bool = False) 
     return {"imported": len(payload), "profile_now": got}
 
 
+async def descobrir_conta(profile: dict, use_local: bool = True) -> dict:
+    """Descobre QUAL conta esta logada neste perfil.
+
+    Existia um furo: a sessao fica guardada sozinha no `user_data_dir` (e o proprio
+    perfil do Firefox), e ao FECHAR um perfil aberto na mao o app ja verifica o
+    status da conta -- mas so quando o perfil ja esta vinculado a alguma. Logando
+    uma conta num perfil orfao, nada era registrado, porque o `detect_status`
+    devolve o ESTADO (ativa/suspensa/banida) e nunca o username.
+
+    Aqui: o `ds_user_id` sai do cookie (sem requisicao) e o username vem de UMA
+    requisicao autenticada. Se nem o cookie existir, o perfil nao esta logado e
+    nem chegamos a gastar a requisicao.
+    """
+    import spider
+    prof = {**profile, "proxy": None} if use_local else profile
+
+    async def _run(page):
+        await page.goto(IG + "/", wait_until="domcontentloaded")
+        await asyncio.sleep(1.2)
+        cookies = await page.context.cookies()
+        info = summarize(cookies)
+        uid = info.get("ds_user_id")
+        if not uid:
+            return {"logado": False, "ds_user_id": None, "username": None,
+                    "detalhe": "sem ds_user_id nos cookies — este perfil nao esta logado",
+                    "cookies": info}
+        r = await page.evaluate(spider._FETCH_JS,
+                                [f"{IG}/api/v1/users/{uid}/info/", f"{IG}/"])
+        u = (((r.get("json") or {}).get("user")) or {})
+        nome = u.get("username")
+        return {"logado": bool(nome), "ds_user_id": str(uid), "username": nome,
+                "full_name": u.get("full_name"), "status_http": r.get("status"),
+                "detalhe": "" if nome else "cookie presente mas a sessao nao respondeu "
+                                           "(status %s) — pode estar expirada" % r.get("status"),
+                "cookies": info}
+
+    return await sm.run_profile_task(prof, _run, headless=True)
+
+
 async def probe_login(profile: dict, target: str = "instagram", use_local: bool = True) -> dict:
     """Diz se o perfil está LOGADO, do jeito que importa: faz UMA requisição GraphQL
     de seguidores (`first:1`) — que só responde com sessão autenticada. NÃO segue
