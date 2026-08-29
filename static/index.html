@@ -300,6 +300,10 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>
       Contas
     </div>
+    <div class="nav-item" data-page-link="story" onclick="showPage('story')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="4"/><circle cx="12" cy="12" r="3"/><path d="M8 21h8"/></svg>
+      Story Creator
+    </div>
 
     <div class="nav-section">Extração</div>
     <div class="nav-item" data-page-link="spider" onclick="showPage('spider')">
@@ -347,6 +351,61 @@
     <!-- Aba viva do que o projeto ja aprendeu. O conteudo NAO fica aqui: vem de
          `conhecimento.json` (a base curada, versionada) e do `registro.md` (o
          historico). Assim atualizar e editar um arquivo, nao mexer em HTML. -->
+    <!-- Story com sticker de link. O chip PRECISA estar desenhado na arte: pela
+         API o Instagram guarda so a regiao tocavel, e quem desenha o sticker e o
+         app. Sem isso o link fica invisivel (medido em 28/08). -->
+    <div class="page" id="page-story">
+      <div class="page-header">
+        <div>
+          <div class="page-title">Story Creator</div>
+          <div class="page-sub">Publica story com sticker de link, pela sessão que o perfil já tem — sem login novo.</div>
+        </div>
+      </div>
+
+      <div class="card" style="margin-bottom:14px">
+        <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end">
+          <div style="flex:1;min-width:200px">
+            <div style="font-size:11px;color:var(--muted);margin-bottom:3px">Conta</div>
+            <select id="st-conta" style="width:100%;padding:8px 10px;background:var(--surface);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px"></select>
+          </div>
+          <div style="flex:1;min-width:200px">
+            <div style="font-size:11px;color:var(--muted);margin-bottom:3px">Link do sticker</div>
+            <input id="st-link" value="https://wa.me/" placeholder="https://wa.me/5551..." oninput="storyDesenharPrevia()"
+                   style="width:100%;box-sizing:border-box;padding:8px 10px;background:var(--surface);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px">
+          </div>
+          <div>
+            <div style="font-size:11px;color:var(--muted);margin-bottom:3px">Imagem (vertical, 9:16)</div>
+            <input id="st-arquivo" type="file" accept="image/*" onchange="storyCarregarImagem(event)" style="font-size:12px">
+          </div>
+        </div>
+        <div class="form-hint" style="margin-top:8px">Use <b>wa.me</b>, não <code>chat.whatsapp.com</code> — o domínio de convite de grupo é dos mais marcados que existem.</div>
+      </div>
+
+      <div class="card" style="margin-bottom:14px">
+        <div style="font-weight:600;font-size:13px;margin-bottom:2px">Onde o link fica</div>
+        <div class="form-hint" style="margin-bottom:10px">Arraste o retângulo para posicionar e o canto para redimensionar. É a mesma coordenada que vira a área tocável — desenho e toque não têm como sair desalinhados.</div>
+        <div id="st-palco" style="position:relative;display:inline-block;max-width:100%;background:var(--surface);border:1px solid var(--border);border-radius:8px;overflow:hidden">
+          <img id="st-img" alt="" style="display:none;max-width:100%;max-height:60vh;vertical-align:top">
+          <div id="st-vazio" style="padding:40px 24px;color:var(--muted);font-size:13px">Escolha uma imagem acima.</div>
+          <div id="st-rect" style="display:none;position:absolute;border:2px solid #fff;background:rgba(255,255,255,.82);border-radius:14px;cursor:move;box-shadow:0 2px 10px rgba(0,0,0,.35)">
+            <div id="st-rect-txt" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#141414;font-weight:700;font-size:12px;overflow:hidden;white-space:nowrap"></div>
+            <div id="st-handle" style="position:absolute;right:-7px;bottom:-7px;width:14px;height:14px;background:var(--accent);border:2px solid #fff;border-radius:50%;cursor:nwse-resize"></div>
+          </div>
+        </div>
+        <div id="st-coords" class="form-hint" style="margin-top:8px"></div>
+      </div>
+
+      <div class="card">
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+          <button class="btn" onclick="storyCompor(this)">🎨 Compor a arte</button>
+          <button class="btn btn-primary" id="st-publicar" onclick="storyPublicar(this)" disabled>📤 Publicar story</button>
+          <span id="st-status" style="font-size:12px;color:var(--muted)"></span>
+        </div>
+        <div class="form-hint" style="margin-top:8px">Compor desenha o chip e mostra o resultado real. Só publique depois de ver a arte composta — é ela que sobe.</div>
+        <div id="st-resultado" style="margin-top:12px"></div>
+      </div>
+    </div>
+
     <div class="page" id="page-conhecimento">
       <div class="page-header">
         <div>
@@ -2069,6 +2128,7 @@ function showPage(name) {
   if (name === 'monitored') loadMonitored();
   if (name === 'start') loadStartProxyHealth();
   if (name === 'conhecimento') loadConhecimento();
+  if (name === 'story') loadStoryCreator();
   if (name === 'localdata') loadLocalData();
 }
 
@@ -4005,6 +4065,152 @@ async function exportAccountSession(id, btn) {
     try { ta.focus(); ta.select(); } catch (e) {}
     toast('Sessão exportada para o campo', 'success');
   } catch (e) { stop(); toast(e.message || 'Erro ao exportar', 'error'); out.textContent = ''; }
+}
+
+// ── Story Creator ─────────────────────────────────────────
+// O chip do link tem que estar DESENHADO na arte: pela API o Instagram guarda so
+// a regiao tocavel, e quem desenha o sticker e o app. Medido em 28/08 -- o
+// primeiro story publicado teve o link funcionando e invisivel.
+let _stArquivoComposto = null;
+// Retangulo em coordenadas NORMALIZADAS (0..1): x/y sao o CENTRO, que e como o
+// StoryLink da instagrapi interpreta. Mesma convencao dos dois lados de proposito.
+let _stRect = { x: 0.5, y: 0.75, largura: 0.62, altura: 0.08 };
+
+async function loadStoryCreator() {
+  try {
+    const r = await api('GET', '/story/contas');
+    const sel = document.getElementById('st-conta');
+    sel.innerHTML = (r.contas || []).map(c =>
+      `<option value="${escapeHtml(c.profile_id)}">@${escapeHtml(c.username || '?')} — perfil ${escapeHtml(c.perfil || '')}${c.proxy ? ' (proxy)' : ' (modem)'}</option>`
+    ).join('') || '<option value="">(nenhuma conta ativa com perfil)</option>';
+  } catch (e) {
+    document.getElementById('st-status').textContent = 'não consegui listar as contas: ' + (e.message || 'erro');
+  }
+}
+
+function storyCarregarImagem(ev) {
+  const f = ev.target.files && ev.target.files[0];
+  if (!f) return;
+  const img = document.getElementById('st-img');
+  img.onload = () => {
+    document.getElementById('st-vazio').style.display = 'none';
+    img.style.display = '';
+    document.getElementById('st-rect').style.display = '';
+    storyAplicarRect();
+    storyDesenharPrevia();
+  };
+  img.src = URL.createObjectURL(f);
+  _stArquivoComposto = null;
+  document.getElementById('st-publicar').disabled = true;
+  document.getElementById('st-resultado').innerHTML = '';
+}
+
+// Normalizado -> pixels da PREVIA (a imagem aparece reduzida na tela; o backend
+// desenha na resolucao cheia usando os mesmos numeros).
+function storyAplicarRect() {
+  const img = document.getElementById('st-img');
+  const r = document.getElementById('st-rect');
+  const L = img.clientWidth, A = img.clientHeight;
+  if (!L || !A) return;
+  const w = _stRect.largura * L, h = _stRect.altura * A;
+  r.style.width = w + 'px';
+  r.style.height = h + 'px';
+  r.style.left = (_stRect.x * L - w / 2) + 'px';
+  r.style.top = (_stRect.y * A - h / 2) + 'px';
+  r.style.borderRadius = Math.max(6, Math.min(w, h) * 0.28) + 'px';
+  document.getElementById('st-coords').textContent =
+    `centro ${_stRect.x.toFixed(3)} / ${_stRect.y.toFixed(3)} · tamanho ${_stRect.largura.toFixed(3)} × ${_stRect.altura.toFixed(3)}`;
+}
+
+function storyDesenharPrevia() {
+  let t = (document.getElementById('st-link').value || '').trim();
+  t = t.replace(/^https?:\/\//i, '');
+  document.getElementById('st-rect-txt').textContent = t.length > 39 ? t.slice(0, 38) + '…' : (t || 'link');
+}
+
+// Arrastar para mover, canto para redimensionar. Preso dentro da imagem: um
+// retangulo meio fora daria chip cortado na arte.
+(function storyArrastar() {
+  let modo = null, ini = null;
+  const prende = (v, min, max) => Math.max(min, Math.min(max, v));
+
+  document.addEventListener('mousedown', (e) => {
+    const r = document.getElementById('st-rect');
+    if (!r || r.style.display === 'none') return;
+    if (e.target.id === 'st-handle') modo = 'tamanho';
+    else if (r.contains(e.target)) modo = 'mover';
+    else return;
+    const img = document.getElementById('st-img');
+    ini = { mx: e.clientX, my: e.clientY, L: img.clientWidth, A: img.clientHeight,
+            x: _stRect.x, y: _stRect.y, largura: _stRect.largura, altura: _stRect.altura };
+    e.preventDefault();
+  });
+
+  document.addEventListener('mousemove', (e) => {
+    if (!modo || !ini) return;
+    const dx = (e.clientX - ini.mx) / ini.L, dy = (e.clientY - ini.my) / ini.A;
+    if (modo === 'mover') {
+      _stRect.x = prende(ini.x + dx, _stRect.largura / 2, 1 - _stRect.largura / 2);
+      _stRect.y = prende(ini.y + dy, _stRect.altura / 2, 1 - _stRect.altura / 2);
+    } else {
+      _stRect.largura = prende(ini.largura + dx * 2, 0.15, 0.95);
+      _stRect.altura = prende(ini.altura + dy * 2, 0.03, 0.30);
+      _stRect.x = prende(_stRect.x, _stRect.largura / 2, 1 - _stRect.largura / 2);
+      _stRect.y = prende(_stRect.y, _stRect.altura / 2, 1 - _stRect.altura / 2);
+    }
+    storyAplicarRect();
+  });
+
+  document.addEventListener('mouseup', () => { modo = null; ini = null; });
+})();
+
+async function storyCompor(btn) {
+  const arq = document.getElementById('st-arquivo').files[0];
+  const link = (document.getElementById('st-link').value || '').trim();
+  const status = document.getElementById('st-status');
+  if (!arq) { toast('Escolha uma imagem primeiro', 'error'); return; }
+  if (!link || link === 'https://wa.me/') { toast('Escreva o link do sticker', 'error'); return; }
+  const stop = runBtnCountdown(btn, 6);
+  try {
+    const fd = new FormData();
+    fd.append('imagem', arq);
+    fd.append('link', link);
+    fd.append('x', _stRect.x); fd.append('y', _stRect.y);
+    fd.append('largura', _stRect.largura); fd.append('altura', _stRect.altura);
+    const resp = await fetch('/story/compor', { method: 'POST', body: fd });
+    if (!resp.ok) throw new Error((await resp.json().catch(() => ({}))).detail || ('HTTP ' + resp.status));
+    const r = await resp.json();
+    stop();
+    _stArquivoComposto = r.arquivo;
+    document.getElementById('st-publicar').disabled = false;
+    document.getElementById('st-resultado').innerHTML =
+      `<div style="font-size:12px;color:var(--muted);margin-bottom:6px">Esta é a arte que vai subir (${r.largura_px}×${r.altura_px}):</div>
+       <img src="/story/arquivo/${encodeURIComponent(r.arquivo)}?t=${Date.now()}" style="max-height:52vh;border:1px solid var(--border);border-radius:8px">`;
+    status.textContent = 'composta — confira antes de publicar';
+  } catch (e) { stop(); toast(e.message || 'Erro ao compor', 'error'); status.textContent = ''; }
+}
+
+async function storyPublicar(btn) {
+  if (!_stArquivoComposto) { toast('Componha a arte primeiro', 'error'); return; }
+  const pid = document.getElementById('st-conta').value;
+  if (!pid) { toast('Escolha a conta', 'error'); return; }
+  const link = (document.getElementById('st-link').value || '').trim();
+  const status = document.getElementById('st-status');
+  // Abre o perfil headless para ler os cookies e sobe a imagem: leva um tempo.
+  const stop = runBtnCountdown(btn, 70);
+  status.textContent = 'lendo a sessão do perfil e publicando…';
+  try {
+    const r = await api('POST', '/story/publicar', {
+      profile_id: pid, arquivo: _stArquivoComposto, link: link,
+      x: _stRect.x, y: _stRect.y, largura: _stRect.largura, altura: _stRect.altura,
+    }, 300000);
+    stop();
+    status.innerHTML = `<span style="color:var(--green)">✓ publicado por @${escapeHtml(r.conta || '')} — story pk ${escapeHtml(r.pk || '')}</span>`;
+    toast('Story publicado', 'success');
+  } catch (e) {
+    stop();
+    status.innerHTML = `<span style="color:var(--red)">${escapeHtml(e.message || 'erro ao publicar')}</span>`;
+  }
 }
 
 // ── Aba "O que aprendemos" ────────────────────────────────

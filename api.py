@@ -2,7 +2,7 @@
 API REST — iniciar com:
   uvicorn api:app --reload --port 8000
 """
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, UploadFile, File, Form
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
@@ -5256,3 +5256,81 @@ def conhecimento_registro():
     # splitlines em vez de contar quebras: escape de nova linha ja foi
     # consumido por heredoc nesta base antes (ver CLAUDE.md), entao evito.
     return {"texto": txt, "linhas": len(txt.splitlines())}
+
+
+# ─── Story Creator ───────────────────────────────────────────────────────────
+# O sticker de link sai INVISIVEL quando o story e postado pela API: o payload
+# da instagrapi leva posicao, tamanho e URL e nenhum campo de aparencia, porque
+# quem desenha o chip e o APP na hora de compor. Entao a arte tem que ja vir com
+# o chip desenhado -- e no MESMO retangulo que vira a regiao tocavel.
+import story as story_mod
+
+
+@app.get("/story/contas")
+def story_contas():
+    """Contas que podem publicar: precisam de perfil com sessao viva."""
+    saida = []
+    for a in acc.list_accounts():
+        pid = a.get("profile_id")
+        if not pid or a.get("status") != "active":
+            continue
+        p = get_profile(pid)
+        if p:
+            saida.append({"account_id": a["id"], "profile_id": pid,
+                          "username": a.get("username"), "perfil": p.get("name"),
+                          "proxy": bool(p.get("proxy"))})
+    return {"contas": saida}
+
+
+@app.post("/story/compor")
+async def story_compor(imagem: UploadFile = File(...), link: str = Form(...),
+                       x: float = Form(0.5), y: float = Form(0.75),
+                       largura: float = Form(0.62), altura: float = Form(0.08)):
+    """Desenha o chip do link na arte. Nao publica nada."""
+    dados = await imagem.read()
+    if not dados:
+        raise HTTPException(400, "Imagem vazia")
+    try:
+        return story_mod.compor(dados, link, x, y, largura, altura)
+    except Exception as e:
+        raise HTTPException(400, f"Nao consegui compor: {e}")
+
+
+@app.get("/story/arquivo/{nome}")
+def story_arquivo(nome: str):
+    """Serve a arte composta para a previa. Nome simples, sem caminho."""
+    if "/" in nome or "\\" in nome or ".." in nome:
+        raise HTTPException(400, "Nome invalido")
+    f = story_mod.PASTA / nome
+    if not f.exists():
+        raise HTTPException(404, "Arquivo nao encontrado")
+    return FileResponse(f, media_type="image/jpeg")
+
+
+class StoryPublicarRequest(BaseModel):
+    profile_id: str
+    arquivo: str
+    link: str
+    x: float = 0.5
+    y: float = 0.75
+    largura: float = 0.62
+    altura: float = 0.08
+
+
+@app.post("/story/publicar")
+async def story_publicar(body: StoryPublicarRequest):
+    """Publica pela API do app, reusando a sessao do perfil (SEM login novo)."""
+    p = get_profile(body.profile_id)
+    if not p:
+        raise HTTPException(404, "Perfil nao encontrado")
+    f = story_mod.PASTA / body.arquivo
+    if not f.exists():
+        raise HTTPException(400, "Componha a arte antes de publicar")
+    # A publicacao abre o perfil headless para ler os cookies; roda fora do loop
+    # para nao travar a resposta do servidor.
+    try:
+        return await asyncio.to_thread(
+            story_mod.publicar, p, str(f), body.link,
+            body.x, body.y, body.largura, body.altura)
+    except Exception as e:
+        raise HTTPException(400, f"{type(e).__name__}: {e}")

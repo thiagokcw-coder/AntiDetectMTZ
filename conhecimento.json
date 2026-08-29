@@ -381,6 +381,14 @@
       "titulo": "O sticker de link sai INVISIVEL quando postado pela API",
       "detalhe": "O link funciona -- e tocavel -- mas nao aparece: foi preciso tatear a imagem para achar. Causa no proprio codigo da instagrapi: o payload do sticker leva so posicao, tamanho e URL, e NENHUM campo de aparencia (sem texto, sem cor, sem fonte). O chip visivel e desenhado pelo APP na hora de compor; pela API sobe uma imagem achatada e o servidor guarda apenas a regiao tocavel. Conserto: desenhar o chip NA IMAGEM, na mesma coordenada que se manda.",
       "evidencia": "relato do usuario no story pk 3974047607964740856 + leitura do _upload_story_configure: tap_models so tem x/y/z/width/height/rotation e extra{url}"
+    },
+    {
+      "area": "story",
+      "estado": "funciona",
+      "data": "2026-08-28",
+      "titulo": "Story Creator: aba que compõe o chip e publica",
+      "detalhe": "Conserta o sticker invisível desenhando o chip NA ARTE com Pillow e publicando com o MESMO retângulo que vira a região tocável — desenho e toque saem da mesma coordenada, então não há como desalinhar. Você arrasta o retângulo sobre a imagem, compõe, CONFERE a arte real e só então publica. Encaixa em 1080x1920 sem esticar (esticar deforma e denuncia montagem automática).",
+      "evidencia": "28 asserções da composição (chip no lugar certo em 4 posições, arte intacta fora dele, 4 formatos encaixados, texto do link, entrada inválida) + aba exercitada no navegador: arrastar, redimensionar, prender na borda, compor e publicar"
     }
   ]
 }
