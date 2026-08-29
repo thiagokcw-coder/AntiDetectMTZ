@@ -168,6 +168,11 @@ def main():
             return 0
         except Exception as e:
             print("   ✗ %s: %s" % (type(e).__name__, e))
+            print("     MEDIDO em 28/08: aqui costuma dar `login_required` mesmo com a sessão")
+            print("     boa (a leitura do [2/3] passa na mesma execução). O `media_delete` da")
+            print("     instagrapi chama media/{id}/delete/ sem o media_type=STORY, e a sessão")
+            print("     vinda de cookie não leva o header authorization que esse endpoint quer.")
+            print("     Apague pelo app (story → ⋯ → Excluir), ou espere: story expira em 24h.")
             return 1
 
     if not args.postar:
