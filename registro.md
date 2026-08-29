@@ -138,10 +138,19 @@ como o elo que decidia a estratégia. Ele fechou. E vale além do story: a super
 inteira fica alcançável a partir de um perfil Camoufox **sem** o evento de "login de novo
 dispositivo", que é o que queimava conta.
 
-**O que NÃO foi provado:** que o servidor aceita o `StoryLink`. E isso não dá para medir
-hoje — a única conta viva tem horas de vida, e em 22/08 o Instagram recusou link na bio em
-3 contas recém-nascidas. Uma recusa agora seria ambígua entre "o caminho não serve" e "a
-conta é nova demais", que são conclusões opostas.
+**O que NÃO foi provado:** que o servidor aceita o `StoryLink`.
+
+**CORREÇÃO (mesma sessão, apontada pelo usuário):** eu escrevi acima que testar numa conta
+nova daria resposta ambígua, porque conta recém-nascida não teria a capacidade de link.
+**Isso está errado — qualquer conta pode pôr link, mesmo nova.** Aquela explicação foi um
+palpite meu de 22/08 que virou registro sem nunca ter sido medido, e hoje eu o citei o dia
+inteiro como se fosse dado, chegando a recomendar adiar o teste por causa dele.
+
+O que houve em 22/08 foi **restrição naquelas contas** — e a própria base tinha a
+explicação melhor, que eu não usei: `10122.cap.martim` dava 404 em todo follow desde 22/08,
+o mesmo dia da recusa do link, e foi banida em 27/08. Não era idade; era conta sinalizada.
+
+Consequência prática: o teste do sticker **pode rodar agora**, e a resposta é limpa.
 
 Risco que continua não medido: o instagrapi manda cabeçalhos de aparelho inventados sobre
 uma sessão de navegador. Uma leitura passou; isso não diz nada sobre uso repetido.

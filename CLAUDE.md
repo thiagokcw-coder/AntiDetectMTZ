@@ -46,9 +46,14 @@ duplicado.
 ### 📌 O único caminho que resta para o link no story
 `instagrapi.photo_upload_to_story(..., links=[StoryLink(...)])` alimentado por
 `ig_session.export_cookies` → `login_by_sessionid` (**sem login novo**, que é o que
-queimava conta em 26/07). Não construído. Risco não medido: cabeçalhos de aparelho
-inventados sobre sessão nascida no navegador. E pode nem ser problema de superfície — se
-a capacidade de link estiver travada por idade da conta, o que resolve é tempo e posts.
+queimava conta em 26/07). **A autenticação já está PROVADA** (28/08, `sondar_story.py`:
+ds_user_id do cookie == pk da API). Falta só publicar com `StoryLink`.
+
+⚠ **Correção de 28/08:** este documento afirmava que conta nova não tem capacidade de link
+liberada. **Está errado — qualquer conta pode pôr link.** Era palpite meu de 22/08 que virou
+registro. A recusa daquele dia foi **restrição naquelas contas** (a mesma que já dava 404 em
+todo follow desde 22/08 e caiu em 27/08). Risco que segue não medido: cabeçalhos de aparelho
+inventados sobre sessão nascida no navegador.
 
 ---
 

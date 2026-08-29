@@ -186,9 +186,9 @@
       "area": "story",
       "estado": "nao_funciona",
       "data": "2026-08-22",
-      "titulo": "Link na bio recusado em 3 contas",
-      "detalhe": "Conta de 3-6 dias, sem posts, não tem a capacidade de link liberada. E chat.whatsapp.com é dos domínios mais marcados que existem. Mesma raiz de sempre: conta recém-nascida fazendo coisa de conta estabelecida.",
-      "evidencia": "3 contas, recusa da ação (as contas não foram bloqueadas)"
+      "titulo": "Link na bio recusado — em contas RESTRITAS, não por serem novas",
+      "detalhe": "Correção de 28/08, apontada pelo usuário: **qualquer conta pode pôr link, mesmo nova** — não há trava por idade. Eu tinha inventado essa explicação em 22/08 e ela virou registro sem nunca ter sido medida. O que houve foi restrição NAQUELAS contas. Encaixa com o resto: 10122.cap.martim dava 404 em todo follow desde 22/08, o mesmo dia da recusa, e foi banida em 27/08.",
+      "evidencia": "3 contas recusaram a ação; a mesma janela em que uma delas já respondia 404 em todo follow. `chat.whatsapp.com` segue sendo domínio muito marcado, o que é uma causa separada e continua valendo."
     },
     {
       "area": "extracao",
@@ -275,8 +275,8 @@
       "estado": "aberto",
       "data": "2026-08-28",
       "titulo": "Sticker de link pela API privada (instagrapi via sessionid)",
-      "detalhe": "A metade da autenticação está provada (ver o item do elo navegador→app). Falta a outra: o servidor aceita `StoryLink` para a conta? Uma recusa numa conta NOVA seria ambígua — em 22/08 o Instagram recusou link na bio em 3 contas recém-nascidas, então o teste limpo pede conta com semanas e posts.",
-      "evidencia": "sonda pronta: `sondar_story.py --postar arte.jpg --link https://wa.me/…`. Não executada: hoje só há conta de horas de vida."
+      "detalhe": "A autenticação está provada (ver o elo navegador→app). Falta saber se o servidor aceita `StoryLink`. Eu havia dito que testar numa conta nova daria resposta ambígua — **estava errado**: link não é travado por idade, então a resposta é limpa. Recusa aqui significa que a conta está restrita ou que o caminho não serve, e o log distingue as duas.",
+      "evidencia": "sonda pronta: `sondar_story.py --postar arte.jpg --link https://wa.me/…`. Não executada."
     },
     {
       "area": "contas",
@@ -365,6 +365,14 @@
       "titulo": "Nunca iniciar o app pelas ferramentas do Claude",
       "detalhe": "Processos iniciados por elas herdam o contêiner do app Claude, onde o %LOCALAPPDATA% é redirecionado — o app grava num lugar e o usuário lê noutro. Pareceu que os dados tinham sumido; nada tinha sido perdido.",
       "evidencia": "revelado pelo caminho UNC, que enxerga o disco real"
+    },
+    {
+      "area": "processo",
+      "estado": "licao",
+      "data": "2026-08-28",
+      "titulo": "Explicação inventada vira \"dado\" quando eu a escrevo no registro",
+      "detalhe": "Em 22/08 o Instagram recusou link na bio em 3 contas. Eu escrevi que conta nova não tem a capacidade liberada — nunca medi isso, era palpite. Virou registro, e em 28/08 eu o citei o dia todo como se fosse fato, chegando a recomendar adiar um teste por causa dele. O usuário corrigiu: qualquer conta pode pôr link.",
+      "evidencia": "a própria base tinha a explicação melhor e eu não a usei: a conta que recusou o link estava dando 404 em todo follow no mesmo dia"
     }
   ]
 }
