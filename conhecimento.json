@@ -272,11 +272,11 @@
     },
     {
       "area": "story",
-      "estado": "aberto",
+      "estado": "funciona",
       "data": "2026-08-28",
-      "titulo": "Sticker de link pela API privada (instagrapi via sessionid)",
-      "detalhe": "A autenticação está provada (ver o elo navegador→app). Falta saber se o servidor aceita `StoryLink`. Eu havia dito que testar numa conta nova daria resposta ambígua — **estava errado**: link não é travado por idade, então a resposta é limpa. Recusa aqui significa que a conta está restrita ou que o caminho não serve, e o log distingue as duas.",
-      "evidencia": "sonda pronta: `sondar_story.py --postar arte.jpg --link https://wa.me/…`. Não executada."
+      "titulo": "Story com sticker de link pela API do app: PUBLICA",
+      "detalhe": "O servidor ACEITA o link. Caminho inteiro: cookies do perfil Camoufox -> login_by_sessionid (sem login novo) -> photo_upload_to_story com StoryLink. E derruba de vez a ideia de que conta nova nao pode link: esta tinha horas de vida.",
+      "evidencia": "@capitaomartim.10122, story pk 3974047607964740856, imagem vertical, destino wa.me"
     },
     {
       "area": "contas",
@@ -373,6 +373,14 @@
       "titulo": "Explicação inventada vira \"dado\" quando eu a escrevo no registro",
       "detalhe": "Em 22/08 o Instagram recusou link na bio em 3 contas. Eu escrevi que conta nova não tem a capacidade liberada — nunca medi isso, era palpite. Virou registro, e em 28/08 eu o citei o dia todo como se fosse fato, chegando a recomendar adiar um teste por causa dele. O usuário corrigiu: qualquer conta pode pôr link.",
       "evidencia": "a própria base tinha a explicação melhor e eu não a usei: a conta que recusou o link estava dando 404 em todo follow no mesmo dia"
+    },
+    {
+      "area": "story",
+      "estado": "nao_funciona",
+      "data": "2026-08-28",
+      "titulo": "O sticker de link sai INVISIVEL quando postado pela API",
+      "detalhe": "O link funciona -- e tocavel -- mas nao aparece: foi preciso tatear a imagem para achar. Causa no proprio codigo da instagrapi: o payload do sticker leva so posicao, tamanho e URL, e NENHUM campo de aparencia (sem texto, sem cor, sem fonte). O chip visivel e desenhado pelo APP na hora de compor; pela API sobe uma imagem achatada e o servidor guarda apenas a regiao tocavel. Conserto: desenhar o chip NA IMAGEM, na mesma coordenada que se manda.",
+      "evidencia": "relato do usuario no story pk 3974047607964740856 + leitura do _upload_story_configure: tap_models so tem x/y/z/width/height/rotation e extra{url}"
     }
   ]
 }

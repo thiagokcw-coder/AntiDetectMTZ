@@ -140,6 +140,7 @@ def main():
     ap.add_argument("--y", type=float, default=0.5168225)
     ap.add_argument("--largura", type=float, default=0.50998676)
     ap.add_argument("--altura", type=float, default=0.25875)
+    ap.add_argument("--apagar", metavar="PK", help="apaga um story publicado (o pk sai no [3/3])")
     args = ap.parse_args()
 
     conta, perfil = _escolher(args.conta)
@@ -158,6 +159,16 @@ def main():
         print("   ✗ NÃO — %s: %s" % (type(e).__name__, e))
         print("     o caminho do story pela API morre aqui; nada a fazer com o sticker.")
         return 1
+
+    if args.apagar:
+        print()
+        print("[3/3] apagando o story %s" % args.apagar)
+        try:
+            print("   %s" % ("✓ apagado" if cl.story_delete(args.apagar) else "✗ o Instagram recusou"))
+            return 0
+        except Exception as e:
+            print("   ✗ %s: %s" % (type(e).__name__, e))
+            return 1
 
     if not args.postar:
         print("\n[3/3] pulado — rode com --postar arte.jpg --link https://wa.me/55… para testar o sticker.")

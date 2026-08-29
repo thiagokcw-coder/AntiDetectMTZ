@@ -138,7 +138,18 @@ como o elo que decidia a estratégia. Ele fechou. E vale além do story: a super
 inteira fica alcançável a partir de um perfil Camoufox **sem** o evento de "login de novo
 dispositivo", que é o que queimava conta.
 
-**O que NÃO foi provado:** que o servidor aceita o `StoryLink`.
+**PUBLICOU.** `@capitaomartim.10122`, story pk `3974047607964740856`, destino `wa.me`.
+O servidor aceita o sticker de link — e numa conta com **horas** de vida, o que enterra de
+vez a explicacao da "capacidade travada por idade".
+
+**Mas o sticker sai INVISIVEL.** O link funciona (o usuario o achou tateando a imagem), so
+que nao ha chip na tela. A causa esta no proprio codigo da instagrapi: o payload do sticker
+carrega posicao, tamanho e URL e **nenhum campo de aparencia** — sem texto, sem cor, sem
+fonte. O chip e desenhado pelo APP na hora de compor; pela API sobe uma imagem achatada e o
+servidor guarda so a regiao tocavel. Conserto: desenhar o chip **na imagem**, na mesma
+coordenada que se manda.
+
+**O que ficou provado antes disso:**
 
 **CORREÇÃO (mesma sessão, apontada pelo usuário):** eu escrevi acima que testar numa conta
 nova daria resposta ambígua, porque conta recém-nascida não teria a capacidade de link.
