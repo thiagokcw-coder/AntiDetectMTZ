@@ -411,8 +411,16 @@
       "estado": "aberto",
       "data": "2026-08-28",
       "titulo": "Destaque (highlight) pela API: existe, não construído",
-      "detalhe": "MEDIDO: com 1 story NO AR, o arquivo tem 0 itens — e o seletor de destaque lê o ARQUIVO, não os stories no ar. Não é o Camoufox (a janela renderizou) nem falta de story. Por que o arquivo está vazio tem duas causas que a medição não separa: (a) 'Salvar no arquivo' desligado na conta; (b) o arquivo só lista story já expirado. A (b) se resolve esperando 24h; a (a) é um ajuste no app. instagrapi tem `highlight_create(title, story_ids, ...)` quando houver material.",
+      "detalhe": "MEDIDO: com 1 story NO AR, o arquivo tem 0 itens — e o seletor de destaque lê o ARQUIVO, não os stories no ar. Não é o Camoufox (a janela renderizou) nem falta de story. Por que o arquivo está vazio tem duas causas que a medição não separa: (a) 'Salvar no arquivo' desligado na conta; (b) o arquivo só lista story já expirado. A (b) se resolve esperando 24h; a (a) é um ajuste no app. instagrapi tem `highlight_create(title, story_ids, ...)` quando houver material. NOVO: o menu do story no web não tem opção de arquivar (só Excluir / Sobre essa conta / Ver insights / Cancelar), e a instagrapi não tem método nenhum de arquivamento. O endpoint privado `accounts/set_reel_settings/` existe mas seria rota adivinhada — e foi rota adivinhada que custou dias no 404 do follow. O teste de graça é esperar o story expirar e reler o arquivo.",
       "evidencia": "sondar_story.py --arquivo em @capitaomartim.10122: 'no ar agora: 1 · no ARQUIVO: 0'. O payload da instagrapi não tem campo de arquivamento — não pede nem proíbe, deixa o padrão da conta decidir."
+    },
+    {
+      "area": "story",
+      "estado": "funciona",
+      "data": "2026-08-28",
+      "titulo": "O chip do link APARECE quando desenhado na arte",
+      "detalhe": "Fecha o defeito do sticker invisível. O Story Creator desenha o chip com Pillow no mesmo retângulo que vira a região tocável, e o story publicado mostra o texto — no caso, \"ENTRE NO GRUPO\" em vez da URL crua.",
+      "evidencia": "print do usuário: chip visível sobre a arte, story publicado pela aba"
     }
   ]
 }
