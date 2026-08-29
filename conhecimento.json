@@ -389,6 +389,14 @@
       "titulo": "Story Creator: aba que compõe o chip e publica",
       "detalhe": "Conserta o sticker invisível desenhando o chip NA ARTE com Pillow e publicando com o MESMO retângulo que vira a região tocável — desenho e toque saem da mesma coordenada, então não há como desalinhar. Você arrasta o retângulo sobre a imagem, compõe, CONFERE a arte real e só então publica. Encaixa em 1080x1920 sem esticar (esticar deforma e denuncia montagem automática).",
       "evidencia": "28 asserções da composição (chip no lugar certo em 4 posições, arte intacta fora dele, 4 formatos encaixados, texto do link, entrada inválida) + aba exercitada no navegador: arrastar, redimensionar, prender na borda, compor e publicar"
+    },
+    {
+      "area": "processo",
+      "estado": "licao",
+      "data": "2026-08-28",
+      "titulo": "Manual que passa de 150 mil chars é cortado — e você não sabe onde",
+      "detalhe": "O CLAUDE.md chegou a 222 mil caracteres porque cada sessão empilhou narrativa nele. Acima do limite o Claude Code corta, e não dá para saber qual parte se perde: toda sessão passa a trabalhar com um manual truncado em lugar imprevisível. A divisão certa é: CLAUDE.md = **como o sistema é hoje**; registro.md = **como se chegou nele**; conhecimento.json = **as conclusões**.",
+      "evidencia": "poda de 28/08: 222 → 106 mil chars, 25 seções movidas verbatim para o apêndice do registro.md, com resumo do fato durável no lugar. Conferido: 0 seções perdidas, 14 fatos-chave ainda presentes no manual."
     }
   ]
 }
