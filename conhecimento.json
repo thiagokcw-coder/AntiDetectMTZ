@@ -7,6 +7,14 @@
   },
   "itens": [
     {
+      "area": "contas",
+      "estado": "funciona",
+      "data": "2026-08-28",
+      "titulo": "A sessão do NAVEGADOR autentica na API do APP, sem login",
+      "detalhe": "Cookies lidos do perfil Camoufox (zero requisição ao Instagram) entram por `login_by_sessionid` e a API privada responde. Isso abre a superfície do app — que tem o conjunto completo de stickers — SEM o evento de \"login de novo dispositivo\", que é o que queimava conta em 26/07. Em 26/07 tínhamos provado navegador→navegador; este é o outro lado.",
+      "evidencia": "sondar_story.py em @capitaomartim.10122: ds_user_id do cookie 13958903624 == pk devolvido pela API. Uma execução, uma conta, uma leitura — o risco dos cabeçalhos de aparelho inventados segue não medido."
+    },
+    {
       "area": "follow",
       "estado": "funciona",
       "data": "2026-08-20",
@@ -267,8 +275,8 @@
       "estado": "aberto",
       "data": "2026-08-28",
       "titulo": "Sticker de link pela API privada (instagrapi via sessionid)",
-      "detalhe": "Único caminho que resta. photo_upload_to_story aceita StoryLink, e login_by_sessionid entra SEM login novo — que era o que queimava conta. As duas peças difíceis já existem no repo. Risco não medido: cabeçalhos de aparelho inventados sobre sessão nascida no navegador. E pode nem ser problema de superfície: se a capacidade de link estiver travada por idade da conta, a API não contorna.",
-      "evidencia": "sonda pronta e nao rodada: `sondar_story.py` (rode voce, no seu terminal). Ela separa as duas perguntas -- se a sessao do navegador autentica na API do app, e se o servidor aceita o sticker para esta conta."
+      "detalhe": "A metade da autenticação está provada (ver o item do elo navegador→app). Falta a outra: o servidor aceita `StoryLink` para a conta? Uma recusa numa conta NOVA seria ambígua — em 22/08 o Instagram recusou link na bio em 3 contas recém-nascidas, então o teste limpo pede conta com semanas e posts.",
+      "evidencia": "sonda pronta: `sondar_story.py --postar arte.jpg --link https://wa.me/…`. Não executada: hoje só há conta de horas de vida."
     },
     {
       "area": "contas",

@@ -120,6 +120,34 @@ duplicando seções; restaurei com `git checkout`. **Rode `test_*.py`, não `*.p
 
 ---
 
+## 2026-08-28 (fim do dia) — o elo navegador→app: PROVADO
+
+`sondar_story.py` rodou em `@capitaomartim.10122` (conta criada hoje, já logada no perfil):
+
+```
+[1/3] cookies do instagram.com: 9 · ds_user_id=13958903624
+[2/3] ✓ SIM — @capitaomartim.10122 (pk 13958903624)
+```
+
+**A sessão nascida no NAVEGADOR autentica na API privada do APP, sem nenhum login.** O
+`ds_user_id` do cookie bate com o `pk` que a API devolveu, então é a mesma conta — não uma
+resposta genérica.
+
+Em 26/07 provamos navegador→navegador (401→200 num perfil vazio) e anotamos o outro lado
+como o elo que decidia a estratégia. Ele fechou. E vale além do story: a superfície do app
+inteira fica alcançável a partir de um perfil Camoufox **sem** o evento de "login de novo
+dispositivo", que é o que queimava conta.
+
+**O que NÃO foi provado:** que o servidor aceita o `StoryLink`. E isso não dá para medir
+hoje — a única conta viva tem horas de vida, e em 22/08 o Instagram recusou link na bio em
+3 contas recém-nascidas. Uma recusa agora seria ambígua entre "o caminho não serve" e "a
+conta é nova demais", que são conclusões opostas.
+
+Risco que continua não medido: o instagrapi manda cabeçalhos de aparelho inventados sobre
+uma sessão de navegador. Uma leitura passou; isso não diz nada sobre uso repetido.
+
+---
+
 ## 2026-08-27 — O 404 tinha DUAS causas, e uma conta pagou a conta
 
 Dia longo. Resumo do que mudou, e o que sobrou aberto.
