@@ -141,6 +141,8 @@ def main():
     ap.add_argument("--largura", type=float, default=0.50998676)
     ap.add_argument("--altura", type=float, default=0.25875)
     ap.add_argument("--apagar", metavar="PK", help="apaga um story publicado (o pk sai no [3/3])")
+    ap.add_argument("--arquivo", action="store_true",
+                    help="lista os stories no ar e no ARQUIVO (o que alimenta os destaques)")
     args = ap.parse_args()
 
     conta, perfil = _escolher(args.conta)
@@ -159,6 +161,36 @@ def main():
         print("   ✗ NÃO — %s: %s" % (type(e).__name__, e))
         print("     o caminho do story pela API morre aqui; nada a fazer com o sticker.")
         return 1
+
+    if args.arquivo:
+        # Destaque se monta do ARQUIVO. A janela de destaque no web apareceu vazia
+        # com um story no ar, e o payload da instagrapi nao pede arquivamento --
+        # deixa o padrao da conta decidir. Isto mede em vez de supor.
+        print()
+        print("[3/3] o que a conta tem de story")
+        try:
+            vivos = cl.user_stories(cl.user_id)
+            print("   no ar agora: %d" % len(vivos))
+            for st in vivos[:10]:
+                print("      pk %s · %s" % (st.pk, getattr(st, "taken_at", "")))
+        except Exception as e:
+            print("   ✗ nao consegui ler os stories no ar: %s: %s" % (type(e).__name__, e))
+        try:
+            dias = cl.archive_story_days(amount=5)
+            total = sum(len(getattr(d, "items", []) or []) for d in dias)
+            print("   no ARQUIVO: %d item(ns) em %d dia(s)" % (total, len(dias)))
+            if total == 0:
+                print("      → arquivo VAZIO: e por isso que a janela de destaque nao lista")
+                print("        nada (o seletor le o arquivo, nao os stories no ar).")
+                print("        DUAS causas possiveis, e daqui nao da para separar:")
+                print("        (a) 'Salvar no arquivo' desligado -> nenhum story entra, nunca;")
+                print("        (b) o arquivo so lista story ja EXPIRADO -> resolve em 24h.")
+                print("        Confira o ajuste no app: Configuracoes > Arquivar e baixar.")
+            else:
+                print("      → ha material para destaque; o problema entao e a tela do web.")
+        except Exception as e:
+            print("   ✗ nao consegui ler o arquivo: %s: %s" % (type(e).__name__, e))
+        return 0
 
     if args.apagar:
         print()

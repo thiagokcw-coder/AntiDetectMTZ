@@ -411,8 +411,8 @@
       "estado": "aberto",
       "data": "2026-08-28",
       "titulo": "Destaque (highlight) pela API: existe, não construído",
-      "detalhe": "instagrapi tem `highlight_create(title, story_ids, cover_story_id)`, `highlight_add_stories`, mudar título e capa. Pede **story_ids**: destaque se monta de stories que já existem. No web, a janela de destaque abriu vazia — hipótese não medida: não há story no arquivo para escolher (o de teste foi apagado). O Camoufox renderizou a janela normalmente, então não parece ser ele.",
-      "evidencia": "leitura de instagrapi/mixins/highlight.py + print do usuário com a lista vazia"
+      "detalhe": "MEDIDO: com 1 story NO AR, o arquivo tem 0 itens — e o seletor de destaque lê o ARQUIVO, não os stories no ar. Não é o Camoufox (a janela renderizou) nem falta de story. Por que o arquivo está vazio tem duas causas que a medição não separa: (a) 'Salvar no arquivo' desligado na conta; (b) o arquivo só lista story já expirado. A (b) se resolve esperando 24h; a (a) é um ajuste no app. instagrapi tem `highlight_create(title, story_ids, ...)` quando houver material.",
+      "evidencia": "sondar_story.py --arquivo em @capitaomartim.10122: 'no ar agora: 1 · no ARQUIVO: 0'. O payload da instagrapi não tem campo de arquivamento — não pede nem proíbe, deixa o padrão da conta decidir."
     }
   ]
 }
