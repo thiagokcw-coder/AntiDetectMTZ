@@ -2,6 +2,29 @@
 
 > Notas de contexto para o Claude. App de **gestão de contas Instagram** (Camoufox/Firefox antidetect + Playwright). Backend FastAPI (`api.py`/`main.py`), frontend em `static/index.html`. **Multiplataforma (Windows + macOS).** Idioma do usuário: **português**.
 
+## 🚫 ABA "CRIAR CONTAS (PC)" FORA DO MENU (2026-08-29)
+A pedido: *"a aba de criar contas está inútil, desative ela, vou adicionar as contas pela
+aba de contas mesmo"*.
+
+Mesmo padrão já usado com Métricas: **some do MENU, o código fica DORMENTE**. A página
+`#page-instagram`, o `createManual`, o `igLoadProfiles` e os endpoints de signup continuam
+no lugar — **não apagar**. Reativar = descomentar o `nav-item`. Já foi tirada e devolvida
+antes (16/06 tirou no pivot Android, 17/06 devolveu para o teste com proxy 4G), e por isso
+apagar custaria reescrever.
+
+**Tirar do menu não bastava** — três referências ficariam mandando o usuário para uma aba
+inexistente, e foram corrigidas:
+- **"Comece aqui"** dizia *"Em Criar Contas (PC), escolha Conexão local"*. Agora explica que
+  o padrão é sair pelo modem e que **quem escolhe a conexão de cada perfil é a aba Contas**
+  (campo "Proxy do perfil": vazio = modem).
+- **Pool de proxies vazio** mandava "adicione na aba Criar Contas". Agora aponta a pasta
+  `proxys/` ou deixar vazio para sair pelo modem.
+- Um **comentário** no HTML afirmava que a aba "voltou ao menu" — dizia o oposto do que
+  passou a valer.
+
+**Validado:** `node --check` + menu conferido ao vivo (13 itens, sem "Criar Contas", com
+"Contas" presente), `#page-instagram` e as funções dormentes intactas, 0 erro de console.
+
 ## 🧠 ABA "O QUE APRENDEMOS" — mantenha-a viva (2026-08-28)
 
 Aba nova (`page-conhecimento`, primeiro item do menu) com as conclusões do projeto

@@ -272,10 +272,9 @@
 
 <div class="layout">
   <aside>
-    <!-- "Criar Contas" (criação automática por Camoufox no PC): voltou ao menu p/ o
-         teste de criação no PC com proxy 4G/5G. A página #page-instagram tem todas as
-         opções antidetecção (aquecer navegador/conta, intervalo, País-alvo, conexão local).
-         Fluxo principal segue sendo criação no Android (aba "Comece aqui"). -->
+    <!-- "Criar Contas" (criação automática por Camoufox no PC) está FORA do menu
+         desde 2026-08-29: as contas são cadastradas pela aba Contas. A página
+         #page-instagram e os endpoints de signup seguem no código, dormentes. -->
     <div class="nav-section">Início</div>
     <div class="nav-item active" data-page-link="start" onclick="showPage('start')">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4v16"/><path d="M4 4h12l-2 4 2 4H4"/></svg>
@@ -292,10 +291,14 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 9h6M9 13h4"/></svg>
       Perfis
     </div>
+    <!-- "Criar Contas (PC)" saiu do menu a pedido (2026-08-29): as contas sao
+         cadastradas pela aba Contas. A pagina `page-instagram` e os endpoints de
+         signup seguem no codigo, DORMENTES -- nao apagar. Reativar = devolver
+         este item. Ja foi tirado e devolvido antes (16/06 e 17/06).
     <div class="nav-item" data-page-link="instagram" onclick="showPage('instagram')">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="20" rx="5"/><circle cx="12" cy="12" r="4"/><circle cx="17.5" cy="6.5" r="1" fill="currentColor" stroke="none"/></svg>
-      Criar Contas (PC)
+      ... Criar Contas (PC) ...
     </div>
+    -->
     <div class="nav-item" data-page-link="accounts" onclick="showPage('accounts')">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>
       Contas
@@ -1175,8 +1178,8 @@
           <li>Evite datacenter e ISP-estático compartilhado para criar.</li>
         </ul>
 
-        <div style="font-weight:600;color:var(--text);margin:12px 0 4px">Testar pela sua própria conexão (sem proxy)</div>
-        Em <b>Criar Contas (PC)</b>, escolha <b>"💻 Conexão local (seu 4G BR)"</b> para sair pelo <b>modem 4G ligado neste PC</b> — é o padrão e o recomendado hoje. O <code>geoip</code> está fixado em <b>Porto Alegre/pt-BR</b>, então isso só é coerente com um IP de saída <b>brasileiro</b> (o modem 4G daqui). O IP de casa (banda larga) <b>não serve</b> para criar.
+        <div style="font-weight:600;color:var(--text);margin:12px 0 4px">Sair pela sua própria conexão (sem proxy)</div>
+        É o padrão: o perfil sem proxy sai pelo <b>modem 4G ligado neste PC</b>. O <code>geoip</code> está fixado em <b>Porto Alegre/pt-BR</b>, então isso só é coerente com um IP de saída <b>brasileiro</b> (o modem 4G daqui) — o IP de casa (banda larga) <b>não serve</b>. Quem escolhe a conexão de cada perfil é a aba <b>Contas</b> (campo "Proxy do perfil": vazio = modem).
       </div>
     </div>
 
@@ -3755,7 +3758,7 @@ async function loadProxiesPage() {
     const body = document.getElementById('proxies-body');
     if (!pool.items || pool.items.length === 0) {
       body.innerHTML = `<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:24px">
-        Nenhum proxy encontrado. Adicione proxies no pool (aba Criar Contas → ou arquivos na pasta <code>proxys/</code>).</td></tr>`;
+        Nenhum proxy encontrado. Coloque os arquivos na pasta <code>proxys/</code> ao lado do app — ou deixe vazio para os perfis saírem pelo modem 4G.</td></tr>`;
       return;
     }
 

@@ -7,6 +7,24 @@
 
 ---
 
+## 2026-08-29 — Aba "Criar Contas (PC)" sai do menu
+
+Pedido: as contas passam a ser cadastradas pela aba **Contas**.
+
+Removido o `nav-item`; a página `#page-instagram` e os endpoints de signup ficam
+**dormentes** (mesmo padrão das Métricas). Histórico que justifica não apagar: essa aba já
+saiu do menu em 16/06 (pivot Android) e **voltou** em 17/06 para o teste de criação com
+proxy 4G.
+
+O que quase passou batido: **tirar do menu deixa referências órfãs**. Havia duas que
+mandavam o usuário para a aba removida — a instrução de conexão na "Comece aqui" e a
+mensagem de pool de proxies vazio — mais um comentário afirmando que a aba tinha voltado ao
+menu. Corrigidas as três; a de conexão agora aponta a aba Contas, que é onde de fato se
+escolhe o proxy de cada perfil.
+
+Conferido ao vivo: 13 itens no menu, sem "Criar Contas", `#page-instagram` ainda no DOM,
+`createManual`/`igLoadProfiles` ainda definidos, 0 erro de console.
+
 ## 2026-08-28 — O perfil Android: funcionou, e mesmo assim voltamos atrás
 
 Dia inteiro numa pergunta só — postar story sem depender do celular — e a resposta
