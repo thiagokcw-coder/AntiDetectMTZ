@@ -5308,17 +5308,76 @@ def story_contas():
     return {"contas": saida}
 
 
+class StoryResolverRequest(BaseModel):
+    profile_id: str
+    link_post: str
+
+
+@app.post("/story/resolver-post")
+async def story_resolver_post(body: StoryResolverRequest):
+    """Descobre de quem e a publicacao do link e guarda a miniatura.
+
+    Passo SEPARADO do compor de proposito: resolver exige sessao (a consulta e da
+    API privada) e abre o perfil headless, o que leva dezenas de segundos. Feito
+    uma vez, o compor fica instantaneo e sem rede -- da para reposicionar o card
+    quantas vezes quiser sem tocar no Instagram de novo.
+    """
+    p = get_profile(body.profile_id)
+    if not p:
+        raise HTTPException(404, "Perfil nao encontrado")
+
+    def _trabalho():
+        import io as _bytes          # api.py nao importa io no topo
+        cl = story_mod.cliente(p)
+        post = story_mod.resolver_post(cl, body.link_post)
+        if not post.get("thumbnail_url"):
+            raise ValueError("a publicacao nao devolveu miniatura (post so de video "
+                             "sem capa, ou conta privada que voce nao segue)")
+        mini = story_mod._baixar(post["thumbnail_url"])
+        story_mod.PASTA.mkdir(parents=True, exist_ok=True)
+        nome = "mini_%s.jpg" % post["media_pk"]
+        from PIL import Image as _I
+        _I.open(_bytes.BytesIO(mini)).convert("RGB").save(story_mod.PASTA / nome, "JPEG", quality=90)
+        post["mini"] = nome
+        return post
+
+    try:
+        return await asyncio.to_thread(_trabalho)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except Exception as e:
+        raise HTTPException(400, f"{type(e).__name__}: {e}")
+
+
 @app.post("/story/compor")
-async def story_compor(imagem: UploadFile = File(...), link: str = Form(...),
+async def story_compor(imagem: UploadFile = File(None), link: str = Form(""),
                        x: float = Form(0.5), y: float = Form(0.75),
                        largura: float = Form(0.62), altura: float = Form(0.08),
-                       rotulo: str = Form("")):
-    """Desenha o chip do link na arte. Nao publica nada."""
-    dados = await imagem.read()
-    if not dados:
-        raise HTTPException(400, "Imagem vazia")
+                       rotulo: str = Form(""), post_json: str = Form("")):
+    """Desenha os stickers na arte. Nao publica e nao toca o Instagram.
+
+    `post_json` vem do /story/resolver-post; com ele o retangulo vira o CARD da
+    publicacao repostada e a imagem passa a ser opcional (o fundo sai da propria
+    miniatura, borrada).
+    """
+    dados = await imagem.read() if imagem is not None else None
+    post = mini = None
+    if (post_json or "").strip():
+        try:
+            post = json.loads(post_json)
+        except Exception:
+            raise HTTPException(400, "post_json invalido")
+        f = story_mod.PASTA / (post.get("mini") or "")
+        if not post.get("mini") or not f.exists():
+            raise HTTPException(400, "miniatura da publicacao nao encontrada — "
+                                     "busque a publicacao de novo")
+        mini = f.read_bytes()
+    if not dados and not post:
+        raise HTTPException(400, "Envie uma imagem ou busque uma publicacao para repostar")
     try:
-        return story_mod.compor(dados, link, x, y, largura, altura, rotulo)
+        return story_mod.compor(dados, link, x, y, largura, altura, rotulo, post, mini)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
     except Exception as e:
         raise HTTPException(400, f"Nao consegui compor: {e}")
 
@@ -5337,11 +5396,15 @@ def story_arquivo(nome: str):
 class StoryPublicarRequest(BaseModel):
     profile_id: str
     arquivo: str
-    link: str
+    link: str = ""
     x: float = 0.5
     y: float = 0.75
     largura: float = 0.62
     altura: float = 0.08
+    # Repost: o post resolvido e ONDE o chip do link acabou desenhado (o compor
+    # desce o chip para baixo do card, e a area tocavel tem de acompanhar).
+    post: dict | None = None
+    link_rect: dict | None = None
 
 
 @app.post("/story/publicar")
@@ -5358,6 +5421,7 @@ async def story_publicar(body: StoryPublicarRequest):
     try:
         return await asyncio.to_thread(
             story_mod.publicar, p, str(f), body.link,
-            body.x, body.y, body.largura, body.altura)
+            body.x, body.y, body.largura, body.altura,
+            body.post, body.link_rect)
     except Exception as e:
         raise HTTPException(400, f"{type(e).__name__}: {e}")

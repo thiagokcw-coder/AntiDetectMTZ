@@ -1,5 +1,5 @@
 {
-  "atualizado": "2026-08-28",
+  "atualizado": "2026-09-06",
   "objetivo": {
     "produto": "NOTIFICAR. O follow existe para entregar a notificação, e o nome da conta (ex.: 10122.capitaomartim = nome + número) é a carga que viaja nela. Seguir de volta e converter para grupo são secundários.",
     "indicador": "entregas = contas × dias de vida × ritmo",
@@ -421,6 +421,22 @@
       "titulo": "O chip do link APARECE quando desenhado na arte",
       "detalhe": "Fecha o defeito do sticker invisível. O Story Creator desenha o chip com Pillow no mesmo retângulo que vira a região tocável, e o story publicado mostra o texto — no caso, \"ENTRE NO GRUPO\" em vez da URL crua.",
       "evidencia": "print do usuário: chip visível sobre a arte, story publicado pela aba"
+    },
+    {
+      "area": "story",
+      "estado": "funciona",
+      "data": "2026-09-06",
+      "titulo": "Repostar publicação de outra pessoa no Story Creator",
+      "detalhe": "Link do post → card tocável no seu story, com o @ do autor. Na API é `medias=[StoryMedia(...)]`, que vira `type: feed_media` + `reshared_media_id`. MESMA armadilha do chip de link: o payload não tem campo de aparência, então o card é **desenhado na arte** no mesmo retângulo que vira a região tocável. Sem imagem enviada, o fundo sai da própria miniatura borrada. Com link junto, o chip desce para baixo do card e as coordenadas do link acompanham — senão desenho e toque se separariam.",
+      "evidencia": "22 asserções (card no lugar em 3 posições, não vaza, fundo da miniatura, chip desce e o retângulo devolvido bate com o desenho, caminho antigo intacto) + aba exercitada no navegador com composição real"
+    },
+    {
+      "area": "story",
+      "estado": "nao_funciona",
+      "data": "2026-09-06",
+      "titulo": "Repostar o STORY de outra pessoa",
+      "detalhe": "Não há sticker para isso: a instagrapi tem `feed_media` (post/reel) e nada para republicar story alheio — no Instagram isso só existe quando a pessoa te menciona no story dela. Link `/stories/...` é recusado com essa explicação, em vez de erro cru.",
+      "evidencia": "leitura do payload da instagrapi + guarda em story.resolver_post"
     }
   ]
 }

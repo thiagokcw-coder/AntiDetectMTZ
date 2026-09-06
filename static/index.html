@@ -371,6 +371,14 @@
             <div style="font-size:11px;color:var(--muted);margin-bottom:3px">Conta</div>
             <select id="st-conta" style="width:100%;padding:8px 10px;background:var(--surface);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px"></select>
           </div>
+          <div style="flex:1;min-width:260px">
+            <div style="font-size:11px;color:var(--muted);margin-bottom:3px">Repostar publicação (opcional)</div>
+            <div style="display:flex;gap:6px">
+              <input id="st-post" placeholder="https://www.instagram.com/p/..." style="width:100%;box-sizing:border-box;padding:8px 10px;background:var(--surface);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px">
+              <button class="btn btn-sm" onclick="storyBuscarPost(this)">🔎 Buscar</button>
+            </div>
+            <div id="st-post-info" class="form-hint" style="margin-top:3px"></div>
+          </div>
           <div style="flex:1;min-width:200px">
             <div style="font-size:11px;color:var(--muted);margin-bottom:3px">Link do sticker</div>
             <input id="st-link" value="https://wa.me/" placeholder="https://wa.me/5551..." oninput="storyDesenharPrevia()"
@@ -381,7 +389,7 @@
             <input id="st-rotulo" placeholder="ex.: ENTRE NO GRUPO" oninput="storyDesenharPrevia()" style="width:100%;box-sizing:border-box;padding:8px 10px;background:var(--surface);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px">
           </div>
           <div>
-            <div style="font-size:11px;color:var(--muted);margin-bottom:3px">Imagem (vertical, 9:16)</div>
+            <div style="font-size:11px;color:var(--muted);margin-bottom:3px">Imagem (vertical, 9:16)<span id="st-img-opc" style="display:none"> — opcional</span></div>
             <input id="st-arquivo" type="file" accept="image/*" onchange="storyCarregarImagem(event)" style="font-size:12px">
           </div>
         </div>
@@ -4124,6 +4132,7 @@ async function cadastrarContaDetectada(pid, username, btn) {
 // a regiao tocavel, e quem desenha o sticker e o app. Medido em 28/08 -- o
 // primeiro story publicado teve o link funcionando e invisivel.
 let _stArquivoComposto = null;
+let _stLinkRect = null;
 // Retangulo em coordenadas NORMALIZADAS (0..1): x/y sao o CENTRO, que e como o
 // StoryLink da instagrapi interpreta. Mesma convencao dos dois lados de proposito.
 let _stRect = { x: 0.5, y: 0.75, largura: 0.62, altura: 0.08 };
@@ -4178,6 +4187,13 @@ function storyAplicarRect() {
 // sticker do Instagram nunca mostra a URL inteira -- e caminho longo nao cabe no
 // chip, que foi o que apareceu no primeiro teste com arte real.
 function storyDesenharPrevia() {
+  // Com repost o retangulo e o CARD da publicacao, nao o chip -- a previa tem de
+  // dizer isso, senao voce posiciona achando que esta movendo o chip.
+  const alvo = document.getElementById('st-rect-txt');
+  if (_stPost) {
+    alvo.textContent = '@' + (_stPost.username || 'publicação');
+    return;
+  }
   const rotulo = (document.getElementById('st-rotulo').value || '').trim();
   let t = rotulo;
   if (!t) {
@@ -4223,17 +4239,52 @@ function storyDesenharPrevia() {
   document.addEventListener('mouseup', () => { modo = null; ini = null; });
 })();
 
+// Publicacao de OUTRA pessoa a ser repostada. Resolver exige sessao (a consulta
+// e da API privada) e abre o perfil headless -- por isso e um passo separado,
+// feito uma vez: depois da para reposicionar o card sem tocar o Instagram.
+let _stPost = null;
+
+async function storyBuscarPost(btn) {
+  const link = (document.getElementById('st-post').value || '').trim();
+  const info = document.getElementById('st-post-info');
+  const pid = document.getElementById('st-conta').value;
+  if (!link) { toast('Cole o link da publicação', 'error'); return; }
+  if (!pid) { toast('Escolha a conta primeiro', 'error'); return; }
+  const stop = runBtnCountdown(btn, 45);
+  info.textContent = 'abrindo o perfil para consultar…';
+  try {
+    const r = await api('POST', '/story/resolver-post',
+                        { profile_id: pid, link_post: link }, 180000);
+    stop();
+    _stPost = r;
+    // Card e mais alto que chip: o retangulo assume proporcao de publicacao.
+    _stRect = { x: 0.5, y: 0.42, largura: 0.72, altura: 0.46 };
+    storyAplicarRect();
+    storyDesenharPrevia();
+    document.getElementById('st-img-opc').style.display = '';
+    info.innerHTML = `<span style="color:var(--green)">✓ publicação de <b>@${escapeHtml(r.username || '?')}</b></span> — arraste o card e componha`;
+    _stArquivoComposto = null;
+    document.getElementById('st-publicar').disabled = true;
+  } catch (e) {
+    stop();
+    _stPost = null;
+    info.innerHTML = `<span style="color:var(--red)">${escapeHtml(e.message || 'não consegui buscar')}</span>`;
+  }
+}
+
 async function storyCompor(btn) {
   const arq = document.getElementById('st-arquivo').files[0];
   const link = (document.getElementById('st-link').value || '').trim();
   const status = document.getElementById('st-status');
-  if (!arq) { toast('Escolha uma imagem primeiro', 'error'); return; }
-  if (!link || link === 'https://wa.me/') { toast('Escreva o link do sticker', 'error'); return; }
+  const temLink = link && link !== 'https://wa.me/';
+  if (!arq && !_stPost) { toast('Escolha uma imagem ou busque uma publicação', 'error'); return; }
+  if (!temLink && !_stPost) { toast('Escreva o link do sticker', 'error'); return; }
   const stop = runBtnCountdown(btn, 6);
   try {
     const fd = new FormData();
-    fd.append('imagem', arq);
-    fd.append('link', link);
+    if (arq) fd.append('imagem', arq);
+    fd.append('link', temLink ? link : '');
+    if (_stPost) fd.append('post_json', JSON.stringify(_stPost));
     fd.append('x', _stRect.x); fd.append('y', _stRect.y);
     fd.append('largura', _stRect.largura); fd.append('altura', _stRect.altura);
     fd.append('rotulo', (document.getElementById('st-rotulo').value || '').trim());
@@ -4242,6 +4293,8 @@ async function storyCompor(btn) {
     const r = await resp.json();
     stop();
     _stArquivoComposto = r.arquivo;
+    // Onde o chip acabou desenhado (com repost ele desce para baixo do card).
+    _stLinkRect = r.link_rect || null;
     document.getElementById('st-publicar').disabled = false;
     document.getElementById('st-resultado').innerHTML =
       `<div style="font-size:12px;color:var(--muted);margin-bottom:6px">Esta é a arte que vai subir (${r.largura_px}×${r.altura_px}):</div>
@@ -4261,8 +4314,10 @@ async function storyPublicar(btn) {
   status.textContent = 'lendo a sessão do perfil e publicando…';
   try {
     const r = await api('POST', '/story/publicar', {
-      profile_id: pid, arquivo: _stArquivoComposto, link: link,
+      profile_id: pid, arquivo: _stArquivoComposto,
+      link: (link && link !== 'https://wa.me/') ? link : '',
       x: _stRect.x, y: _stRect.y, largura: _stRect.largura, altura: _stRect.altura,
+      post: _stPost, link_rect: _stLinkRect,
     }, 300000);
     stop();
     status.innerHTML = `<span style="color:var(--green)">✓ publicado por @${escapeHtml(r.conta || '')} — story pk ${escapeHtml(r.pk || '')}</span>`;
