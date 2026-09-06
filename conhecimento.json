@@ -427,8 +427,8 @@
       "estado": "funciona",
       "data": "2026-09-06",
       "titulo": "Repostar publicação de outra pessoa no Story Creator",
-      "detalhe": "Link do post → card tocável no seu story, com o @ do autor. Na API é `medias=[StoryMedia(...)]`, que vira `type: feed_media` + `reshared_media_id`. MESMA armadilha do chip de link: o payload não tem campo de aparência, então o card é **desenhado na arte** no mesmo retângulo que vira a região tocável. Sem imagem enviada, o fundo sai da própria miniatura borrada. Com link junto, o chip desce para baixo do card e as coordenadas do link acompanham — senão desenho e toque se separariam.",
-      "evidencia": "22 asserções (card no lugar em 3 posições, não vaza, fundo da miniatura, chip desce e o retângulo devolvido bate com o desenho, caminho antigo intacto) + aba exercitada no navegador com composição real"
+      "detalhe": "Link do post → card tocável no seu story, com o @ do autor. Na API é `medias=[StoryMedia(...)]`, que vira `type: feed_media` + `reshared_media_id`. MESMA armadilha do chip de link: o payload não tem campo de aparência, então o card é **desenhado na arte** no mesmo retângulo que vira a região tocável. Sem imagem enviada, o fundo sai da própria miniatura borrada. Com link junto, o chip desce para baixo do card e as coordenadas do link acompanham — senão desenho e toque se separariam. Colar o link basta: qualquer campo reconhece `/p/`, `/reel/`, `/reels/` e `/tv/` e busca sozinho — o Instagram NÃO transforma link colado em repost (link vira link), então quem tem de entender é o app.",
+      "evidencia": "22 asserções (card no lugar em 3 posições, não vaza, fundo da miniatura, chip desce e o retângulo devolvido bate com o desenho, caminho antigo intacto) + aba exercitada no navegador com composição real; reconhecedor conferido em 9 URLs (post/reel/reels/tv/com-usuário vs story/wa.me/perfil/vazio)"
     },
     {
       "area": "story",

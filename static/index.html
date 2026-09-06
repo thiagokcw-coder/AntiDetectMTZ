@@ -374,14 +374,14 @@
           <div style="flex:1;min-width:260px">
             <div style="font-size:11px;color:var(--muted);margin-bottom:3px">Repostar publicação (opcional)</div>
             <div style="display:flex;gap:6px">
-              <input id="st-post" placeholder="https://www.instagram.com/p/..." style="width:100%;box-sizing:border-box;padding:8px 10px;background:var(--surface);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px">
-              <button class="btn btn-sm" onclick="storyBuscarPost(this)">🔎 Buscar</button>
+              <input id="st-post" placeholder="https://www.instagram.com/p/..." oninput="storyAutoDetectarPost()" style="width:100%;box-sizing:border-box;padding:8px 10px;background:var(--surface);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px">
+              <button class="btn btn-sm" id="st-post-busca" onclick="storyBuscarPost(this)">🔎 Buscar</button>
             </div>
             <div id="st-post-info" class="form-hint" style="margin-top:3px"></div>
           </div>
           <div style="flex:1;min-width:200px">
             <div style="font-size:11px;color:var(--muted);margin-bottom:3px">Link do sticker</div>
-            <input id="st-link" value="https://wa.me/" placeholder="https://wa.me/5551..." oninput="storyDesenharPrevia()"
+            <input id="st-link" value="https://wa.me/" placeholder="cole aqui: wa.me/5551… ou o link de uma publicação" oninput="storyAutoDetectar()"
                    style="width:100%;box-sizing:border-box;padding:8px 10px;background:var(--surface);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px">
           </div>
           <div style="flex:1;min-width:160px">
@@ -393,7 +393,8 @@
             <input id="st-arquivo" type="file" accept="image/*" onchange="storyCarregarImagem(event)" style="font-size:12px">
           </div>
         </div>
-        <div class="form-hint" style="margin-top:8px">Use <b>wa.me</b>, não <code>chat.whatsapp.com</code> — o domínio de convite de grupo é dos mais marcados que existem.</div>
+        <div class="form-hint" style="margin-top:6px">Colou um link de publicação (<code>/p/</code>, <code>/reel/</code>)? Ele vira <b>repost</b> sozinho — o Instagram não faz isso com link colado, quem entende é o app.</div>
+        <div class="form-hint" style="margin-top:4px">Use <b>wa.me</b>, não <code>chat.whatsapp.com</code> — o domínio de convite de grupo é dos mais marcados que existem.</div>
       </div>
 
       <div class="card" style="margin-bottom:14px">
@@ -4244,18 +4245,59 @@ function storyDesenharPrevia() {
 // feito uma vez: depois da para reposicionar o card sem tocar o Instagram.
 let _stPost = null;
 
+// Link de PUBLICACAO do Instagram (post, reel, IGTV). Story (/stories/) NAO
+// entra: nao existe sticker para republicar story alheio -- no Instagram isso so
+// acontece quando a pessoa te menciona.
+const ST_RE_POST = /instagram\.com\/(?:[^\/]+\/)?(p|reel|reels|tv)\/([A-Za-z0-9_-]{5,})/i;
+
+function storyEhLinkDePost(v) {
+  return ST_RE_POST.test((v || '').trim());
+}
+
+// No campo do repost, colar tambem basta -- o botao vira reforco, nao exigencia.
+let _stAutoTimerPost = null;
+function storyAutoDetectarPost() {
+  const v = (document.getElementById('st-post').value || '').trim();
+  if (!storyEhLinkDePost(v)) return;
+  clearTimeout(_stAutoTimerPost);
+  _stAutoTimerPost = setTimeout(() => storyBuscarPost(document.getElementById('st-post-busca')), 600);
+}
+
+// Colar o link no campo do sticker resolve sozinho: o Instagram NAO transforma
+// link colado em repost (link vira link), entao quem tem de entender e o app.
+let _stAutoTimer = null;
+function storyAutoDetectar() {
+  storyDesenharPrevia();
+  const campo = document.getElementById('st-link');
+  const v = (campo.value || '').trim();
+  if (!storyEhLinkDePost(v)) return;
+  clearTimeout(_stAutoTimer);
+  _stAutoTimer = setTimeout(() => {
+    // Move para o campo de repost e busca. O campo do sticker fica livre para o
+    // link de verdade (wa.me), que pode conviver com o card.
+    document.getElementById('st-post').value = v;
+    campo.value = '';
+    storyDesenharPrevia();
+    const info = document.getElementById('st-post-info');
+    info.textContent = 'link de publicação reconhecido — buscando…';
+    storyBuscarPost(document.querySelector('#st-post-busca'));
+  }, 600);
+}
+
 async function storyBuscarPost(btn) {
   const link = (document.getElementById('st-post').value || '').trim();
   const info = document.getElementById('st-post-info');
   const pid = document.getElementById('st-conta').value;
   if (!link) { toast('Cole o link da publicação', 'error'); return; }
   if (!pid) { toast('Escolha a conta primeiro', 'error'); return; }
+  if (_stPost && _stPost._link === link) { info.textContent = 'já buscada'; return; }
   const stop = runBtnCountdown(btn, 45);
   info.textContent = 'abrindo o perfil para consultar…';
   try {
     const r = await api('POST', '/story/resolver-post',
                         { profile_id: pid, link_post: link }, 180000);
     stop();
+    r._link = link;          // marca para nao rebuscar a mesma no proximo input
     _stPost = r;
     // Card e mais alto que chip: o retangulo assume proporcao de publicacao.
     _stRect = { x: 0.5, y: 0.42, largura: 0.72, altura: 0.46 };
