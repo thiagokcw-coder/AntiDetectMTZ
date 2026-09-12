@@ -109,6 +109,7 @@
   .badge-checkpoint, .badge-suspended { background: #4a2a05; color: #fbbf24; }
   .badge-login_required { background: #1e293b; color: var(--muted); }
   .badge-banned { background: #450a0a; color: var(--red); }
+  .badge-in_use { background: #1e1b4b; color: #a5b4fc; }
   .badge-unknown { background: #1e293b; color: var(--muted); }
 
   /* Detail rows in modal */
@@ -1843,6 +1844,7 @@
         <label>Status</label>
         <select id="aa-status">
           <option value="active">Ativa</option>
+          <option value="in_use">Em uso (emprestada — não misturar)</option>
           <option value="created">Criada</option>
           <option value="checkpoint">Em suspensão (recuperável)</option>
           <option value="login_required">Sessão expirada</option>
@@ -2812,7 +2814,7 @@ function renderProfilesGrid() {
     // Perfil SEM conta cadastrada pode ter uma conta logada mesmo assim -- a sessao
     // fica no user_data e o app nao descobre sozinho de quem e.
     const acctRow = hasAcct
-      ? `<div class="card-row">Conta: <span style="color:${logged ? '#16a34a' : 'var(--text)'}">${p.account_username ? '@'+escapeHtml(p.account_username) : '(sem username)'} ${logged ? '✅ logada' : '· '+escapeHtml(p.account_status)}</span></div>`
+      ? `<div class="card-row">Conta: <span style="color:${logged ? '#16a34a' : 'var(--text)'}">${p.account_username ? '@'+escapeHtml(p.account_username) : '(sem username)'} ${logged ? '✅ logada' : '· '+escapeHtml(ACCOUNT_LABELS[p.account_status] || p.account_status)}</span></div>`
       : `<div class="card-row" id="det-${safeId}">Conta: <span style="color:var(--muted)">nenhuma cadastrada</span>
            <button class="btn btn-ghost btn-sm" style="margin-left:6px" onclick="detectarConta('${p.id}', this)">🔍 descobrir</button></div>`;
     return `
@@ -3662,6 +3664,7 @@ const ACCOUNT_LABELS = {
   waiting_verification: 'Verificação', checkpoint: 'Em suspensão',
   login_required: 'Sessão expirada', banned: 'Banida (final)',
   suspended: 'Em suspensão', unknown: 'Desconhecido', error: 'Erro',
+  in_use: 'Em uso',
 };
 function statusBadge(status) {
   const label = ACCOUNT_LABELS[status] || status || '—';
@@ -3870,14 +3873,16 @@ const _PROBLEM_STATUSES = ['checkpoint', 'banned', 'suspended', 'login_required'
 function renderAccounts(list) {
   const sub = document.getElementById('accounts-subtitle');
   // Resumo por status no topo
-  let nActive = 0, nProblem = 0, nNoProfile = 0;
+  let nActive = 0, nProblem = 0, nNoProfile = 0, nInUse = 0;
   list.forEach(a => {
     if (a.status === 'active') nActive++;
+    else if (a.status === 'in_use') nInUse++;
     else if (_PROBLEM_STATUSES.includes(a.status)) nProblem++;
     if (!a.profile_exists) nNoProfile++;
   });
   sub.innerHTML = `${list.length} conta(s) registrada(s) &nbsp; `
     + `<span class="badge badge-active">${nActive} ativa(s)</span> `
+    + (nInUse ? `<span class="badge badge-in_use">${nInUse} em uso</span> ` : '')
     + `<span class="badge badge-banned">${nProblem} com problema</span> `
     + `<span class="badge badge-creating">${nNoProfile} sem perfil</span>`;
   const body = document.getElementById('accounts-body');
@@ -3887,13 +3892,20 @@ function renderAccounts(list) {
     return;
   }
   // Ordena: ATIVAS no topo, contas com PROBLEMA separadas embaixo (divisor no meio).
-  // rank 0 = ativa · 1 = neutra (sem perfil/desconhecida) · 2 = problema (suspensa/banida).
-  const _rank = a => a.status === 'active' ? 0 : (_PROBLEM_STATUSES.includes(a.status) ? 2 : 1);
+  // rank 0 = ativa · 1 = neutra (sem perfil/desconhecida) · 2 = EM USO (emprestada,
+  // em bloco próprio para não se misturar às novas) · 3 = problema (suspensa/banida).
+  const _rank = a => a.status === 'active' ? 0
+    : a.status === 'in_use' ? 2
+    : (_PROBLEM_STATUSES.includes(a.status) ? 3 : 1);
   const _sorted = list.slice().sort((x, y) => _rank(x) - _rank(y));
-  let _dividerDone = false;
+  let _dividerDone = false, _inUseDividerDone = false;
   body.innerHTML = _sorted.map(a => {
     const isProblem = _PROBLEM_STATUSES.includes(a.status);
     let divider = '';
+    if (!_inUseDividerDone && a.status === 'in_use') {
+      _inUseDividerDone = true;
+      divider = `<tr><td colspan="8" style="padding:7px 12px;background:rgba(129,140,248,0.12);color:#a5b4fc;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em">🤝 Em uso — contas emprestadas</td></tr>`;
+    }
     if (!_dividerDone && isProblem) {
       _dividerDone = true;
       divider = `<tr><td colspan="8" style="padding:7px 12px;background:rgba(239,68,68,0.12);color:var(--red);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em">⚠ Contas com problema (em suspensão / banidas)</td></tr>`;

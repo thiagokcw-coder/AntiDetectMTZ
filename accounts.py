@@ -734,6 +734,14 @@ async def check_status(account_id: str, headless: bool = True) -> dict:
     status = result.get("status", "unknown")
     detail = result.get("detail", "")
     ts = _now().strftime("%Y-%m-%d %H:%M:%S")
+    # "Em uso" é rótulo MANUAL (conta emprestada a outra pessoa). A verificação
+    # registra o que viu em last_check_result, mas não troca o rótulo — senão a
+    # próxima checagem devolveria a conta para "Ativa" e ela voltaria a se
+    # misturar com as novas, que é exatamente o que o rótulo existe para evitar.
+    if (acc.get("status") or "") == "in_use":
+        db.update_account(account_id, last_checked_at=ts,
+                          last_check_result="(em uso) " + (detail or status))
+        return {"status": "in_use", "detail": detail, "detectado": status}
     # Só sobrescreve status com resultados conclusivos; _apply_status conta a suspensão.
     if status != "unknown":
         _apply_status(account_id, status, detail,

@@ -2550,7 +2550,9 @@ async def _check_all_accounts():
         busy = {s.get("profile_id") for s in sm.list_active()}
     except Exception:
         busy = set()
-    terminal = {"banned", "discarded"}
+    # "in_use" = conta emprestada: verificá-la abriria sessão pelo NOSSO IP numa
+    # conta que outra pessoa está usando, e ainda trocaria o rótulo manual.
+    terminal = {"banned", "discarded", "in_use"}
     pending = [a for a in acc.list_accounts()
                if (a.get("status") or "").lower() not in terminal
                and a.get("profile_id") and a.get("profile_id") not in busy]
