@@ -1,11 +1,67 @@
 {
-  "atualizado": "2026-09-06",
+  "atualizado": "2026-10-13",
   "objetivo": {
     "produto": "NOTIFICAR. O follow existe para entregar a notificação, e o nome da conta (ex.: 10122.capitaomartim = nome + número) é a carga que viaja nela. Seguir de volta e converter para grupo são secundários.",
     "indicador": "entregas = contas × dias de vida × ritmo",
     "alvos": "12 perfis de mídia local do RS"
   },
   "itens": [
+    {
+      "area": "contas",
+      "estado": "funciona",
+      "data": "2026-10-13",
+      "titulo": "O perfil virou PESSOA: uma conta por rede, publicação numa leva só",
+      "detalhe": "A regra deixou de ser \"1 conta por perfil\" e passou a ser 1 conta por perfil POR REDE. `redes.py` tem o registro das 11 redes (transporte, formatos, limite de legenda) e o orquestrador; `montar_plano` é função PURA e é ela que decide quem publica. Uma rotação de IP para a leva inteira — rotacionar entre redes separaria em IPs diferentes contas que são a mesma pessoa.",
+      "evidencia": "152 asserções (105 do plano, 19 do banco em SQLite temporário, 28 do orquestrador) + endpoints exercitados ao vivo na instância do usuário + aba conferida no navegador com 0 erro de console."
+    },
+    {
+      "area": "contas",
+      "estado": "licao",
+      "data": "2026-10-13",
+      "titulo": "\"A conta mais recente do perfil\" vira bomba quando o perfil tem várias redes",
+      "detalhe": "`get_account_by_profile` devolvia a conta mais nova do perfil, e tem 10 chamadores que falam de Instagram — o limitador do InstaFollow, a auto-verificação ao fechar a janela, o Spider. Cadastrar um TikTok num perfil faria todos eles passarem a contar pela conta errada, calados. O mesmo valia para o `account_status` do `/profiles`: um perfil de Instagram banido apareceria disponível porque o TikTok dele está ativo.",
+      "evidencia": "Consulta agora recebe `platform`, com padrão 'instagram'. Teste em SQLite temporário com o Instagram sendo a conta MAIS VELHA do perfil: sem dizer a rede, volta o Instagram (19 asserções)."
+    },
+    {
+      "area": "contas",
+      "estado": "licao",
+      "data": "2026-10-13",
+      "titulo": "Detecção de status é do Instagram, e varrer conta de outra rede com ela FABRICA dado",
+      "detalhe": "`accounts.check_status` roda `instagram.detect_status`, que navega no Instagram e lê a tela dele. Numa conta de TikTok ou YouTube ele encontraria a tela de login do Instagram e concluiria \"sessão expirada\". Como a re-verificação automática varre a lista inteira a cada N horas, toda conta de outra rede amanheceria marcada errada — e pareceria medição.",
+      "evidencia": "Guarda em `accounts.check_status` (rede != instagram devolve \"só existe para o Instagram\") e filtro em `_check_all_accounts`."
+    },
+    {
+      "area": "contas",
+      "estado": "aberto",
+      "data": "2026-10-13",
+      "titulo": "Só o Instagram publica sozinho — as outras 10 redes estão no modo assistido",
+      "detalhe": "O caminho do Instagram é medido (cookies → login_by_sessionid → instagrapi). As demais abrem o compositor na MESMA janela Camoufox do perfil e esperam confirmação do usuário. Escrever dez fluxos de DOM sem nunca ter aberto a tela de cada rede produziria dez seletores inventados. O campo `medido` no registro de `redes.py` diz, por rede, se alguém já conferiu — e as URLs de compositor também são ponto de partida, não fato (o Threads mudou de threads.net para threads.com).",
+      "evidencia": "`redes.REDES`: `medido: true` só no Instagram. Nenhuma das outras foi aberta ao vivo até agora."
+    },
+    {
+      "area": "processo",
+      "estado": "licao",
+      "data": "2026-10-13",
+      "titulo": "Antes de escrever a segunda versão de uma decisão, procure a primeira",
+      "detalhe": "A primeira versão de `redes._rotacionar_uma_vez` reimplementava a rotação de IP e tinha dois erros que a função existente não tem: chamava `modem.rotate` (que é `async`) por `asyncio.to_thread`, e lia `config()[\"rotate_enabled\"]`, chave que não existe — a de verdade é `enabled`. A rotação nunca teria rodado e o terminal diria \"desligada\" para sempre, em silêncio. `api._rotate_ip_for` já resolvia tudo isso, inclusive a guarda do perfil com proxy próprio; passou a ser INJETADA.",
+      "evidencia": "Os dois erros foram vistos ao conferir `modem.py:237` (`async def rotate`) e `modem.py:69` (`\"enabled\"`), antes de qualquer execução."
+    },
+    {
+      "area": "infra",
+      "estado": "funciona",
+      "data": "2026-10-13",
+      "titulo": "O Mobiliza novo tem o motor anti-ban que falta deste lado",
+      "detalhe": "`mtz-ag/mobilizalight` traz, em funções puras e testadas: curva de aquecimento de 21 dias (20→1000/dia), saúde por bandas (healthy/watch/risk/quarantine) com COTA reduzida em vez de parada, detecção de bloqueio silencioso (saiu, teve SERVER_ACK, DELIVERY_ACK nunca veio), ritmo log-normal com RNG por parâmetro, curva circadiana por hora e dia da semana, e portão de entropia por trigramas. São os mesmos problemas das contas de Instagram, resolvidos com engenharia melhor.",
+      "evidencia": "Repositório clonado e lido em 13/10 (commit 3891d7e): src/lib/disparo/aquecimento.ts, src/server/instances/health.ts, src/server/suppression/blocked-proxy.ts, src/server/dispatch/{pacing,circadian}.ts, src/server/campaigns/entropy.ts."
+    },
+    {
+      "area": "infra",
+      "estado": "nao_funciona",
+      "data": "2026-10-13",
+      "titulo": "Reiniciar o modem na troca de número do WhatsApp não protege nada",
+      "detalhe": "O envio é server-side: PC → mobiliza.app (Vercel) → Z-API (nuvem) → WhatsApp. O IP do PC termina no Mobiliza e nunca chega ao WhatsApp. A rotação mudaria só o IP da aba do CRM — derrubando a própria sessão que está sendo usada. RESSALVA: se alguma hora uma instância Evolution rodar NESTE PC (era o plano registrado), o socket passa a sair daqui e a rotação deixa de ser inútil e passa a ser daninha.",
+      "evidencia": "`src/lib/whatsapp-providers/zapi.ts:28`: ZAPI_BASE = https://api.z-api.io. O motor de disparo é rota de servidor chamada por pg_cron (`src/routes/api/dispatch/tick.ts`). Zero menções a modem ou rotação de IP no repositório inteiro."
+    },
     {
       "area": "contas",
       "estado": "funciona",

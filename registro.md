@@ -7,6 +7,103 @@
 
 ---
 
+## 2026-10-13 — O perfil virou PESSOA: conta em todas as redes, publicação numa leva só
+
+Pedido: *"cada perfil terá contas em todas as redes sociais não só instagram… e ao postar
+conteúdo todas elas tem que postar ao mesmo tempo"*.
+
+### A regra que o pedido quebra estava escrita no código
+
+`accounts.py` dizia, em docstring: *"Se o perfil já tem conta (regra: 1 conta por
+perfil)"*. Ela passou a ser **1 conta por perfil POR REDE** — o que continua proibido é
+duas contas da MESMA rede no mesmo navegador, que aí sim são duas personas.
+
+### Três regressões que a mudança abriria, achadas ANTES de escrever a funcionalidade
+
+Nenhuma delas falha alto: todas produzem dado errado em silêncio, que é o tipo que este
+projeto mais paga caro.
+
+1. **`get_account_by_profile` devolvia a conta MAIS RECENTE do perfil** — e tem **10
+   chamadores** que falam de Instagram: o limitador do InstaFollow, a auto-verificação ao
+   fechar a janela manual, o Spider. Cadastrar um TikTok num perfil faria todos passarem a
+   contar pela conta do TikTok. Hoje a função recebe `platform`, **com padrão
+   `'instagram'`** — e o padrão é o que segura os dez chamadores sem tocar em nenhum.
+2. **`check_status` roda `instagram.detect_status`**, que navega no Instagram e lê a tela
+   dele. Numa conta de YouTube ele acharia a tela de login do Instagram e concluiria
+   "sessão expirada". Como a re-verificação automática varre a lista inteira, toda conta de
+   outra rede amanheceria marcada errada — **e pareceria medição**.
+3. **`/profiles` montava `account_status` pela conta mais recente do perfil.** InstaFollow,
+   Spider e Story Creator escolhem o perfil por esse campo: um perfil com Instagram
+   **banido** apareceria disponível porque o TikTok dele está ativo. Agora o campo é do
+   Instagram, e as outras redes vão num `contas_redes` à parte.
+
+### O desenho da leva
+
+**`redes.py` (novo).** O registro das 11 redes num lugar só (Instagram, Facebook, Threads,
+X, TikTok, YouTube, Kwai, LinkedIn, Pinterest, Bluesky, Telegram), com transporte, formatos
+aceitos, limite de legenda e o campo **`medido`** — que diz, por rede, se alguém já
+conferiu aquele caminho ao vivo.
+
+**A decisão é função pura.** `montar_plano` recusa **antes** de tocar em rede nenhuma:
+imagem no YouTube, conta emprestada ("Em uso"), legenda de 400 no X de 280, rede que o app
+não conhece. O motivo é escrito e aparece na tela — publicação que não aconteceu nunca
+aparece como sucesso. É o mesmo desenho que o Mobiliza usa na saúde das instâncias: regra
+que só dá para observar em produção é regra que ninguém confere.
+
+**Uma rotação de IP para a leva inteira, nunca uma por rede.** Rotacionar entre redes
+custaria dois minutos de queda numa publicação e, pior, separaria em IPs diferentes contas
+que são a **mesma pessoa** — o oposto do que a rotação existe para fazer (ela separa
+personas). Seis redes publicando de um IP só é o que acontece de verdade com alguém postando
+do sofá.
+
+**"Ao mesmo tempo" é por leva, não por relógio.** Seis requisições no mesmo milissegundo do
+mesmo IP é assinatura de máquina — a lição de 21/08, que custou uma conta suspensa. As
+saídas são espalhadas por poucos segundos (padrão 12) e o relatório mostra o instante real
+de cada uma. Em `0` elas saem juntas de verdade, para quem quiser.
+
+### O estado honesto: 1 rede automática, 10 assistidas
+
+Só o Instagram publica sozinho, e publica porque o caminho **foi medido** (cookies →
+`login_by_sessionid` → instagrapi). As outras dez abrem o compositor na **mesma janela
+Camoufox** do perfil — `session_manager.abrir_aba`, aba nova no contexto que já está
+aberto — e esperam a confirmação do usuário.
+
+Isso é deliberado. Escrever dez fluxos de DOM sem nunca ter aberto a tela de cada rede
+produziria **dez seletores inventados**, que é exatamente o erro da correção de 28/08. As
+URLs de compositor também são ponto de partida, não fato conferido: o Threads mudou de
+`threads.net` para `threads.com`, e cada rede que abrir uma vez confirma ou corrige **uma
+linha**, num lugar só.
+
+### O erro que eu cometi no meio, e por que ele importa
+
+A primeira versão de `_rotacionar_uma_vez` **reimplementava a rotação de IP**. Tinha dois
+erros que a função que já existia não tem: chamava `modem.rotate` — que é `async` — por
+`asyncio.to_thread`, e lia `config()["rotate_enabled"]`, chave que não existe (a de verdade
+é `enabled`). A rotação **nunca teria rodado**, e o terminal diria "desligada" para sempre.
+
+`api._rotate_ip_for` já resolvia tudo isso, inclusive a guarda do perfil com proxy próprio.
+Virou parâmetro injetado. **Antes de escrever a segunda versão de uma decisão, procure a
+primeira** — duas versões da mesma pergunta é como nascem os dois comportamentos que
+divergem.
+
+### Validado
+
+**152 asserções**: 105 do plano (formato manda, status da conta, limite de legenda exato em
+280/281, rede desconhecida não derruba a leva, conta sem `platform` cai no Instagram), 19 do
+banco em SQLite temporário (com o Instagram sendo a conta **mais velha** do perfil, que é o
+caso que quebraria o código antigo), 28 do orquestrador (simulação não toca em rede, uma
+falha não derruba as outras cinco, **uma rotação para seis redes**, espalhamento).
+
+Mais `py_compile`, `node --check` no bloco de 4.861 linhas, endpoints exercitados ao vivo
+contra a instância do usuário e a aba conferida no navegador com **0 erro de console**.
+
+**⚠ Não exercitado ao vivo o que não existe ainda:** os 11 perfis do cadastro têm só
+Instagram, então a leva multi-rede foi provada nos testes, não contra contas reais de outras
+redes. A primeira leva de verdade deve ser com **simulação ligada** (é o padrão do
+endpoint).
+
+---
+
 ## 2026-08-29 — Aba "Criar Contas (PC)" sai do menu
 
 Pedido: as contas passam a ser cadastradas pela aba **Contas**.
