@@ -49,7 +49,10 @@ FORMATOS: dict[str, dict] = {
     "vertical": {"nome": "Feed vertical (4:5)",  "px": (1080, 1350), "proporcao": "4:5"},
     "quadrado": {"nome": "Feed quadrado (1:1)",  "px": (1080, 1080), "proporcao": "1:1"},
     "paisagem": {"nome": "Paisagem (16:9)",      "px": (1920, 1080), "proporcao": "16:9"},
-    "pin":      {"nome": "Pin (2:3)",            "px": (1000, 1500), "proporcao": "2:3"},
+    # Nenhuma rede usa 2:3 por padrão desde que Pinterest saiu do registro
+    # (13/10). Fica como formato ESCOLHÍVEL na personalização: tirá-lo faria
+    # uma personalização antiga salva com "pin" cair calada no 9:16.
+    "pin":      {"nome": "Retrato alto (2:3)",   "px": (1000, 1500), "proporcao": "2:3"},
 }
 
 FORMATO_PADRAO = {"story": "story", "feed": "vertical"}

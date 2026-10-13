@@ -173,44 +173,6 @@ REDES: tuple[dict, ...] = (
         "nota": "relevante no Brasil; sem API pública e upload web a confirmar",
     },
     {
-        "id": "linkedin",
-        "nome": "LinkedIn",
-        "transporte": "navegador",
-        "destinos": ("feed",),
-        "formato_padrao": {"feed": "quadrado"},
-        "compositor": "https://www.linkedin.com/feed/",
-        "formatos": ("imagem", "video", "texto"),
-        "legenda_max": 3000,
-        "medido": False,
-        "nota": "a API de publicação exige aprovação da Community "
-                "Management API",
-    },
-    {
-        "id": "pinterest",
-        "nome": "Pinterest",
-        "transporte": "navegador",
-        "destinos": ("feed",),
-        "formato_padrao": {"feed": "pin"},
-        "compositor": "https://www.pinterest.com/pin-builder/",
-        "formatos": ("imagem", "video"),
-        "legenda_max": 500,
-        "medido": False,
-        "nota": "pin precisa de imagem; texto puro não existe aqui",
-    },
-    {
-        "id": "bluesky",
-        "nome": "Bluesky",
-        "transporte": "navegador",
-        "destinos": ("feed",),
-        "formato_padrao": {"feed": "quadrado"},
-        "compositor": "https://bsky.app/",
-        "formatos": ("imagem", "video", "texto"),
-        "legenda_max": 300,
-        "medido": False,
-        "nota": "o AT Protocol é aberto e aceita app password — a mais "
-                "fácil de virar automática de verdade",
-    },
-    {
         "id": "telegram",
         "nome": "Telegram",
         "transporte": "navegador",
@@ -633,7 +595,7 @@ async def _compor_para(d: Alvo, conteudo: dict) -> None:
     """Desenha a arte DESTA rede, no formato dela, e guarda no Alvo.
 
     Roda por rede e não uma vez para todas porque o formato é por rede: a mesma
-    foto vira 4:5 no Instagram, 16:9 no X e 2:3 no Pinterest, e o chip é uma
+    foto vira 4:5 no Instagram, 16:9 no X e 9:16 no TikTok, e o chip é uma
     fração do QUADRO — então ele muda de tamanho junto.
 
     Vídeo passa direto: o compositor é de imagem (Pillow), e mexer num vídeo
