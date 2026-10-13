@@ -7,6 +7,30 @@
 
 ---
 
+## 2026-10-13 (5) — Pinterest, Bluesky e LinkedIn saem do registro
+
+A pedido. **Conferido no banco antes de remover:** 11 contas, todas Instagram, nenhuma nas
+três redes — remoção limpa, sem conta órfã que apareceria como "rede não reconhecida pelo
+app".
+
+Saem de três pontas: `redes.REDES` (11 → 8), o seletor **Plataforma** da aba Contas, e os
+testes que as citavam. Nos testes as assertivas foram **transferidas**, não apagadas: a de
+"texto puro não vai para rede de vídeo" passou do Pinterest para o TikTok; as de story,
+formato e legenda-vazia saíram de Bluesky e LinkedIn para Telegram e Kwai. Apagar a
+assertiva junto com a rede teria removido a cobertura sem ninguém notar.
+
+**O formato `pin` (2:3) fica**, rebatizado "Retrato alto (2:3)". Nenhuma rede o usa por
+padrão agora, mas tirá-lo faria uma personalização antiga salva com `"pin"` cair **calada**
+no 9:16 — `tamanho_do_formato` devolve story para nome desconhecido. Continua escolhível na
+personalização por rede.
+
+Restam **8**: Instagram, Facebook, Threads, X, TikTok, YouTube, Kwai e Telegram.
+
+Validado: 262 asserções, `py_compile`, `node --check`, nenhum nome de função duplicado e
+nenhuma menção às três sobrando no código.
+
+---
+
 ## 2026-10-13 (4) — Uma aba só: editar e publicar juntos, e a leva passa a COMPOR
 
 Relato: *"pra que aba essas mudanças estão indo? não estou vendo e a edição e publicação

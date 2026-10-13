@@ -589,14 +589,14 @@ do arquivo e onde o chip caiu) + `node --check` + aba no navegador sem erro de c
 ## 🌐 UM PERFIL, TODAS AS REDES — publicação na mesma leva (2026-10-13)
 
 O perfil deixou de ser "um navegador com um Instagram" e passou a ser uma **PESSOA**:
-conta no Instagram, Facebook, Threads, X, TikTok, YouTube, Kwai, LinkedIn, Pinterest,
-Bluesky e Telegram. Aba **"Publicar em todas"**; a rede de cada conta é o campo
+conta no Instagram, Facebook, Threads, X, TikTok, YouTube, Kwai e Telegram
+(Pinterest, Bluesky e LinkedIn sairam em 13/10, a pedido). Aba **"Publicar em todas"**; a rede de cada conta é o campo
 **Plataforma** da aba Contas.
 
 **A regra virou "1 conta por perfil POR REDE".** Duas contas da MESMA rede no mesmo
 perfil continuam sendo duas personas num navegador — isso segue desaconselhado.
 
-**`redes.py`** tem o registro das 11 redes (transporte · formatos · limite de legenda ·
+**`redes.py`** tem o registro das 8 redes (transporte · formatos · limite de legenda ·
 `medido`) e o orquestrador. **`montar_plano` é função PURA** e é ela que decide: recusa
 imagem no YouTube, conta "Em uso", legenda de 400 no X de 280 e rede desconhecida
 **antes** de tocar em rede nenhuma, com o motivo escrito na tela. Falha de uma rede
@@ -613,7 +613,7 @@ teriam deixado a rotação **nunca rodar, em silêncio**.
 segundos (padrão 12) porque seis requisições no mesmo milissegundo do mesmo IP é
 assinatura de máquina (lição de 21/08). `espalhar_segundos=0` devolve o simultâneo exato.
 
-**⚠ ESTADO HONESTO — 1 rede automática, 10 assistidas.** Só o Instagram publica sozinho
+**⚠ ESTADO HONESTO — 1 rede automática, 7 assistidas.** Só o Instagram publica sozinho
 (instagrapi, caminho medido). As outras **abrem o compositor na MESMA janela Camoufox**
 (`session_manager.abrir_aba`) e esperam confirmação. Escrever dez fluxos de DOM sem nunca
 ter aberto a tela de cada rede produziria dez seletores inventados. **O campo `medido` no

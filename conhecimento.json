@@ -7,6 +7,14 @@
   },
   "itens": [
     {
+      "area": "contas",
+      "estado": "funciona",
+      "data": "2026-10-13",
+      "titulo": "O registro de redes ficou em 8: Pinterest, Bluesky e LinkedIn sairam",
+      "detalhe": "Restam Instagram, Facebook, Threads, X, TikTok, YouTube, Kwai e Telegram. O formato 'pin' (2:3) fica no catalogo mesmo sem rede usando: tira-lo faria uma personalizacao antiga salva com 'pin' cair calada no 9:16, porque `tamanho_do_formato` devolve story para nome desconhecido.",
+      "evidencia": "Banco conferido antes: 11 contas, todas instagram, zero nas tres redes removidas. As assercoes dos testes foram transferidas para redes equivalentes em vez de apagadas (262 assercoes seguem passando)."
+    },
+    {
       "area": "story",
       "estado": "licao",
       "data": "2026-10-13",
@@ -75,7 +83,7 @@
       "estado": "funciona",
       "data": "2026-10-13",
       "titulo": "O perfil virou PESSOA: uma conta por rede, publicação numa leva só",
-      "detalhe": "A regra deixou de ser \"1 conta por perfil\" e passou a ser 1 conta por perfil POR REDE. `redes.py` tem o registro das 11 redes (transporte, formatos, limite de legenda) e o orquestrador; `montar_plano` é função PURA e é ela que decide quem publica. Uma rotação de IP para a leva inteira — rotacionar entre redes separaria em IPs diferentes contas que são a mesma pessoa.",
+      "detalhe": "A regra deixou de ser \"1 conta por perfil\" e passou a ser 1 conta por perfil POR REDE. `redes.py` tem o registro das redes (transporte, formatos, limite de legenda) e o orquestrador; `montar_plano` é função PURA e é ela que decide quem publica. Uma rotação de IP para a leva inteira — rotacionar entre redes separaria em IPs diferentes contas que são a mesma pessoa.",
       "evidencia": "152 asserções (105 do plano, 19 do banco em SQLite temporário, 28 do orquestrador) + endpoints exercitados ao vivo na instância do usuário + aba conferida no navegador com 0 erro de console."
     },
     {
