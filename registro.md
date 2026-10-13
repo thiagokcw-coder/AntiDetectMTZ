@@ -7,6 +7,58 @@
 
 ---
 
+## 2026-10-13 (3) — A aba virou "Editor de conteúdo", com prévia por rede
+
+Pedido: *"troque o nome da aba story creator, essa aba é para ajustar e editar o conteúdo
+para ser publicado, faltou a visualização para cada rede ao editar"*.
+
+### O nome
+
+**"Story Creator" → "Editor de conteúdo".** Só o rótulo: a rota (`story`), os ids (`st-*`),
+os endpoints (`/story/*`) e o `story.py` ficam — mesmo tratamento do "Seguir" → "InstaFollow"
+em 16/08. O nome antigo tinha deixado de descrever a aba quando ela passou a fazer post de
+feed.
+
+### A prévia, agrupada por FORMATO e não por rede
+
+Cinco formatos cobrem as onze redes. Onze prévias seriam onze imagens quase iguais — o que
+muda entre TikTok e Kwai não é o enquadramento. Cada cartão mostra a proporção, a arte
+encaixada e **quais redes usam aquele formato**; o escolhido tem moldura verde.
+
+**É CSS, não composição de verdade.** `object-fit: contain` sobre uma caixa com
+`aspect-ratio` é exatamente o que o `_encaixar` faz no Pillow, e o chip usa as **mesmas
+coordenadas 0 a 1** do retângulo. Compor cinco artes de 1080px a cada tecla da legenda não
+se paga, e a prévia continua fiel porque reproduz a regra, não a aparência.
+
+Isso torna visível uma coisa que antes só aparecia depois de publicar: **o chip é uma
+fração da TELA, não da arte**. No 16:9 ele atravessa a arte inteira e invade a tarja preta
+das laterais. Está certo — é o que o backend desenha — e agora dá para ver antes.
+
+### O aviso que faz reescrever antes de publicar
+
+Legenda que passa do limite acende em âmbar com o nome da rede e o número. Uma legenda de
+400 caracteres acusa **Bluesky (300)** e **X (280)** — as duas que de fato quebrariam, sem
+alarmar as outras nove.
+
+### Duas decisões contra a divergência
+
+- **`storyTextoDoChip` saiu de dentro do `storyDesenharPrevia`.** O palco e as cinco
+  prévias precisam do MESMO texto do chip; duas cópias da regra divergem na primeira
+  mudança.
+- **O catálogo vem do backend** (`GET /redes`), não de uma lista repetida no JS. Duas
+  listas da mesma verdade divergem na primeira rede que mudar de formato.
+
+### Validado
+
+**11 asserções** do agrupamento, lidas do próprio `index.html` em vez de copiadas (cinco
+prévias para sete redes · story só com Instagram e Facebook · rede sem formato declarado é
+ignorada em vez de virar um grupo `undefined` · catálogo vazio não estoura enquanto o fetch
+não volta), mais as 265 da suíte, `node --check` e a aba conferida no navegador com uma
+arte de teste listrada: as cinco proporções, o encaixe sem esticar, o chip na mesma posição
+relativa e o aviso de legenda. 0 erro de console.
+
+---
+
 ## 2026-10-13 (2) — Story Creator faz post de feed, e cada rede pode ter o seu
 
 Pedido: *"criação de post para feed e a opção de personalizar para cada rede social

@@ -503,7 +503,23 @@ Apagar PERFIL faz **cascata** (api.py remove emails+contas vinculados) → perdi
 ## Aquecimento: só NAVEGADOR no app; CONTA é no celular (2026-06-17)
 Decisão do usuário: o app só aquece o **navegador/perfil** (warm_pool, "Aquecer navegador antes de abrir", botão 🔥 Aquecer na aba Perfis, warmupProfile). O **aquecimento da CONTA** (atividade no IG) passa a ser feito **no celular** — removido da UI: na aba **Contas** (badge "📷 conta fria/✓" e botão "🔥 Aquecer" da conta + linha "Conta aquecida (IG)" e botão no modal de detalhes), e o botão "🔥 Aquecer conta agora"/"Aquecer conta no Instagram" do workspace de criação (já oculto). Mantido o status/aquecimento do **navegador** ("🌐 navegador ✓/frio"). Funções/endpoints mortos (`warmAccount`, `igWarmup`, `igWarmupActive`, `/accounts/{id}/warmup`, `/instagram/warmup`) seguem no código sem botão. "Comece aqui" já dizia "amadureça no Android". **Botão "🔥 Aquecer navegador" na aba Contas** (`warmBrowser` → `/profiles/{id}/warmup-profile`): como o de conta saiu, esse aquece o NAVEGADOR direto da Contas (o "navegador frio" tinha ficado sem ação). Path de API dos endpoints aqui usa `/` normal (os `\` que aparecem no grep/Read são artefato de exibição — confirmado em runtime: `/profiles/{id}/warmup-profile`). **Status/contagem do aquecimento do navegador:** `api._profile_warming` (dict in-memory `{profile_id: epoch_fim}`) setado no `/profiles/{id}/warmup-profile` e limpo no `finally`; `/accounts` injeta `profile_warming:{active,remaining_seconds}`; a aba Contas mostra badge "🔥 aquecendo MM" + botão desabilitado com contagem (atualiza no poll de 3s via `fmtCountdown`).
 
-## 🖼 STORY CREATOR: story E post de feed, com conteudo por rede (2026-10-13)
+## 🖼 EDITOR DE CONTEUDO (ex-"Story Creator"): story E feed, com previa por rede (2026-10-13)
+
+**A aba chama-se "Editor de conteudo"** desde 13/10 — so o ROTULO mudou (rota `story`, ids
+`st-*`, endpoints `/story/*` e `story.py` inalterados, mesmo tratamento do "Seguir" ->
+"InstaFollow"). O nome antigo deixou de descrever a aba quando ela passou a fazer feed.
+
+**Previa por rede, agrupada por FORMATO:** cinco formatos cobrem as onze redes, entao sao
+cinco cartoes (cada um dizendo quais redes usam aquele formato), com o escolhido em verde.
+E **CSS** — `object-fit: contain` sobre `aspect-ratio` e exatamente o que o `_encaixar` faz
+no Pillow, e o chip usa as MESMAS coordenadas 0-1; compor cinco artes de 1080px a cada tecla
+nao se paga. Legenda que passa do limite acende em ambar com a rede e o numero (400
+caracteres acusam Bluesky 300 e X 280). `storyTextoDoChip` e o catalogo vindo de `/redes`
+existem para o palco e as previas nao poderem divergir. **Isso tornou visivel que o chip e
+fracao da TELA, nao da arte** — no 16:9 ele invade a tarja preta das laterais, o que esta
+correto e so aparecia depois de publicar.
+
+### Historico — story E post de feed, com conteudo por rede (2026-10-13)
 
 O motor de composicao era **9:16 travado**. Hoje `story.FORMATOS` tem **story** (9:16),
 **vertical** (4:5 — o retrato mais alto que o Instagram aceita sem cortar), **quadrado**

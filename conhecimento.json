@@ -10,6 +10,22 @@
       "area": "story",
       "estado": "funciona",
       "data": "2026-10-13",
+      "titulo": "A aba virou \"Editor de conteudo\", com previa por formato",
+      "detalhe": "Cinco formatos cobrem as onze redes, entao a previa e agrupada por FORMATO e nao por rede — onze previas seriam onze imagens quase iguais. E CSS (`object-fit: contain` sobre `aspect-ratio`), que e exatamente o que o `_encaixar` faz no Pillow, com o chip nas MESMAS coordenadas 0-1. Legenda que passa do limite acende em ambar com o nome da rede e o numero.",
+      "evidencia": "11 asserções do agrupamento lidas do proprio index.html + conferido no navegador com arte listrada (TOPO/MEIO/BASE): as cinco proporcoes, o encaixe sem esticar e o chip na mesma posicao relativa."
+    },
+    {
+      "area": "story",
+      "estado": "sinal",
+      "data": "2026-10-13",
+      "titulo": "O chip e uma fracao da TELA, nao da arte",
+      "detalhe": "No 16:9 ele atravessa a arte inteira e invade a tarja preta das laterais, porque as coordenadas 0-1 sao do quadro composto e nao da imagem enviada. Esta correto — e o que o backend desenha — mas so ficava visivel depois de publicar.",
+      "evidencia": "Previa por formato conferida no navegador: mesma arte 9:16 em 4:5, 1:1, 16:9, 9:16 e 2:3, com o chip no mesmo retangulo relativo em todos."
+    },
+    {
+      "area": "story",
+      "estado": "funciona",
+      "data": "2026-10-13",
       "titulo": "O Story Creator faz post de feed, e cada rede pode ter conteudo proprio",
       "detalhe": "Formatos: story 9:16, feed vertical 4:5 (o retrato mais alto que o Instagram aceita sem cortar), quadrado 1:1, paisagem 16:9 e pin 2:3. `conteudo_da_rede` mescla legenda/link/arquivo/formato/destino de cada rede por cima do comum — e o limite de legenda e conferido contra a legenda DA REDE, senao personalizar para caber nos 280 do X nao adiantaria nada.",
       "evidencia": "255 asserções, das quais 20 compondo de verdade em cada formato e conferindo os pixels do arquivo gerado e onde o chip caiu."
