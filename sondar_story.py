@@ -128,6 +128,14 @@ def _cliente(conta, perfil, sessionid):
 
     cl.login_by_sessionid(sessionid)          # NÃO é login: reusa a sessão
     cl.dump_settings(arquivo)
+
+    # O `qe/expose/` da instagrapi dá 404 (o Instagram apagou o endpoint) e ele
+    # roda DEPOIS de a story já estar configurada — ver `story._calar_expose`,
+    # que é a explicação completa. Esta sonda publica com o cliente dela, então
+    # precisa do mesmo silenciamento, senão a sonda reporta falha numa story
+    # que subiu.
+    import story as _story
+    _story._calar_expose(cl)
     return cl
 
 

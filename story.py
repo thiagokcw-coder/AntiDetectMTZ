@@ -333,7 +333,43 @@ def cliente(perfil: dict):
         cl.dump_settings(arq)
     except Exception:
         pass
+
+    _calar_expose(cl)
     return cl
+
+
+def _calar_expose(cl) -> None:
+    """Desliga o `expose()` da instagrapi — o Instagram apagou esse endpoint.
+
+    Medido em 13/10, publicando story de verdade:
+    `ClientNotFoundError: 404 Client Error: Not Found for url:
+    https://i.instagram.com/api/v1/qe/expose/`
+
+    **O 404 acontece DEPOIS da publicação, não antes.** Em
+    `instagrapi/mixins/photo.py:636` a ordem é:
+
+        configured = self.photo_configure_to_story(...)
+        if configured:
+            self.expose()                       # <- estoura aqui
+            return self._extract_configured_story_or_recent(...)
+
+    Ou seja: a story já tinha sido configurada (`configured` veio verdadeiro) e
+    a exceção derrubou só o RETORNO. Quem usa via o erro e republicava, gerando
+    story duplicada — o erro mentia sobre o que tinha acontecido.
+
+    `expose` não faz parte da publicação: ela só informa ao Instagram que o
+    aparelho foi exposto a um experimento (`ig_android_profile_contextual_feed`).
+    Não pular, e sim engolir a exceção, custaria um 404 na API privada a cada
+    publicação — e 404 na API privada é justamente o sinal que este projeto
+    trata como risco. Então não se chama.
+
+    Só o NOSSO cliente é alterado. Remendar o pacote dentro do `venv/` sumiria
+    no próximo `pip install` e não está versionado.
+    """
+    try:
+        cl.expose = lambda: {}
+    except Exception:
+        pass
 
 
 def publicar(perfil: dict, caminho: str, link: str,
