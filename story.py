@@ -236,10 +236,25 @@ def _desenhar_card(img: Image.Image, mini: Image.Image, username: str,
     img.paste(cartao, (x0, y0), mascara)
 
 
+def _salvar(img, L: int, A: int) -> dict:
+    """Grava a arte composta e devolve o que a tela precisa saber.
+
+    Virou função quando o chip passou a ser opcional: eram três saídas do
+    `compor` repetindo o mesmo bloco, e três cópias de "como se grava" é como
+    uma delas fica para trás na próxima mudança.
+    """
+    PASTA.mkdir(parents=True, exist_ok=True)
+    nome = "arte_%d.jpg" % int(time.time() * 1000)
+    caminho = PASTA / nome
+    img.save(caminho, "JPEG", quality=92)
+    return {"arquivo": nome, "caminho": str(caminho),
+            "largura_px": L, "altura_px": A}
+
+
 def compor(dados: bytes, link: str, x: float, y: float,
            largura: float, altura: float, rotulo: str = "",
            post: dict = None, mini_bytes: bytes = None,
-           tamanho: tuple = None) -> dict:
+           tamanho: tuple = None, com_chip: bool = True) -> dict:
     """Desenha os stickers na imagem e devolve o arquivo pronto para publicar.
 
     x/y são o CENTRO do retângulo, e largura/altura o tamanho — todos de 0 a 1,
@@ -268,16 +283,18 @@ def compor(dados: bytes, link: str, x: float, y: float,
 
     d = ImageDraw.Draw(img, "RGBA")
 
+    # SEM CHIP: a arte sobe como está. Nasceu de uma arte que já trazia o
+    # destino escrito nela -- desenhar um chip por cima tapava justamente o que
+    # a peça dizia. Também vale para post de feed, onde o chip não é tocavel de
+    # qualquer jeito.
+    if not com_chip and not post:
+        return _salvar(img, L, A)
+
     if post and mini is not None:
         _desenhar_card(img, mini, post.get("username", ""), cx, cy, cw, ch)
         d = ImageDraw.Draw(img, "RGBA")
-        if not (link or "").strip():
-            PASTA.mkdir(parents=True, exist_ok=True)
-            nome = "arte_%d.jpg" % int(time.time() * 1000)
-            caminho = PASTA / nome
-            img.save(caminho, "JPEG", quality=92)
-            return {"arquivo": nome, "caminho": str(caminho),
-                    "largura_px": L, "altura_px": A}
+        if not com_chip or not (link or "").strip():
+            return _salvar(img, L, A)
         # O chip desce para debaixo do card, com folga — e as coordenadas do link
         # acompanham, senao o desenho e a area tocavel se separariam.
         ch = min(ch, A * 0.075)
@@ -305,12 +322,7 @@ def compor(dados: bytes, link: str, x: float, y: float,
     d.text((cx - (x1 - x0) / 2 - x0, cy - (y1 - y0) / 2 - y0), texto,
            font=fonte, fill=(20, 20, 20, 255))
 
-    PASTA.mkdir(parents=True, exist_ok=True)
-    nome = "arte_%d.jpg" % int(time.time() * 1000)
-    caminho = PASTA / nome
-    img.save(caminho, "JPEG", quality=92)
-    saida = {"arquivo": nome, "caminho": str(caminho),
-             "largura_px": L, "altura_px": A}
+    saida = _salvar(img, L, A)
     if post:
         # Onde o chip do link REALMENTE ficou, para o publicar mandar a area
         # tocavel no mesmo lugar do desenho.
@@ -457,9 +469,10 @@ def publicar(perfil: dict, caminho: str, link: str,
                                    user_id=int(post["user_id"]) if post.get("user_id") else None,
                                    media_code=post.get("media_code") or None,
                                    x=x, y=y, width=largura, height=altura)]
-    if not kw:
-        raise ValueError("nada para publicar: sem link e sem publicação a repostar")
-
+    # Story SEM sticker nenhum é uma story válida — é a mais comum que existe.
+    # A trava antiga exigia link ou repost, e impedia publicar uma arte que já
+    # trazia o destino escrito nela (foi assim que o caso apareceu).
     story = cl.photo_upload_to_story(Path(caminho), **kw)
     return {"pk": str(story.pk), "conta": cl.username, "destino": "story",
-            "repostou": bool(post), "com_link": "links" in kw}
+            "repostou": bool(post), "com_link": "links" in kw,
+            "simples": not kw}

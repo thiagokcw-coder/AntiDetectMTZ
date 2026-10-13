@@ -5378,7 +5378,7 @@ async def story_compor(imagem: UploadFile = File(None), link: str = Form(""),
                        x: float = Form(0.5), y: float = Form(0.75),
                        largura: float = Form(0.62), altura: float = Form(0.08),
                        rotulo: str = Form(""), post_json: str = Form(""),
-                       formato: str = Form("story")):
+                       formato: str = Form("story"), com_chip: bool = Form(True)):
     """Desenha os stickers na arte. Nao publica e nao toca o Instagram.
 
     `post_json` vem do /story/resolver-post; com ele o retangulo vira o CARD da
@@ -5401,7 +5401,8 @@ async def story_compor(imagem: UploadFile = File(None), link: str = Form(""),
         raise HTTPException(400, "Envie uma imagem ou busque uma publicacao para repostar")
     try:
         return story_mod.compor(dados, link, x, y, largura, altura, rotulo, post, mini,
-                                tamanho=story_mod.tamanho_do_formato(formato))
+                                tamanho=story_mod.tamanho_do_formato(formato),
+                                com_chip=com_chip)
     except ValueError as e:
         raise HTTPException(400, str(e))
     except Exception as e:

@@ -385,11 +385,14 @@
             <div id="st-post-info" class="form-hint" style="margin-top:3px"></div>
           </div>
           <div style="flex:1;min-width:200px">
-            <div style="font-size:11px;color:var(--muted);margin-bottom:3px">Link do sticker</div>
+            <label style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--muted);margin-bottom:3px;cursor:pointer">
+              <input type="checkbox" id="st-com-chip" checked onchange="storyTrocouChip()">
+              <span>Chip de link na arte</span>
+            </label>
             <input id="st-link" value="https://wa.me/" placeholder="cole aqui: wa.me/5551… ou o link de uma publicação" oninput="storyAutoDetectar()"
                    style="width:100%;box-sizing:border-box;padding:8px 10px;background:var(--surface);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px">
           </div>
-          <div style="flex:1;min-width:160px">
+          <div style="flex:1;min-width:160px" id="st-rotulo-caixa">
             <div style="font-size:11px;color:var(--muted);margin-bottom:3px">Texto do chip (opcional)</div>
             <input id="st-rotulo" placeholder="ex.: ENTRE NO GRUPO" oninput="storyDesenharPrevia()" style="width:100%;box-sizing:border-box;padding:8px 10px;background:var(--surface);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px">
           </div>
@@ -4588,6 +4591,14 @@ function storyBotaoPublicar(pronto, motivo) {
 function storyAplicarRect() {
   const img = document.getElementById('st-img');
   const r = document.getElementById('st-rect');
+  if (!r) return;
+  // Sem chip e sem repost não há o que posicionar: o retângulo some, em vez de
+  // ficar na tela sugerindo que alguma coisa vai ser desenhada ali. Quem
+  // decide a visibilidade é esta função, nos DOIS sentidos — só esconder
+  // deixaria o retângulo sumido para sempre ao remarcar a caixa.
+  const mostrar = (storyComChip() || !!_stPost) && !!img && img.style.display !== 'none';
+  r.style.display = mostrar ? '' : 'none';
+  if (!mostrar) return;
   const L = img.clientWidth, A = img.clientHeight;
   if (!L || !A) return;
   const w = _stRect.largura * L, h = _stRect.altura * A;
@@ -4642,6 +4653,34 @@ function storyTrocouDestino() {
   if (_stArquivoComposto) {
     _stArquivoComposto = null;
     storyBotaoPublicar(false, '⬅ formato novo — componha de novo');
+    document.getElementById('st-resultado').innerHTML = '';
+  }
+  storyAplicarRect();
+}
+
+/** O chip de link e OPCIONAL.
+ *
+ * Arte que ja traz o destino escrito nela nao quer um retangulo branco por
+ * cima -- foi assim que o caso apareceu, com o chip tapando o "GRUPO DO
+ * WHATSAPP" da propria peca. Desmarcado: o retangulo some da previa, o campo
+ * de link sai de cena e a arte sobe como esta. */
+function storyComChip() {
+  const c = document.getElementById('st-com-chip');
+  return !c || c.checked;
+}
+
+function storyTrocouChip() {
+  const on = storyComChip();
+  const caixa = document.getElementById('st-link')?.parentElement;
+  if (caixa) caixa.style.opacity = on ? '1' : '.45';
+  document.getElementById('st-link').disabled = !on;
+  const rot = document.getElementById('st-rotulo-caixa');
+  if (rot) rot.style.display = on ? '' : 'none';
+  // Arte composta com o chip antigo nao vale mais.
+  if (_stArquivoComposto) {
+    _stArquivoComposto = null;
+    storyBotaoPublicar(false, on ? '\u2b05 chip ligado \u2014 componha de novo'
+                                 : '\u2b05 chip desligado \u2014 componha de novo');
     document.getElementById('st-resultado').innerHTML = '';
   }
   storyAplicarRect();
@@ -4780,17 +4819,20 @@ async function storyCompor(btn) {
   const status = document.getElementById('st-status');
   const temLink = link && link !== 'https://wa.me/';
   if (!arq && !_stPost) { toast('Escolha uma imagem ou busque uma publicação', 'error'); return; }
-  if (!temLink && !_stPost) { toast('Escreva o link do sticker', 'error'); return; }
+  // O link so e exigido quando o chip esta ligado: sem chip nao ha para onde
+  // ele iria.
+  if (storyComChip() && !temLink && !_stPost) { toast('Escreva o link do sticker, ou desmarque "Chip de link na arte"', 'error'); return; }
   const stop = runBtnCountdown(btn, 6);
   try {
     const fd = new FormData();
     if (arq) fd.append('imagem', arq);
-    fd.append('link', temLink ? link : '');
+    fd.append('link', (storyComChip() && temLink) ? link : '');
     if (_stPost) fd.append('post_json', JSON.stringify(_stPost));
     fd.append('x', _stRect.x); fd.append('y', _stRect.y);
     fd.append('largura', _stRect.largura); fd.append('altura', _stRect.altura);
     fd.append('rotulo', (document.getElementById('st-rotulo').value || '').trim());
     fd.append('formato', storyDestino().formato);
+    fd.append('com_chip', storyComChip() ? 'true' : 'false');
     const resp = await fetch('/story/compor', { method: 'POST', body: fd });
     if (!resp.ok) throw new Error((await resp.json().catch(() => ({}))).detail || ('HTTP ' + resp.status));
     const r = await resp.json();
@@ -4818,7 +4860,7 @@ async function storyPublicar(btn) {
   try {
     const r = await api('POST', '/story/publicar', {
       profile_id: pid, arquivo: _stArquivoComposto,
-      link: (link && link !== 'https://wa.me/') ? link : '',
+      link: (storyComChip() && link && link !== 'https://wa.me/') ? link : '',
       x: _stRect.x, y: _stRect.y, largura: _stRect.largura, altura: _stRect.altura,
       post: _stPost, link_rect: _stLinkRect,
       destino: storyDestino().destino,
