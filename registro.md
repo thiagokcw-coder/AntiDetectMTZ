@@ -7,6 +7,93 @@
 
 ---
 
+## 2026-10-13 (2) — Story Creator faz post de feed, e cada rede pode ter o seu
+
+Pedido: *"criação de post para feed e a opção de personalizar para cada rede social
+específica"*.
+
+### O motor de composição era 9:16 travado
+
+`LARGURA, ALTURA = 1080, 1920` eram constantes usadas direto no corpo do `compor`, do
+`_encaixar` e do `_fundo_do_post`. Viraram parâmetro. Formatos: **story** (9:16),
+**vertical** (4:5 — o retrato mais alto que o Instagram aceita sem cortar, ou seja, o
+maior espaço de tela por publicação), **quadrado** (1:1), **paisagem** (16:9) e **pin**
+(2:3).
+
+### Feed no Instagram, e a verdade sobre o link
+
+`story.publicar` ganhou `destino`. Em feed chama `photo_upload(path, caption=...)`.
+
+**O feed do Instagram não tem link clicável — nem na legenda.** Então, em feed, o chip
+continua sendo DESENHADO na arte (é ele que avisa a pessoa para onde ir) e **nenhum
+sticker é enviado**, porque não existe sticker para enviar. A resposta e a tela dizem isso
+em voz alta. Fingir que há link produziria uma publicação que *parece* ter link e não tem
+— que é o mesmo defeito do primeiro story de 28/08, só que invertido.
+
+Pelo mesmo motivo o repost muda de natureza: `StoryMedia` é sticker de story. No feed o
+card da publicação de outra pessoa fica só desenhado.
+
+### A personalização por rede
+
+`conteudo_da_rede` (função pura) mescla `{legenda, link, arquivo, formato, destino}` de
+cada rede por cima do conteúdo comum. Duas decisões que não são óbvias:
+
+- **String vazia é escolha, não herança.** Só a AUSÊNCIA da chave herda. Sem isso não
+  haveria como deixar uma rede sem legenda, que é metade do motivo de existir
+  personalização.
+- **O limite de legenda é conferido contra a legenda DA REDE**, não a comum. Senão
+  personalizar para caber nos 280 do X não adiantaria nada — e era exatamente o caso que
+  o usuário teria encontrado primeiro.
+
+O plano devolve quais campos foram trocados (`personalizado`), para a tela distinguir quem
+herdou de quem reescreveu. Os campos do painel nascem com o valor **efetivo** daquela rede
+— campo vazio sugeriria "esta rede vai sem legenda" quando ela vai com a comum. E quem
+calcula o efetivo é o backend: se a tela recalculasse, a prévia e a publicação poderiam
+divergir, e seria a prévia que o usuário leria.
+
+### Destino virou portão
+
+Story só existe no Instagram e no Facebook. As outras nove são recusadas com motivo, em
+vez de receberem uma arte 9:16 num lugar que não é 9:16. **O padrão da leva é `feed`**, não
+story: nove das onze redes não têm story nenhum, e "publicar" sem dizer mais nada significa
+uma publicação normal.
+
+### 🩸 A prévia estava desalinhada, e os formatos tornariam isso visível
+
+O retângulo é posicionado em coordenadas de 0 a 1 **relativas à caixa da prévia** — e a
+caixa mostrava a imagem ENVIADA. Mandar uma foto quadrada para um story 9:16 colocava o
+chip num lugar na tela e em outro na arte: o mesmo desalinhamento entre desenho e toque que
+custou o primeiro story de link, chegando por outro caminho.
+
+A prévia agora tem a proporção do **destino**, com `object-fit: contain` sobre uma caixa
+com `aspect-ratio` — que é exatamente o que o `_encaixar` faz no Pillow. Trocar de formato
+também invalida a arte composta e trava o botão com o motivo, porque publicar 9:16 num post
+1:1 seria pior que pedir para compor de novo.
+
+### Um nome que tinha virado dois sentidos
+
+A dataclass `Destino` (a rede da leva) virou **`Alvo`**. Com feed/story em cena, "destino"
+passou a significar outra coisa, e duas acepções da mesma palavra no mesmo arquivo é como
+se lê errado.
+
+### Validado
+
+**255 asserções**: 105 do plano · 19 do banco · 28 do orquestrador · 9 do `expose` · 62 da
+personalização · 12 do botão · **20 compondo DE VERDADE** em cada formato, conferindo os
+pixels do arquivo gerado e onde o chip caiu. Mais `py_compile`, `node --check` e a aba no
+navegador (o seletor troca proporção, legenda, aviso e rótulo do botão) com 0 erro de
+console.
+
+Duas fragilidades dos meus próprios testes, corrigidas: `asyncio.sleep(1)` volta em ~0,99s
+no Windows (a asserção cobrava `>= 1.0`), e o pixel do CENTRO do chip é o **texto**, que é
+escuro de propósito — amostrar ali media a glifa, não o chip.
+
+**⚠ Não medido:** o `photo_upload` em feed nunca rodou contra o Instagram. E `photo_upload`
+aceita `share_to_facebook` e `share_to_threads` — se funcionarem, duas redes saem do
+assistido de graça. **Não testado**, e por isso não está ligado.
+
+---
+
 ## 2026-10-13 — O perfil virou PESSOA: conta em todas as redes, publicação numa leva só
 
 Pedido: *"cada perfil terá contas em todas as redes sociais não só instagram… e ao postar

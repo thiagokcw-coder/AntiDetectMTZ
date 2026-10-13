@@ -7,6 +7,38 @@
   },
   "itens": [
     {
+      "area": "story",
+      "estado": "funciona",
+      "data": "2026-10-13",
+      "titulo": "O Story Creator faz post de feed, e cada rede pode ter conteudo proprio",
+      "detalhe": "Formatos: story 9:16, feed vertical 4:5 (o retrato mais alto que o Instagram aceita sem cortar), quadrado 1:1, paisagem 16:9 e pin 2:3. `conteudo_da_rede` mescla legenda/link/arquivo/formato/destino de cada rede por cima do comum — e o limite de legenda e conferido contra a legenda DA REDE, senao personalizar para caber nos 280 do X nao adiantaria nada.",
+      "evidencia": "255 asserções, das quais 20 compondo de verdade em cada formato e conferindo os pixels do arquivo gerado e onde o chip caiu."
+    },
+    {
+      "area": "story",
+      "estado": "nao_funciona",
+      "data": "2026-10-13",
+      "titulo": "O feed do Instagram nao tem link clicavel — nem na legenda",
+      "detalhe": "No story, `StoryLink` cria area tocavel de verdade. No feed nao existe equivalente. Em `destino=feed` o chip continua DESENHADO na arte (e ele que avisa para onde ir) e nenhum sticker e enviado. Quem leva a pessoa ao destino e o texto da legenda, que ela copia — nao o toque.",
+      "evidencia": "`story.publicar` com destino=feed chama `photo_upload(path, caption)` e devolve `com_link: false` mais um aviso explicito. A publicacao em feed ainda nao rodou contra o Instagram."
+    },
+    {
+      "area": "story",
+      "estado": "licao",
+      "data": "2026-10-13",
+      "titulo": "Previa com proporcao diferente da arte desalinha o chip, de novo",
+      "detalhe": "O retangulo e posicionado em coordenadas 0-1 relativas a caixa da previa, que mostrava a imagem ENVIADA. Foto quadrada para story 9:16 punha o chip num lugar na tela e em outro na arte — o mesmo desalinhamento entre desenho e area tocavel que custou o primeiro story de link em 28/08, chegando por outro caminho.",
+      "evidencia": "A previa passou a ter a proporcao do destino com `object-fit: contain`, que reproduz o que `_encaixar` faz no Pillow. Conferido no navegador: o seletor troca o aspect-ratio da caixa (1080/1920, 1080/1350, 1080/1080, 1920/1080)."
+    },
+    {
+      "area": "story",
+      "estado": "aberto",
+      "data": "2026-10-13",
+      "titulo": "photo_upload aceita share_to_facebook e share_to_threads",
+      "detalhe": "Se funcionarem, o proprio Instagram cruza a publicacao para duas redes que hoje estao no modo assistido — de graca, sem fluxo de DOM nenhum. Provavelmente exige as contas ligadas na Central de Contas da Meta.",
+      "evidencia": "Parametros vistos na assinatura de `instagrapi.mixins.photo.UploadPhotoMixin.photo_upload` (versao 2.18.15). NAO testado, e por isso nao esta ligado."
+    },
+    {
       "area": "contas",
       "estado": "funciona",
       "data": "2026-10-13",

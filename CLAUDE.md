@@ -503,6 +503,45 @@ Apagar PERFIL faz **cascata** (api.py remove emails+contas vinculados) → perdi
 ## Aquecimento: só NAVEGADOR no app; CONTA é no celular (2026-06-17)
 Decisão do usuário: o app só aquece o **navegador/perfil** (warm_pool, "Aquecer navegador antes de abrir", botão 🔥 Aquecer na aba Perfis, warmupProfile). O **aquecimento da CONTA** (atividade no IG) passa a ser feito **no celular** — removido da UI: na aba **Contas** (badge "📷 conta fria/✓" e botão "🔥 Aquecer" da conta + linha "Conta aquecida (IG)" e botão no modal de detalhes), e o botão "🔥 Aquecer conta agora"/"Aquecer conta no Instagram" do workspace de criação (já oculto). Mantido o status/aquecimento do **navegador** ("🌐 navegador ✓/frio"). Funções/endpoints mortos (`warmAccount`, `igWarmup`, `igWarmupActive`, `/accounts/{id}/warmup`, `/instagram/warmup`) seguem no código sem botão. "Comece aqui" já dizia "amadureça no Android". **Botão "🔥 Aquecer navegador" na aba Contas** (`warmBrowser` → `/profiles/{id}/warmup-profile`): como o de conta saiu, esse aquece o NAVEGADOR direto da Contas (o "navegador frio" tinha ficado sem ação). Path de API dos endpoints aqui usa `/` normal (os `\` que aparecem no grep/Read são artefato de exibição — confirmado em runtime: `/profiles/{id}/warmup-profile`). **Status/contagem do aquecimento do navegador:** `api._profile_warming` (dict in-memory `{profile_id: epoch_fim}`) setado no `/profiles/{id}/warmup-profile` e limpo no `finally`; `/accounts` injeta `profile_warming:{active,remaining_seconds}`; a aba Contas mostra badge "🔥 aquecendo MM" + botão desabilitado com contagem (atualiza no poll de 3s via `fmtCountdown`).
 
+## 🖼 STORY CREATOR: story E post de feed, com conteudo por rede (2026-10-13)
+
+O motor de composicao era **9:16 travado**. Hoje `story.FORMATOS` tem **story** (9:16),
+**vertical** (4:5 — o retrato mais alto que o Instagram aceita sem cortar), **quadrado**
+(1:1), **paisagem** (16:9) e **pin** (2:3); `_encaixar` e `_fundo_do_post` recebem o
+tamanho. `story.publicar(destino=...)` faz story (`photo_upload_to_story`) ou feed
+(`photo_upload`, com legenda).
+
+**⚠ O FEED DO INSTAGRAM NAO TEM LINK CLICAVEL — nem na legenda.** Em `destino=feed` o chip
+continua DESENHADO na arte e **nenhum sticker e enviado**, com aviso na resposta e na tela.
+Fingir que ha link produziria publicacao que parece ter link e nao tem. Pelo mesmo motivo o
+repost no feed e so desenho: `StoryMedia` e sticker de story.
+
+**Personalizacao por rede** (`redes.conteudo_da_rede`, pura): `{legenda, link, arquivo,
+formato, destino}` de cada rede por cima do conteudo comum. Duas regras que nao sao
+obvias — **string vazia e escolha, nao heranca** (so a ausencia da chave herda, senao nao
+daria para deixar uma rede sem legenda), e **o limite de legenda e conferido contra a
+legenda DA REDE** (senao personalizar para caber nos 280 do X nao adiantaria nada). O plano
+devolve quais campos foram trocados, e o painel nasce com o valor EFETIVO — calculado no
+backend, nunca recalculado na tela.
+
+**Destino e portao:** story so existe no Instagram e no Facebook; as outras nove sao
+recusadas com motivo. **O padrao da leva e `feed`**, nao story.
+
+**🩸 A previa estava desalinhada.** O retangulo usa coordenadas 0-1 relativas a caixa da
+previa, que mostrava a imagem ENVIADA — foto quadrada para story 9:16 punha o chip num
+lugar na tela e em outro na arte, o mesmo erro de 28/08 por outro caminho. A previa agora
+tem a proporcao do DESTINO (`object-fit: contain`, que e o que `_encaixar` faz), e trocar
+de formato invalida a arte composta.
+
+A dataclass `Destino` virou **`Alvo`**: com feed/story em cena, dois sentidos para a mesma
+palavra no mesmo arquivo e como se le errado.
+
+**Validado:** 255 assercoes (105 plano · 19 banco · 28 orquestrador · 9 expose · 62
+personalizacao · 12 botao · **20 compondo de verdade** em cada formato, conferindo pixels
+do arquivo e onde o chip caiu) + `node --check` + aba no navegador sem erro de console.
+**⚠ O feed nunca rodou contra o Instagram.** E `photo_upload` aceita `share_to_facebook` /
+`share_to_threads` — se funcionarem, duas redes saem do assistido de graca; **nao testado**.
+
 ## 🌐 UM PERFIL, TODAS AS REDES — publicação na mesma leva (2026-10-13)
 
 O perfil deixou de ser "um navegador com um Instagram" e passou a ser uma **PESSOA**:
