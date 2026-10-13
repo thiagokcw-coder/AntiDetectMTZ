@@ -306,7 +306,7 @@
     </div>
     <div class="nav-item" data-page-link="story" onclick="showPage('story')">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="4"/><circle cx="12" cy="12" r="3"/><path d="M8 21h8"/></svg>
-      Story Creator
+      Editor de conteúdo
     </div>
     <div class="nav-item" data-page-link="publicar" onclick="showPage('publicar')">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z"/></svg>
@@ -365,8 +365,8 @@
     <div class="page" id="page-story">
       <div class="page-header">
         <div>
-          <div class="page-title">Story Creator</div>
-          <div class="page-sub">Publica story com sticker de link, pela sessão que o perfil já tem — sem login novo.</div>
+          <div class="page-title">Editor de conteúdo</div>
+          <div class="page-sub">Ajusta a arte e o texto antes de publicar — story ou post de feed, com a prévia de como fica em cada rede.</div>
         </div>
       </div>
 
@@ -412,7 +412,7 @@
         </div>
         <div id="st-legenda-caixa" style="margin-top:10px;display:none">
           <div style="font-size:11px;color:var(--muted);margin-bottom:3px">Legenda do post</div>
-          <textarea id="st-legenda" rows="2" placeholder="O feed do Instagram não tem link clicável — cole o link aqui, é por onde a pessoa copia."
+          <textarea id="st-legenda" rows="2" oninput="storyPrevias()" placeholder="O feed do Instagram não tem link clicável — cole o link aqui, é por onde a pessoa copia."
                     style="width:100%;box-sizing:border-box;padding:8px 10px;background:var(--surface);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;resize:vertical"></textarea>
         </div>
         <div id="st-aviso-feed" class="form-hint" style="margin-top:6px;display:none;color:#f59e0b">
@@ -434,6 +434,13 @@
           </div>
         </div>
         <div id="st-coords" class="form-hint" style="margin-top:8px"></div>
+      </div>
+
+      <div class="card" style="margin-bottom:14px">
+        <div style="font-weight:600;font-size:13px;margin-bottom:2px">Como fica em cada rede</div>
+        <div class="form-hint" style="margin-bottom:10px">Uma prévia por <b>formato</b>, com as redes que usam cada um. O encaixe é o mesmo do backend: a arte inteira cabe e a sobra vira fundo — nada é esticado. A moldura <span style="color:#22c55e">verde</span> é o formato escolhido acima.</div>
+        <div id="st-previas" style="display:flex;flex-wrap:wrap;gap:12px"></div>
+        <div id="st-previas-vazio" class="form-hint">Escolha uma imagem para ver as prévias.</div>
       </div>
 
       <div class="card">
@@ -4525,7 +4532,7 @@ async function cadastrarContaDetectada(pid, username, btn) {
   } catch (e) { stop(); toast(e.message || 'Erro ao cadastrar', 'error'); }
 }
 
-// ── Story Creator ─────────────────────────────────────────
+// ── Editor de conteúdo (antigo "Story Creator") ──────────
 // O chip do link tem que estar DESENHADO na arte: pela API o Instagram guarda so
 // a regiao tocavel, e quem desenha o sticker e o app. Medido em 28/08 -- o
 // primeiro story publicado teve o link funcionando e invisivel.
@@ -4535,8 +4542,20 @@ let _stLinkRect = null;
 // StoryLink da instagrapi interpreta. Mesma convencao dos dois lados de proposito.
 let _stRect = { x: 0.5, y: 0.75, largura: 0.62, altura: 0.08 };
 
+// Catalogo das redes, para saber QUAIS redes usam cada formato e qual e o
+// limite de legenda de cada uma. Vem do backend (`redes.REDES` + `story.FORMATOS`)
+// em vez de ser repetido aqui: duas listas da mesma verdade divergem na
+// primeira rede que mudar de formato.
+let _stRedes = [];
+let _stFormatos = {};
+
 async function loadStoryCreator() {
   try {
+    api('GET', '/redes').then(c => {
+      _stRedes = c.redes || [];
+      _stFormatos = c.formatos || {};
+      storyPrevias();
+    }).catch(() => {});
     const r = await api('GET', '/story/contas');
     const sel = document.getElementById('st-conta');
     sel.innerHTML = (r.contas || []).map(c =>
@@ -4598,6 +4617,7 @@ function storyAplicarRect() {
   // deixaria o retângulo sumido para sempre ao remarcar a caixa.
   const mostrar = (storyComChip() || !!_stPost) && !!img && img.style.display !== 'none';
   r.style.display = mostrar ? '' : 'none';
+  storyPrevias();
   if (!mostrar) return;
   const L = img.clientWidth, A = img.clientHeight;
   if (!L || !A) return;
@@ -4686,21 +4706,97 @@ function storyTrocouChip() {
   storyAplicarRect();
 }
 
+/** Quais redes usam cada formato, a partir do catalogo.
+ *
+ * Agrupa por FORMATO e nao por rede: onze previas seriam onze imagens quase
+ * iguais (cinco formatos cobrem as onze redes), e o que muda de verdade entre
+ * TikTok e Kwai nao e o enquadramento. Agrupado, da para ver de relance que o
+ * X vai cortar diferente do Instagram. */
+function storyRedesPorFormato(destino) {
+  const mapa = {};
+  for (const r of _stRedes) {
+    if (!(r.destinos || []).includes(destino)) continue;
+    const f = (r.formato_padrao || {})[destino];
+    if (!f) continue;
+    (mapa[f] = mapa[f] || []).push(r);
+  }
+  return mapa;
+}
+
+/** As previas por formato: mesmo encaixe do backend, mesmo chip, mesma posicao.
+ *
+ * CSS e nao imagem composta de verdade: `object-fit: contain` sobre uma caixa
+ * com `aspect-ratio` e exatamente o que o `_encaixar` faz no Pillow, e o chip
+ * usa as MESMAS coordenadas 0-1 do retangulo. Compor cinco artes a cada tecla
+ * custaria cinco JPEGs de 1080px por digito da legenda. */
+function storyPrevias() {
+  const alvo = document.getElementById('st-previas');
+  const vazio = document.getElementById('st-previas-vazio');
+  if (!alvo) return;
+  const img = document.getElementById('st-img');
+  const temImagem = img && img.src && img.style.display !== 'none';
+  vazio.style.display = temImagem ? 'none' : '';
+  if (!temImagem) { alvo.innerHTML = ''; return; }
+
+  const { destino, formato } = storyDestino();
+  const porFormato = storyRedesPorFormato(destino);
+  // O formato escolhido aparece SEMPRE, mesmo que nenhuma rede cadastrada o
+  // use -- e o que vai ser composto de fato.
+  if (!porFormato[formato]) porFormato[formato] = [];
+
+  const chip = storyComChip();
+  const texto = storyTextoDoChip();
+  const legenda = (document.getElementById('st-legenda')?.value || '');
+
+  alvo.innerHTML = Object.entries(porFormato).map(([f, redes]) => {
+    const meta = _stFormatos[f] || {};
+    const px = meta.px || [1080, 1920];
+    const escolhido = f === formato;
+    const nomes = redes.map(r => r.nome).join(', ') || '—';
+    // Quem estoura o limite de legenda aparece em ambar, com o numero: e a
+    // informacao que faz voce reescrever ANTES de publicar.
+    const estouram = redes.filter(r => legenda.length > r.legenda_max);
+    const w = px[0] >= px[1] ? 170 : 110;
+    return `<div style="width:${w}px">
+      <div style="position:relative;width:100%;aspect-ratio:${px[0]} / ${px[1]};background:#101010;border:2px solid ${escolhido ? '#22c55e' : 'var(--border)'};border-radius:7px;overflow:hidden">
+        <img src="${img.src}" style="width:100%;height:100%;object-fit:contain;display:block">
+        ${chip ? `<div style="position:absolute;left:${(_stRect.x - _stRect.largura / 2) * 100}%;top:${(_stRect.y - _stRect.altura / 2) * 100}%;width:${_stRect.largura * 100}%;height:${_stRect.altura * 100}%;background:rgba(255,255,255,.92);border-radius:4px;display:flex;align-items:center;justify-content:center;overflow:hidden">
+          <span style="color:#141414;font-weight:700;font-size:7px;white-space:nowrap">${escapeHtml(texto)}</span>
+        </div>` : ''}
+      </div>
+      <div style="font-size:10px;margin-top:4px;color:${escolhido ? '#22c55e' : 'var(--muted)'}">${escapeHtml(meta.proporcao || f)}${escolhido ? ' · escolhido' : ''}</div>
+      <div style="font-size:10px;color:var(--muted);line-height:1.3">${escapeHtml(nomes)}</div>
+      ${estouram.length ? `<div style="font-size:9px;color:#f59e0b;margin-top:2px">legenda passa do limite em ${escapeHtml(estouram.map(r => r.nome + ' (' + r.legenda_max + ')').join(', '))}</div>` : ''}
+    </div>`;
+  }).join('');
+}
+
+/** O texto que o chip mostra -- a MESMA regra do backend (`_texto_do_link`):
+ * rotulo se houver, senao so o dominio. Estava repetida dentro do
+ * `storyDesenharPrevia`; virou funcao para a previa do palco e as previas por
+ * rede nao poderem divergir. */
+function storyTextoDoChip() {
+  if (_stPost) return '@' + (_stPost.username || 'publicação');
+  const rotulo = (document.getElementById('st-rotulo')?.value || '').trim();
+  let t = rotulo;
+  if (!t) {
+    t = (document.getElementById('st-link')?.value || '').trim().replace(/^https?:\/\//i, '');
+    t = t.split('/')[0].split('?')[0];
+  }
+  return t.length > 29 ? t.slice(0, 28) + '…' : (t || 'link');
+}
+
 function storyDesenharPrevia() {
   // Com repost o retangulo e o CARD da publicacao, nao o chip -- a previa tem de
   // dizer isso, senao voce posiciona achando que esta movendo o chip.
   const alvo = document.getElementById('st-rect-txt');
   if (_stPost) {
-    alvo.textContent = '@' + (_stPost.username || 'publicação');
+    alvo.textContent = storyTextoDoChip();
+    storyPrevias();
     return;
   }
-  const rotulo = (document.getElementById('st-rotulo').value || '').trim();
-  let t = rotulo;
-  if (!t) {
-    t = (document.getElementById('st-link').value || '').trim().replace(/^https?:\/\//i, '');
-    t = t.split('/')[0].split('?')[0];
-  }
-  document.getElementById('st-rect-txt').textContent = t.length > 29 ? t.slice(0, 28) + '…' : (t || 'link');
+  document.getElementById('st-rect-txt').textContent = storyTextoDoChip();
+  storyPrevias();
 }
 
 // Arrastar para mover, canto para redimensionar. Preso dentro da imagem: um
