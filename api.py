@@ -5555,7 +5555,9 @@ async def redes_publicar(profile_id: str = Form(...), arquivo: UploadFile = File
                          link: str = Form(""), simular: bool = Form(True),
                          espalhar_segundos: float = Form(-1.0),
                          destino: str = Form("feed"),
-                         personalizacoes: str = Form("")):
+                         personalizacoes: str = Form(""),
+                         rotulo: str = Form(""), com_chip: bool = Form(True),
+                         rect_json: str = Form(""), post_json: str = Form("")):
     """A LEVA: um clique, todas as redes do perfil.
 
     `simular` nasce **True**. É o padrão deste projeto para motor que nunca
@@ -5585,8 +5587,24 @@ async def redes_publicar(profile_id: str = Form(...), arquivo: UploadFile = File
         raise HTTPException(400, "este perfil não tem nenhuma conta cadastrada")
 
     pedidas = [r for r in (redes_pedidas or "").split(",") if r.strip()]
+    # O RETANGULO E O CHIP vem da tela de edicao. Sem eles a leva publicava com
+    # coordenadas fixas e a imagem CRUA -- sticker de link sem chip desenhado,
+    # que e o defeito invisivel de 28/08.
+    rect = post = None
+    if (rect_json or "").strip():
+        try:
+            rect = json.loads(rect_json)
+        except Exception as e:
+            raise HTTPException(400, f"rect_json invalido: {e}")
+    if (post_json or "").strip():
+        try:
+            post = json.loads(post_json)
+        except Exception as e:
+            raise HTTPException(400, f"post_json invalido: {e}")
+
     conteudo = {"arquivo": caminho, "legenda": legenda, "link": link,
-                "destino": destino}
+                "destino": destino, "rotulo": rotulo, "com_chip": com_chip,
+                "rect": rect, "post": post}
     espalhar = (_redes.ESPALHAR_SEGUNDOS_PADRAO if espalhar_segundos < 0
                 else espalhar_segundos)
 

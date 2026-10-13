@@ -64,6 +64,7 @@ from __future__ import annotations
 import asyncio
 import time
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Optional
 
 
@@ -281,6 +282,12 @@ class Alvo:
     legenda: str = ""
     link: str = ""
     arquivo: str = ""
+    #: a arte composta NO FORMATO desta rede (preenchida na hora de publicar)
+    arquivo_composto: str = ""
+    #: onde o chip acabou desenhado nessa arte -- vira a area tocavel
+    link_rect: dict = field(default_factory=dict)
+    #: publicacao de outra pessoa a repostar (so story)
+    post: dict = field(default_factory=dict)
     personalizado: tuple = ()
     #: preenchido depois, pelo orquestrador
     desfecho: str = ""
@@ -302,6 +309,7 @@ class Alvo:
             "legenda": self.legenda,
             "link": self.link,
             "arquivo": self.arquivo,
+            "arquivo_composto": self.arquivo_composto,
             "personalizado": list(self.personalizado),
             "desfecho": self.desfecho,
             "detalhe": self.detalhe,
@@ -407,6 +415,10 @@ def montar_plano(contas: list[dict], conteudo: dict,
         d.link = final.get("link") or ""
         d.arquivo = final.get("arquivo") or ""
         d.formato = final.get("formato") or ""
+        # O repost acompanha o conteúdo comum: é a publicação de outra pessoa
+        # que vai virar card. Não é personalizável por rede de propósito —
+        # repostar coisas diferentes em cada rede não é uma leva, são várias.
+        d.post = conteudo.get("post") or {}
         d.personalizado = trocados
         tipo = tipo_do_conteudo(final)
 
@@ -539,6 +551,12 @@ async def publicar_em_todas(perfil: dict, contas: list[dict], conteudo: dict,
             fala("   ◌ %s: simulado (+%.1fs)" % (nome(d.rede_id), d.quando))
             return
         try:
+            # CADA REDE RECEBE A ARTE NO FORMATO DELA. Compor uma vez só e mandar
+            # para todas devolveria 9:16 num post 1:1 — e, pior, a versão antiga
+            # mandava a imagem CRUA com coordenadas fixas (0.5, 0.8, 0.6, 0.1),
+            # o que publica um sticker de link sem chip desenhado: exatamente o
+            # defeito invisível de 28/08, de volta por outro caminho.
+            await _compor_para(d, conteudo)
             # O conteúdo que sai é o DA REDE (já personalizado no plano), nunca
             # o comum: era aqui que a prévia e a publicação divergiriam.
             if d.transporte == "instagrapi":
@@ -606,6 +624,55 @@ async def _rotacionar_uma_vez(perfil: dict, simular: bool, fala, rotacionar) -> 
     return r
 
 
+#: Onde o chip fica quando ninguém posicionou nada. Serve só de rede de
+#: segurança: na prática a tela sempre manda o retângulo que você arrastou.
+_RECT_PADRAO = {"x": 0.5, "y": 0.8, "largura": 0.6, "altura": 0.1}
+
+
+async def _compor_para(d: Alvo, conteudo: dict) -> None:
+    """Desenha a arte DESTA rede, no formato dela, e guarda no Alvo.
+
+    Roda por rede e não uma vez para todas porque o formato é por rede: a mesma
+    foto vira 4:5 no Instagram, 16:9 no X e 2:3 no Pinterest, e o chip é uma
+    fração do QUADRO — então ele muda de tamanho junto.
+
+    Vídeo passa direto: o compositor é de imagem (Pillow), e mexer num vídeo
+    exigiria ffmpeg, que este projeto ainda não instalou.
+
+    Falha ao compor não é engolida: ela sobe e a rede é marcada como falha, com
+    as outras seguindo. Publicar a imagem crua "para não perder a leva" sairia
+    sem o chip, que é o defeito que esta função existe para impedir.
+    """
+    import story
+
+    if not d.arquivo or tipo_do_conteudo({"arquivo": d.arquivo}) == "video":
+        d.arquivo_composto = d.arquivo
+        return
+
+    dados = Path(d.arquivo).read_bytes()
+    post = d.post or None
+    mini = None
+    if post and post.get("mini"):
+        f = story.PASTA / post["mini"]
+        if f.exists():
+            mini = f.read_bytes()
+
+    rect = conteudo.get("rect") or _RECT_PADRAO
+    r = await asyncio.to_thread(
+        story.compor, dados, d.link,
+        float(rect["x"]), float(rect["y"]),
+        float(rect["largura"]), float(rect["altura"]),
+        conteudo.get("rotulo") or "", post, mini,
+        story.tamanho_do_formato(d.formato),
+        bool(conteudo.get("com_chip", True)),
+    )
+    d.arquivo_composto = r["caminho"]
+    # Com repost o chip desce para debaixo do card; o `compor` diz para onde, e
+    # é esse retângulo que vira a área tocável — senão desenho e toque se
+    # separam (a armadilha medida em 28/08).
+    d.link_rect = r.get("link_rect") or dict(rect)
+
+
 async def _publicar_instagram(perfil: dict, d: Alvo) -> dict:
     """O caminho que já funciona, reusado inteiro — agora story OU feed.
 
@@ -618,13 +685,15 @@ async def _publicar_instagram(perfil: dict, d: Alvo) -> dict:
     """
     import story
 
-    if not d.arquivo:
+    arte = d.arquivo_composto or d.arquivo
+    if not arte:
         raise ValueError("o Instagram precisa de imagem ou vídeo")
 
+    r = d.link_rect or _RECT_PADRAO
     return await asyncio.to_thread(
-        story.publicar, perfil, d.arquivo, d.link,
-        0.5, 0.8, 0.6, 0.1,
-        None, None, None, d.destino, d.legenda,
+        story.publicar, perfil, arte, d.link,
+        r["x"], r["y"], r["largura"], r["altura"],
+        d.post or None, d.link_rect or None, None, d.destino, d.legenda,
     )
 
 
@@ -643,5 +712,7 @@ async def _abrir_compositor(perfil: dict, d: Alvo) -> dict:
         raise ValueError("não sei onde fica o compositor do %s" % nome(d.rede_id))
 
     await sm.abrir_aba(perfil, url)
-    return {"compositor": url, "arquivo": d.arquivo, "legenda": d.legenda,
-            "destino": d.destino, "formato": d.formato}
+    # A arte COMPOSTA é o que você vai arrastar para o compositor da rede — não
+    # a imagem crua, que não tem o chip.
+    return {"compositor": url, "arquivo": d.arquivo_composto or d.arquivo,
+            "legenda": d.legenda, "destino": d.destino, "formato": d.formato}
