@@ -503,6 +503,34 @@ Apagar PERFIL faz **cascata** (api.py remove emails+contas vinculados) → perdi
 ## Aquecimento: só NAVEGADOR no app; CONTA é no celular (2026-06-17)
 Decisão do usuário: o app só aquece o **navegador/perfil** (warm_pool, "Aquecer navegador antes de abrir", botão 🔥 Aquecer na aba Perfis, warmupProfile). O **aquecimento da CONTA** (atividade no IG) passa a ser feito **no celular** — removido da UI: na aba **Contas** (badge "📷 conta fria/✓" e botão "🔥 Aquecer" da conta + linha "Conta aquecida (IG)" e botão no modal de detalhes), e o botão "🔥 Aquecer conta agora"/"Aquecer conta no Instagram" do workspace de criação (já oculto). Mantido o status/aquecimento do **navegador** ("🌐 navegador ✓/frio"). Funções/endpoints mortos (`warmAccount`, `igWarmup`, `igWarmupActive`, `/accounts/{id}/warmup`, `/instagram/warmup`) seguem no código sem botão. "Comece aqui" já dizia "amadureça no Android". **Botão "🔥 Aquecer navegador" na aba Contas** (`warmBrowser` → `/profiles/{id}/warmup-profile`): como o de conta saiu, esse aquece o NAVEGADOR direto da Contas (o "navegador frio" tinha ficado sem ação). Path de API dos endpoints aqui usa `/` normal (os `\` que aparecem no grep/Read são artefato de exibição — confirmado em runtime: `/profiles/{id}/warmup-profile`). **Status/contagem do aquecimento do navegador:** `api._profile_warming` (dict in-memory `{profile_id: epoch_fim}`) setado no `/profiles/{id}/warmup-profile` e limpo no `finally`; `/accounts` injeta `profile_warming:{active,remaining_seconds}`; a aba Contas mostra badge "🔥 aquecendo MM" + botão desabilitado com contagem (atualiza no poll de 3s via `fmtCountdown`).
 
+## 📣 ABA "PUBLICAR" — editar e publicar no mesmo lugar (2026-10-13)
+
+**Uma aba so.** "Story Creator" -> "Editor de conteudo" -> **"Publicar"**, e a
+"Publicar em todas" DESAPARECEU: os cartoes de previa (por formato) e os de
+personalizacao (por rede) viraram **um cartao por rede** — previa no formato dela,
+marcar/desmarcar e o painel de personalizar dentro.
+
+**🩸 A separacao escondia um buraco:** `_publicar_instagram` publicava com coordenadas
+FIXAS (`0.5, 0.8, 0.6, 0.1`), sem repost e com a imagem CRUA — sticker de link **sem chip
+desenhado**, o defeito de 28/08 por outro caminho. Existia porque o retangulo era arrastado
+numa aba e a publicacao acontecia na outra. **Juntar foi o conserto da causa.**
+
+**A leva COMPOE, uma arte por rede** (`redes._compor_para`), no formato de cada uma, com o
+retangulo/rotulo/chip/repost reais. Falha ao compor nao e engolida: a rede vira falha e as
+outras seguem — publicar a imagem crua sairia sem o chip.
+
+`storyPublicar` (um Instagram so, `/story/publicar`) saiu; o endpoint fica **dormente**.
+`storyBotaoPublicar` nao TRAVA mais o botao — quem compoe e o backend, entao exigir compor
+antes travaria a leva por uma previa opcional; ele so avisa que a arte na tela ficou velha.
+
+**⚠ Armadilha pega ao testar:** sobraram DUAS `storyPrevias` no arquivo. Declaracao de
+funcao repetida: **a ultima vence**, calada, e `node --check` passa. A tela parecia certa e
+mostrava o conteudo errado. A checagem de nome duplicado entrou na validacao.
+
+**Validado:** 274 assercoes + node --check + nenhum nome duplicado + aba no navegador sem
+erro de console. **⚠ A leva compondo nunca rodou contra o Instagram** (simulacao ligada por
+padrao).
+
 ## 🖼 EDITOR DE CONTEUDO (ex-"Story Creator"): story E feed, com previa por rede (2026-10-13)
 
 **A aba chama-se "Editor de conteudo"** desde 13/10 — so o ROTULO mudou (rota `story`, ids

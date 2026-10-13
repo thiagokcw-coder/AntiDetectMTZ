@@ -8,6 +8,22 @@
   "itens": [
     {
       "area": "story",
+      "estado": "licao",
+      "data": "2026-10-13",
+      "titulo": "Separar edicao de publicacao em duas abas criou sticker invisivel",
+      "detalhe": "Com o retangulo sendo arrastado numa aba e a publicacao acontecendo na outra, `_publicar_instagram` publicava com coordenadas FIXAS (0.5, 0.8, 0.6, 0.1), sem repost e com a imagem CRUA — sem chip desenhado. E o defeito de 28/08 de volta por outro caminho. Juntar as abas foi o conserto da causa, nao arrumacao de tela.",
+      "evidencia": "Codigo lido antes de fundir: `story.publicar(perfil, d.arquivo, d.link, 0.5, 0.8, 0.6, 0.1, None, None, ...)`. Hoje `_compor_para` compoe uma arte POR REDE com o retangulo, rotulo, chip e repost reais."
+    },
+    {
+      "area": "processo",
+      "estado": "licao",
+      "data": "2026-10-13",
+      "titulo": "Funcao JS declarada duas vezes: a ultima vence, calada",
+      "detalhe": "Ao fundir as abas sobraram DUAS `storyPrevias` — a antiga (previa por formato) e a nova (cartao por rede). A tela parecia certa e mostrava o conteudo errado, porque a declaracao posterior sobrescreve a anterior sem aviso nenhum.",
+      "evidencia": "Pego por uma checagem que lista nomes de funcao repetidos no bloco de script; `node --check` passa normalmente nesse caso, porque nao e erro de sintaxe."
+    },
+    {
+      "area": "story",
       "estado": "funciona",
       "data": "2026-10-13",
       "titulo": "A aba virou \"Editor de conteudo\", com previa por formato",

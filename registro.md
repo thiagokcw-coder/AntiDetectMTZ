@@ -7,6 +7,69 @@
 
 ---
 
+## 2026-10-13 (4) — Uma aba só: editar e publicar juntos, e a leva passa a COMPOR
+
+Relato: *"pra que aba essas mudanças estão indo? não estou vendo e a edição e publicação
+deveria ficar tudo na mesma aba"*.
+
+**As mudanças estavam na aba certa** — ela é que tinha trocado de nome (de "Story Creator"
+para "Editor de conteúdo") e as prévias só desenham depois de escolher uma imagem. Mas a
+separação em duas abas era erro meu de desenho, e escondia um buraco de verdade.
+
+### 🩸 O buraco que a separação escondia
+
+`redes._publicar_instagram` publicava com **coordenadas fixas** (`0.5, 0.8, 0.6, 0.1`),
+ignorava o repost e mandava a **imagem crua** — sem o chip desenhado. Ou seja: a leva
+publicaria um sticker de link **invisível**, que é exatamente o defeito de 28/08, chegando
+por outro caminho.
+
+Ele existia *porque* o retângulo era arrastado numa aba e a publicação acontecia na outra.
+Juntar as abas não foi cosmético: foi o conserto da causa.
+
+### A leva agora compõe, uma arte POR REDE
+
+`_compor_para` desenha a arte de cada rede no formato dela, com o mesmo retângulo, rótulo,
+chip e repost que você ajustou. Compor uma vez só devolveria 9:16 num post 1:1 — e o chip é
+fração do QUADRO, então ele muda de tamanho junto com o formato.
+
+Falha ao compor **não é engolida**: a rede é marcada como falha e as outras seguem.
+Publicar a imagem crua "para não perder a leva" sairia sem o chip, que é o que essa função
+existe para impedir.
+
+### A aba
+
+"Publicar em todas" desapareceu; tudo vive em **"Publicar"**. Os cartões de prévia (que
+eram por FORMATO) e os de personalização (que eram por REDE) viraram **um cartão por
+rede**: prévia no formato dela, marcar/desmarcar e o painel de personalizar dentro.
+
+`storyPublicar` (um Instagram só, por `/story/publicar`) saiu — a leva cobre o mesmo caso e
+cobre melhor. O endpoint fica **dormente**.
+
+`storyBotaoPublicar` parou de **travar** o botão. Travar fazia sentido quando "publicar"
+subia a arte composta de um formato; hoje quem compõe é o backend, e exigir compor antes
+travaria a leva por causa de uma prévia opcional. Ele agora só avisa que a arte na tela
+ficou velha, e a tira.
+
+### A armadilha que o teste pegou
+
+Eu tinha deixado **duas `storyPrevias`** no arquivo — a antiga (por formato) e a nova (por
+rede). Declaração de função repetida: **a última vence**, e era a antiga que estava
+rodando. A tela parecia certa e mostrava o conteúdo errado. Foi o teste que lê o arquivo,
+não a minha memória, que pegou.
+
+### Validado
+
+**274 asserções** (as 253 de backend mais 8 do botão e 13 da escolha de redes, as duas
+reescritas para o contrato novo — incluindo "desmarcar todas resulta em NENHUMA, não cai de
+volta no todas" e "trocar de persona apaga a personalização"), `node --check`, nenhum nome
+de função duplicado, ids conferidos (os únicos sem elemento são os da aba dormente "Criar
+Contas", iguais antes e depois) e a aba no navegador com arte de teste, 0 erro de console.
+
+**⚠ A leva compondo nunca rodou contra o Instagram.** A simulação continua ligada por
+padrão.
+
+---
+
 ## 2026-10-13 (3) — A aba virou "Editor de conteúdo", com prévia por rede
 
 Pedido: *"troque o nome da aba story creator, essa aba é para ajustar e editar o conteúdo
