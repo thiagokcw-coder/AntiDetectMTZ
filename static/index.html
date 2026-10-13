@@ -419,7 +419,9 @@
       <div class="card">
         <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
           <button class="btn" onclick="storyCompor(this)">🎨 Compor a arte</button>
-          <button class="btn btn-primary" id="st-publicar" onclick="storyPublicar(this)" disabled>📤 Publicar story</button>
+          <button class="btn btn-primary" id="st-publicar" onclick="storyPublicar(this)" disabled
+                  title="Clique antes em “Compor a arte” — é a arte composta que sobe, então ela precisa existir.">📤 Publicar story</button>
+          <span id="st-publicar-por-que" style="font-size:12px;color:#f59e0b">⬅ componha a arte primeiro</span>
           <span id="st-status" style="font-size:12px;color:var(--muted)"></span>
         </div>
         <div class="form-hint" style="margin-top:8px">Compor desenha o chip e mostra o resultado real. Só publique depois de ver a arte composta — é ela que sobe.</div>
@@ -4456,8 +4458,29 @@ function storyCarregarImagem(ev) {
   };
   img.src = URL.createObjectURL(f);
   _stArquivoComposto = null;
-  document.getElementById('st-publicar').disabled = true;
+  storyBotaoPublicar(false, '⬅ imagem nova — componha de novo');
   document.getElementById('st-resultado').innerHTML = '';
+}
+
+/** Liga/desliga o "Publicar story" DIZENDO por quê.
+ *
+ * O botão ficava desabilitado e mudo, e o usuário concluiu que a publicação
+ * dependia do modem — ela não depende de nada disso (`story.publicar` usa o
+ * proxy do perfil, ou a conexão atual do PC). A trava é só esta: a arte
+ * composta é a que sobe, então ela precisa existir antes. Trava legítima,
+ * mas trava que não se explica vira diagnóstico errado. */
+function storyBotaoPublicar(pronto, motivo) {
+  const b = document.getElementById('st-publicar');
+  const p = document.getElementById('st-publicar-por-que');
+  if (b) {
+    b.disabled = !pronto;
+    b.title = pronto ? 'Sobe a arte que você está vendo acima.'
+                     : 'Clique antes em “Compor a arte” — é a arte composta que sobe, então ela precisa existir.';
+  }
+  if (p) {
+    p.textContent = pronto ? '' : (motivo || '⬅ componha a arte primeiro');
+    p.style.display = pronto ? 'none' : '';
+  }
 }
 
 // Normalizado -> pixels da PREVIA (a imagem aparece reduzida na tela; o backend
@@ -4599,7 +4622,7 @@ async function storyBuscarPost(btn) {
     document.getElementById('st-img-opc').style.display = '';
     info.innerHTML = `<span style="color:var(--green)">✓ publicação de <b>@${escapeHtml(r.username || '?')}</b></span> — arraste o card e componha`;
     _stArquivoComposto = null;
-    document.getElementById('st-publicar').disabled = true;
+    storyBotaoPublicar(false, '⬅ publicação nova — componha de novo');
   } catch (e) {
     stop();
     _stPost = null;
@@ -4630,7 +4653,7 @@ async function storyCompor(btn) {
     _stArquivoComposto = r.arquivo;
     // Onde o chip acabou desenhado (com repost ele desce para baixo do card).
     _stLinkRect = r.link_rect || null;
-    document.getElementById('st-publicar').disabled = false;
+    storyBotaoPublicar(true);
     document.getElementById('st-resultado').innerHTML =
       `<div style="font-size:12px;color:var(--muted);margin-bottom:6px">Esta é a arte que vai subir (${r.largura_px}×${r.altura_px}):</div>
        <img src="/story/arquivo/${encodeURIComponent(r.arquivo)}?t=${Date.now()}" style="max-height:52vh;border:1px solid var(--border);border-radius:8px">`;
