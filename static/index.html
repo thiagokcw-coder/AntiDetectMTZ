@@ -3997,6 +3997,21 @@ const ACCOUNT_LABELS = {
  * A lista de redes já existe no HTML (e vem do backend quando a aba Publicar
  * carrega). Repetir os rótulos aqui criaria uma segunda lista para a mesma
  * verdade, que diverge na primeira rede que mudar de nome. */
+/** Garante o catálogo de redes carregado, uma vez por sessão.
+ *
+ * O catálogo era carregado só pela aba Publicar. A aba Contas também precisa
+ * dele — é de lá que sai o endereço de cada rede — e quem abre o app direto em
+ * Contas nunca passou pela outra aba. */
+async function _garantirRedes() {
+  if (_pbRedes.length) return _pbRedes;
+  try {
+    const c = await api('GET', '/redes');
+    _pbRedes = c.redes || [];
+    _pbFormatos = c.formatos || {};
+  } catch (e) { /* segue com o que houver; quem chama tem o seu fallback */ }
+  return _pbRedes;
+}
+
 function nomeDaRede(id) {
   const r = (id || 'instagram').toLowerCase();
   const opt = document.querySelector(`#aa-platform option[value="${CSS.escape(r)}"]`);
@@ -4285,9 +4300,11 @@ function renderAccounts(list) {
       <td style="font-size:12px">${checked}</td>
       <td style="white-space:nowrap">
         ${a.profile_exists
-          ? `<button class="btn btn-primary btn-sm" onclick="openAccountProfile('${a.profile_id}', this)">Abrir</button>
+          ? `<button class="btn btn-primary btn-sm" onclick="openAccountProfile('${a.profile_id}', this, '${escapeHtml(a.platform || 'instagram')}')">Abrir</button>
              <button class="btn btn-ghost btn-sm" onclick="warmBrowser('${a.profile_id}', this)" title="Aquecer o navegador (cookies/histórico)" ${browserWarming ? 'disabled' : ''}>${browserWarming ? '🔥 aquecendo ' + fmtCountdown(a.profile_warming.remaining_seconds) : '🔥 Aquecer navegador'}</button>
-             <button class="btn btn-success btn-sm" onclick="checkAccount('${a.id}', this)">Verificar</button>`
+             ${(a.platform || 'instagram') === 'instagram'
+                ? `<button class="btn btn-success btn-sm" onclick="checkAccount('${a.id}', this)">Verificar</button>`
+                : `<span style="font-size:10px;color:var(--muted)" title="A detecção lê a tela do Instagram; em outra rede ela concluiria 'sessão expirada' sobre nada. Confira a conta na própria rede.">sem verificação automática</span>`}`
           : ''}
         <button class="btn btn-ghost btn-sm" onclick="accountDetail('${a.id}')">Detalhes</button>
       </td>
@@ -4367,7 +4384,7 @@ async function accountDetail(id) {
   const openBtn = document.getElementById('ma-open');
   if (a.profile_exists) {
     openBtn.style.display = '';
-    openBtn.onclick = () => openAccountProfile(a.profile_id);
+    openBtn.onclick = () => openAccountProfile(a.profile_id, openBtn, a.platform || 'instagram');
   } else {
     openBtn.style.display = 'none';
   }
@@ -4500,6 +4517,8 @@ async function loadStoryCreator() {
       api('GET', '/redes'),
       api('GET', '/redes/perfis'),
     ]);
+    // Recarrega sempre aqui (e não pelo `_garantirRedes`, que é cache): esta aba
+    // é a que mostra as redes, e ela deve refletir o registro de agora.
     _pbRedes = cat.redes || [];
     _pbFormatos = cat.formatos || {};
     _pbPerfis = perfis.perfis || [];
@@ -4965,15 +4984,21 @@ function runBtnCountdown(btn, estSeconds) {
   window._uiBusy++;
   let remaining = estSeconds;
   let parado = false;
+  // `let iv` declarado ANTES do tick, e não `const` depois dele: o primeiro
+  // `tick()` roda na mesma linha de execução, antes do `setInterval`, e se o
+  // botão já tiver saído do DOM (o poll de 3s re-renderiza as listas e troca o
+  // <button>) ele caía no `clearInterval(iv)` com `iv` na zona morta temporal
+  // — ReferenceError. O erro estourava ANTES do `try` de quem chamou, então a
+  // ação nem acontecia: clicar em "Abrir" logo depois de a lista atualizar não
+  // abria o perfil e deixava o botão travado. `clearInterval(null)` é inócuo.
+  let iv = null;
   const tick = () => {
-    // Se mesmo assim o botão sair do DOM (outra re-renderização), encerra o timer
-    // em vez de escrever no vazio para sempre.
     if (!btn.isConnected) { clearInterval(iv); return; }
     btn.textContent = remaining > 0 ? `⏳ ${remaining}s` : '⏳ finalizando…';
     if (remaining > 0) remaining--;
   };
   tick();
-  const iv = setInterval(tick, 1000);
+  iv = setInterval(tick, 1000);
   return () => {
     if (parado) return;
     parado = true;
@@ -5001,17 +5026,24 @@ async function checkAccount(id, btn) {
   }
 }
 
-async function openAccountProfile(profileId, btn) {
+async function openAccountProfile(profileId, btn, rede) {
   if (!profileId) { toast('Esta conta não tem perfil vinculado', 'error'); return; }
+  // A URL era `https://www.instagram.com/` FIXA: abrir a conta de TikTok abria
+  // o Instagram. Cada rede tem a sua casa no registro (`redes.REDES[].site`),
+  // que é o mesmo lugar de onde a leva tira o compositor — uma lista só.
+  await _garantirRedes();
+  const r0 = _pbRedes.find(x => x.id === (rede || 'instagram'));
+  const url = (r0 && r0.site) || 'https://www.instagram.com/';
   // O launch renova o IP do modem antes de abrir (~20s) — daí o countdown.
   const stopCountdown = runBtnCountdown(btn, 25);
   try {
     const r = await api('POST', `/profiles/${encodeURIComponent(profileId)}/launch`, {
-      url: 'https://www.instagram.com/', headless: false, mode: 'manual',
+      url, headless: false, mode: 'manual',
     }, 180000);
     const rot = r && r.ip_rotation;
-    toast(rot && rot.mudou ? `✓ IP novo (${(rot.ips || []).join(', ')}) · abrindo o perfil…`
-                           : 'Abrindo o perfil no navegador...');
+    const ondeVai = (r0 && r0.nome) ? ` no ${r0.nome}` : '';
+    toast(rot && rot.mudou ? `✓ IP novo (${(rot.ips || []).join(', ')}) · abrindo${ondeVai}…`
+                           : `Abrindo o perfil${ondeVai}...`);
   } catch (e) {
     // 409 = já está aberto
     toast(e.message?.includes('already') ? 'Este perfil já está aberto' : (e.message || 'Erro ao abrir'), e.message?.includes('already') ? 'success' : 'error');

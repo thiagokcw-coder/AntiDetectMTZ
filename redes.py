@@ -80,6 +80,11 @@ from typing import Optional
 #   navegador  → abre o compositor no Camoufox do perfil (assistido)
 #   api        → HTTP com credencial própria (nenhuma rede está aqui ainda)
 #
+# `site` é a casa da rede — é o que o botão "Abrir" da aba Contas carrega.
+# `compositor` é a tela de publicar, usada pela leva no modo assistido. São
+# endereços diferentes de propósito: abrir uma conta para conferir não é o mesmo
+# que abrir a tela de upload dela.
+#
 # `medido`: alguém já exercitou este caminho ao vivo? Começa False em tudo que
 # não é o Instagram, e é o campo que impede o painel de prometer o que não foi
 # conferido.
@@ -91,6 +96,7 @@ REDES: tuple[dict, ...] = (
         "transporte": "instagrapi",
         "destinos": ("story", "feed"),
         "formato_padrao": {"story": "story", "feed": "vertical"},
+        "site": "https://www.instagram.com/",
         "compositor": "https://www.instagram.com/",
         "formatos": ("imagem", "video"),
         "legenda_max": 2200,
@@ -103,6 +109,7 @@ REDES: tuple[dict, ...] = (
         "transporte": "navegador",
         "destinos": ("story", "feed"),
         "formato_padrao": {"story": "story", "feed": "quadrado"},
+        "site": "https://www.facebook.com/",
         "compositor": "https://www.facebook.com/",
         "formatos": ("imagem", "video", "texto"),
         "legenda_max": 63206,
@@ -116,6 +123,7 @@ REDES: tuple[dict, ...] = (
         "transporte": "navegador",
         "destinos": ("feed",),
         "formato_padrao": {"feed": "quadrado"},
+        "site": "https://www.threads.com/",
         "compositor": "https://www.threads.com/",
         "formatos": ("imagem", "video", "texto"),
         "legenda_max": 500,
@@ -128,6 +136,7 @@ REDES: tuple[dict, ...] = (
         "transporte": "navegador",
         "destinos": ("feed",),
         "formato_padrao": {"feed": "paisagem"},
+        "site": "https://x.com/",
         "compositor": "https://x.com/compose/post",
         "formatos": ("imagem", "video", "texto"),
         "legenda_max": 280,
@@ -140,6 +149,7 @@ REDES: tuple[dict, ...] = (
         "transporte": "navegador",
         "destinos": ("feed",),
         "formato_padrao": {"feed": "story"},
+        "site": "https://www.tiktok.com/",
         "compositor": "https://www.tiktok.com/tiktokstudio/upload",
         "formatos": ("video",),
         "legenda_max": 2200,
@@ -153,6 +163,7 @@ REDES: tuple[dict, ...] = (
         "transporte": "navegador",
         "destinos": ("feed",),
         "formato_padrao": {"feed": "paisagem"},
+        "site": "https://www.youtube.com/",
         "compositor": "https://studio.youtube.com/",
         "formatos": ("video",),
         "legenda_max": 5000,
@@ -166,6 +177,7 @@ REDES: tuple[dict, ...] = (
         "transporte": "navegador",
         "destinos": ("feed",),
         "formato_padrao": {"feed": "story"},
+        "site": "https://www.kwai.com/",
         "compositor": "https://www.kwai.com/",
         "formatos": ("video",),
         "legenda_max": 500,
@@ -178,6 +190,7 @@ REDES: tuple[dict, ...] = (
         "transporte": "navegador",
         "destinos": ("feed",),
         "formato_padrao": {"feed": "quadrado"},
+        "site": "https://web.telegram.org/",
         "compositor": "https://web.telegram.org/",
         "formatos": ("imagem", "video", "texto"),
         "legenda_max": 1024,
