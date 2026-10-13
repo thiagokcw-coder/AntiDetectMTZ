@@ -1872,7 +1872,7 @@
     <div class="form-row">
       <div class="form-group">
         <label>Plataforma</label>
-        <select id="aa-platform">
+        <select id="aa-platform" onchange="aaTrocouRede()">
           <option value="instagram">Instagram</option>
           <option value="facebook">Facebook</option>
           <option value="threads">Threads</option>
@@ -1922,7 +1922,7 @@
     </div>
     <div class="modal-actions">
       <button class="btn btn-ghost" onclick="closeModal('modal-add-account')">Cancelar</button>
-      <button class="btn btn-primary" onclick="submitAddAccount(this)">Adicionar</button>
+      <button class="btn btn-primary" id="aa-submit" onclick="submitAddAccount(this)">Adicionar</button>
     </div>
   </div>
 </div>
@@ -3992,6 +3992,17 @@ const ACCOUNT_LABELS = {
   suspended: 'Em suspensão', unknown: 'Desconhecido', error: 'Erro',
   in_use: 'Em uso',
 };
+/** Nome de exibição de uma rede, lido do seletor de Plataforma.
+ *
+ * A lista de redes já existe no HTML (e vem do backend quando a aba Publicar
+ * carrega). Repetir os rótulos aqui criaria uma segunda lista para a mesma
+ * verdade, que diverge na primeira rede que mudar de nome. */
+function nomeDaRede(id) {
+  const r = (id || 'instagram').toLowerCase();
+  const opt = document.querySelector(`#aa-platform option[value="${CSS.escape(r)}"]`);
+  return opt ? opt.textContent : r;
+}
+
 function statusBadge(status) {
   const label = ACCOUNT_LABELS[status] || status || '—';
   return `<span class="badge badge-${escapeHtml(status || 'unknown')}">${escapeHtml(label)}</span>`;
@@ -4263,7 +4274,7 @@ function renderAccounts(list) {
              <div style="margin-top:4px"><button class="btn btn-ghost btn-sm" onclick="createProfileForAccount('${a.id}', this)">➕ Criar perfil</button></div>`);
     return divider + `<tr${rowStyle}>
       <td>
-        <div style="font-weight:600">${escapeHtml(a.username || '(sem username)')}</div>
+        <div style="font-weight:600">${escapeHtml(a.username || '(sem username)')} <span style="font-weight:400;font-size:10px;color:var(--muted);border:1px solid var(--border);border-radius:4px;padding:1px 5px">${escapeHtml(nomeDaRede(a.platform))}</span></div>
         <div style="font-size:11px;color:var(--muted)">${escapeHtml(a.email || '')}</div>
       </td>
       <td>${prof}</td>
@@ -6785,6 +6796,89 @@ async function pollManualCode(force) {
 
 let _editingAccountId = null;
 
+// Todas as contas, para resolver (perfil + rede) -> conta sem ir ao servidor a
+// cada troca de rede. `/accounts` ja devolve username, email, senha e status.
+let _aaContas = [];
+// Rascunho POR REDE do que esta sendo digitado. Sem isto, cadastrar oito redes
+// em sequencia perderia o que voce digitou toda vez que trocasse de rede para
+// conferir outra -- e trocar de rede e exatamente o que se faz nesse fluxo.
+let _aaRascunhos = {};
+
+const _AA_CAMPOS = ['aa-username', 'aa-email', 'aa-password', 'aa-whatsapp', 'aa-cookies'];
+
+function _aaLer() {
+  const o = { status: document.getElementById('aa-status').value };
+  _AA_CAMPOS.forEach(id => o[id] = document.getElementById(id).value);
+  return o;
+}
+
+function _aaEscrever(o) {
+  _AA_CAMPOS.forEach(id => document.getElementById(id).value = (o && o[id]) || '');
+  document.getElementById('aa-status').value = (o && o.status) || 'active';
+}
+
+/** A conta desta persona NESTA rede, se existir. */
+function _aaContaDe(profileId, rede) {
+  if (!profileId || profileId === '__new__' || profileId === '') return null;
+  return _aaContas.find(a => a.profile_id === profileId &&
+                             (a.platform || 'instagram') === rede) || null;
+}
+
+/** Trocar a rede troca a CONTA, não só o rótulo da conta atual.
+ *
+ * Antes, mudar "Plataforma" só reescrevia o campo `platform` da linha aberta:
+ * username, email e senha continuavam os da outra rede, e salvar sobrescrevia a
+ * conta errada. A persona tem UMA conta por rede — então o par (perfil, rede) é
+ * que identifica qual conta está sendo editada.
+ *
+ * `guardarAtual=false` ao abrir o modal: não há nada digitado para guardar, e
+ * guardar criaria um rascunho vazio que venceria a conta do banco. */
+function aaTrocouRede(guardarAtual = true) {
+  const rede = document.getElementById('aa-platform').value;
+  if (guardarAtual && _aaRedeAberta) {
+    const atual = _aaLer();
+    // Rascunho VAZIO não é rascunho. Guardá-lo faria uma rede que você só
+    // espiou passar a sombrear a conta dela no banco, mostrando os campos em
+    // branco na próxima visita.
+    const temAlgo = _AA_CAMPOS.some(id => (atual[id] || '').trim());
+    if (temAlgo) _aaRascunhos[_aaRedeAberta] = atual;
+    else delete _aaRascunhos[_aaRedeAberta];
+  }
+  _aaRedeAberta = rede;
+
+  const profId = document.getElementById('aa-profile').value;
+  const conta = _aaContaDe(profId, rede);
+
+  // O rascunho vence a conta do banco: é edição não salva, e perdê-la ao voltar
+  // de uma espiada em outra rede seria pior que mostrar o valor antigo.
+  if (_aaRascunhos[rede]) {
+    _aaEscrever(_aaRascunhos[rede]);
+    _editingAccountId = conta ? conta.id : null;
+  } else if (conta) {
+    _editingAccountId = conta.id;
+    _aaEscrever({
+      'aa-username': conta.username, 'aa-email': conta.email,
+      'aa-password': conta.password, 'aa-whatsapp': conta.whatsapp_number,
+      'aa-cookies': '', status: conta.status,
+    });
+  } else {
+    _editingAccountId = null;
+    _aaEscrever(null);
+  }
+  _aaRotulos(rede, !!conta);
+  checkAddProfileWarn();
+}
+
+function _aaRotulos(rede, existe) {
+  const nome = (document.getElementById('aa-platform').selectedOptions[0] || {}).textContent || rede;
+  document.getElementById('aa-title').textContent =
+    (existe ? 'Editar conta — ' : 'Nova conta — ') + nome;
+  const b = document.getElementById('aa-submit');
+  if (b) b.textContent = existe ? 'Salvar' : 'Adicionar';
+}
+
+let _aaRedeAberta = null;
+
 async function _loadAccountProfileSelect(selectedId) {
   const sel = document.getElementById('aa-profile');
   sel.innerHTML = '<option value="">Carregando...</option>';
@@ -6794,23 +6888,33 @@ async function _loadAccountProfileSelect(selectedId) {
       api('GET', '/accounts'),
     ]);
     // perfis já usados por OUTRAS contas (a própria conta em edição não conta)
-    const usedProfiles = new Set(
-      accs.filter(a => a.id !== _editingAccountId).map(a => a.profile_id).filter(Boolean)
-    );
+    _aaContas = accs;
+    // Quantas REDES cada perfil ja cobre. A regra deixou de ser "1 conta por
+    // perfil" e virou "1 conta por perfil POR REDE", entao "ja tem conta" nao
+    // era mais aviso de nada.
+    const redesPorPerfil = {};
+    for (const a of accs) {
+      if (!a.profile_id) continue;
+      (redesPorPerfil[a.profile_id] = redesPorPerfil[a.profile_id] || new Set())
+        .add(a.platform || 'instagram');
+    }
     sel.innerHTML =
       '<option value="__new__">➕ Criar perfil novo (conexão local do PC, sem proxy)</option>' +
       '<option value="">Sem perfil (só cadastro — não abre no PC)</option>' +
       profiles.map(p => {
         const dev = p.fingerprint?.platform || '';
-        const used = usedProfiles.has(p.id) ? ' — já tem conta' : '';
+        const n = (redesPorPerfil[p.id] || new Set()).size;
+        const used = n ? ` — ${n} rede(s)` : '';
         const isSel = p.id === selectedId ? ' selected' : '';
-        return `<option value="${p.id}" data-used="${usedProfiles.has(p.id)}"${isSel}>${escapeHtml(p.name)} (${escapeHtml(dev)})${used}</option>`;
+        return `<option value="${p.id}" data-redes="${n}"${isSel}>${escapeHtml(p.name)} (${escapeHtml(dev)})${used}</option>`;
       }).join('');
     // Conta nova nasce no celular → padrão "criar perfil novo".
     // Em edição, mantém o perfil atual (ou "Sem perfil" se não tiver) — nunca __new__.
     sel.value = _editingAccountId ? (selectedId || '') : (selectedId || '__new__');
-    sel.onchange = checkAddProfileWarn;
-    checkAddProfileWarn();
+    // Trocar de PERSONA zera os rascunhos: eles eram da outra pessoa, e deixá-los
+    // escreveria o e-mail de um perfil na conta de outro.
+    sel.onchange = () => { _aaRascunhos = {}; aaTrocouRede(false); };
+    aaTrocouRede(false);
   } catch (e) {
     sel.innerHTML = '<option value="">Erro ao carregar perfis</option>';
   }
@@ -6818,11 +6922,12 @@ async function _loadAccountProfileSelect(selectedId) {
 
 async function openAddAccount() {
   _editingAccountId = null;
-  document.getElementById('aa-title').textContent = 'Adicionar conta';
+  _aaRascunhos = {};
+  _aaRedeAberta = null;
   document.getElementById('aa-profile-warn').style.display = 'none';
-  ['aa-username','aa-email','aa-password','aa-whatsapp','aa-proxy','aa-cookies'].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('aa-proxy').value = '';
+  _aaEscrever(null);
   document.getElementById('aa-platform').value = 'instagram';
-  document.getElementById('aa-status').value = 'active';
   document.getElementById('modal-add-account').classList.add('open');
   await _loadAccountProfileSelect(null);
 }
@@ -6832,14 +6937,13 @@ async function editAccount(id) {
   try { a = await api('GET', '/accounts/' + id); }
   catch (e) { toast(e.message, 'error'); return; }
   _editingAccountId = id;
-  document.getElementById('aa-title').textContent = 'Editar conta';
-  document.getElementById('aa-cookies').value    = '';
-  document.getElementById('aa-username').value  = a.username || '';
-  document.getElementById('aa-email').value     = a.email || '';
-  document.getElementById('aa-password').value  = a.password || '';
-  document.getElementById('aa-whatsapp').value  = a.whatsapp_number || '';
-  document.getElementById('aa-platform').value  = a.platform || 'instagram';
-  document.getElementById('aa-status').value    = a.status || 'active';
+  _aaRascunhos = {};
+  _aaRedeAberta = null;
+  document.getElementById('aa-platform').value = a.platform || 'instagram';
+  _aaEscrever({
+    'aa-username': a.username, 'aa-email': a.email, 'aa-password': a.password,
+    'aa-whatsapp': a.whatsapp_number, 'aa-cookies': '', status: a.status,
+  });
   closeModal('modal-account');
   document.getElementById('modal-add-account').classList.add('open');
   await _loadAccountProfileSelect(a.profile_id || null);
@@ -6847,10 +6951,19 @@ async function editAccount(id) {
 
 function checkAddProfileWarn() {
   const sel = document.getElementById('aa-profile');
-  const opt = sel.selectedOptions[0];
   const warn = document.getElementById('aa-profile-warn');
-  if (opt && opt.dataset.used === 'true') {
-    warn.textContent = '⚠ Este perfil já tem uma conta. O ideal é 1 conta por perfil.';
+  const rede = document.getElementById('aa-platform').value;
+  const conta = _aaContaDe(sel.value, rede);
+  // O aviso deixou de ser "este perfil já tem conta" (hoje a persona tem uma por
+  // rede, e isso é o normal) e passou a dizer QUAL conta está aberta — senão
+  // não dá para saber se você está criando ou editando.
+  if (conta) {
+    warn.style.color = 'var(--muted)';
+    warn.textContent = `✎ editando a conta @${conta.username || '?'} desta persona nesta rede`;
+    warn.style.display = 'block';
+  } else if (sel.value && sel.value !== '__new__') {
+    warn.style.color = 'var(--muted)';
+    warn.textContent = 'esta persona ainda não tem conta nesta rede — vai ser criada';
     warn.style.display = 'block';
   } else {
     warn.style.display = 'none';
@@ -6901,12 +7014,18 @@ async function submitAddAccount(btn) {
         toast('Conta salva, mas falhou ao importar a sessão: ' + (e.message || ''), 'error');
       }
     }
+    // O que foi salvo não é mais rascunho; e a lista em cache precisa saber da
+    // conta nova, senão trocar de rede e voltar diria "ainda não tem conta".
+    delete _aaRascunhos[document.getElementById('aa-platform').value];
+    try { _aaContas = await api('GET', '/accounts'); } catch (e) { /* a tela recarrega abaixo */ }
     closeModal('modal-add-account');
     _editingAccountId = null;
     loadAccountsPage();
   } catch (e) {
     toast(e.message || 'Erro ao salvar', 'error');
   } finally {
+    // Restaura o rótulo que ELE tinha (Salvar ou Adicionar), não um fixo: o
+    // botão diz se a conta vai ser criada ou atualizada.
     if (btn) { btn.disabled = false; btn.textContent = origLabel || 'Adicionar'; }
   }
 }
