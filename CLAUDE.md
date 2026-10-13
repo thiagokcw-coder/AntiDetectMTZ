@@ -503,6 +503,62 @@ Apagar PERFIL faz **cascata** (api.py remove emails+contas vinculados) → perdi
 ## Aquecimento: só NAVEGADOR no app; CONTA é no celular (2026-06-17)
 Decisão do usuário: o app só aquece o **navegador/perfil** (warm_pool, "Aquecer navegador antes de abrir", botão 🔥 Aquecer na aba Perfis, warmupProfile). O **aquecimento da CONTA** (atividade no IG) passa a ser feito **no celular** — removido da UI: na aba **Contas** (badge "📷 conta fria/✓" e botão "🔥 Aquecer" da conta + linha "Conta aquecida (IG)" e botão no modal de detalhes), e o botão "🔥 Aquecer conta agora"/"Aquecer conta no Instagram" do workspace de criação (já oculto). Mantido o status/aquecimento do **navegador** ("🌐 navegador ✓/frio"). Funções/endpoints mortos (`warmAccount`, `igWarmup`, `igWarmupActive`, `/accounts/{id}/warmup`, `/instagram/warmup`) seguem no código sem botão. "Comece aqui" já dizia "amadureça no Android". **Botão "🔥 Aquecer navegador" na aba Contas** (`warmBrowser` → `/profiles/{id}/warmup-profile`): como o de conta saiu, esse aquece o NAVEGADOR direto da Contas (o "navegador frio" tinha ficado sem ação). Path de API dos endpoints aqui usa `/` normal (os `\` que aparecem no grep/Read são artefato de exibição — confirmado em runtime: `/profiles/{id}/warmup-profile`). **Status/contagem do aquecimento do navegador:** `api._profile_warming` (dict in-memory `{profile_id: epoch_fim}`) setado no `/profiles/{id}/warmup-profile` e limpo no `finally`; `/accounts` injeta `profile_warming:{active,remaining_seconds}`; a aba Contas mostra badge "🔥 aquecendo MM" + botão desabilitado com contagem (atualiza no poll de 3s via `fmtCountdown`).
 
+## 🌐 UM PERFIL, TODAS AS REDES — publicação na mesma leva (2026-10-13)
+
+O perfil deixou de ser "um navegador com um Instagram" e passou a ser uma **PESSOA**:
+conta no Instagram, Facebook, Threads, X, TikTok, YouTube, Kwai, LinkedIn, Pinterest,
+Bluesky e Telegram. Aba **"Publicar em todas"**; a rede de cada conta é o campo
+**Plataforma** da aba Contas.
+
+**A regra virou "1 conta por perfil POR REDE".** Duas contas da MESMA rede no mesmo
+perfil continuam sendo duas personas num navegador — isso segue desaconselhado.
+
+**`redes.py`** tem o registro das 11 redes (transporte · formatos · limite de legenda ·
+`medido`) e o orquestrador. **`montar_plano` é função PURA** e é ela que decide: recusa
+imagem no YouTube, conta "Em uso", legenda de 400 no X de 280 e rede desconhecida
+**antes** de tocar em rede nenhuma, com o motivo escrito na tela. Falha de uma rede
+**não derruba as outras**.
+
+**Uma rotação de IP para a leva inteira, nunca uma por rede** — rotacionar entre redes
+separaria em IPs diferentes contas que são a mesma pessoa, o oposto do que a rotação
+existe para fazer. A função de rotação é **injetada** (`api._rotate_ip_for`), não
+reimplementada: a primeira versão deste arquivo tinha a sua própria, com dois erros
+(`modem.rotate` é `async`, e a chave de config é `enabled`, não `rotate_enabled`) que
+teriam deixado a rotação **nunca rodar, em silêncio**.
+
+**"Ao mesmo tempo" é por leva, não por relógio:** as saídas são espalhadas por poucos
+segundos (padrão 12) porque seis requisições no mesmo milissegundo do mesmo IP é
+assinatura de máquina (lição de 21/08). `espalhar_segundos=0` devolve o simultâneo exato.
+
+**⚠ ESTADO HONESTO — 1 rede automática, 10 assistidas.** Só o Instagram publica sozinho
+(instagrapi, caminho medido). As outras **abrem o compositor na MESMA janela Camoufox**
+(`session_manager.abrir_aba`) e esperam confirmação. Escrever dez fluxos de DOM sem nunca
+ter aberto a tela de cada rede produziria dez seletores inventados. **O campo `medido` no
+registro diz, por rede, se alguém já conferiu** — e as URLs de compositor são ponto de
+partida, não fato (o Threads mudou de `threads.net` para `threads.com`). Sair do assistido
+= medir o fluxo uma vez e trocar `transporte` naquela linha.
+
+**🩸 TRÊS REGRESSÕES que isto abriria, já fechadas — todas silenciosas:**
+- `db.get_account_by_profile` devolvia a conta **mais recente** do perfil, e tem **10
+  chamadores** que falam de Instagram (limitador do InstaFollow, auto-verificação ao
+  fechar a janela, Spider). Agora recebe `platform`, **padrão `'instagram'`**.
+- `accounts.check_status` roda `instagram.detect_status`: numa conta de TikTok ele acharia
+  a tela de login do Instagram e marcaria "sessão expirada". Guarda posta, e
+  `_check_all_accounts` só varre Instagram.
+- `/profiles` montava `account_status` pela conta mais recente — um perfil de Instagram
+  **banido** apareceria disponível no InstaFollow porque o TikTok dele está ativo. Hoje o
+  campo é do Instagram; as demais vão em `contas_redes`.
+
+**Endpoints:** `GET /redes` (a matriz) · `GET /redes/perfis` (cobertura por perfil) ·
+`POST /redes/plano` (prévia, só o NOME do arquivo — não sobe o vídeo a cada tecla) ·
+`POST /redes/publicar` (**`simular` nasce `true`**, como o `dryRun` do InstaFollow).
+
+**Validado:** 152 asserções (105 do plano · 19 do banco em SQLite temporário, com o
+Instagram sendo a conta mais VELHA do perfil · 28 do orquestrador, incluindo "uma rotação
+para seis redes") + `py_compile` + `node --check` + endpoints ao vivo + aba sem erro de
+console. **⚠ A leva multi-rede não rodou contra contas reais de outras redes** — os 11
+perfis do cadastro só têm Instagram. A primeira leva de verdade vai com simulação ligada.
+
 ## Status manual "Em uso" — contas emprestadas (2026-09-12)
 Pedido: *"emprestei as contas, vou fazer novas e não quero misturar"*. Valor novo
 **`in_use`** ("Em uso") no seletor de status da conta. É **rótulo MANUAL**, não estado

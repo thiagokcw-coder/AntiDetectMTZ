@@ -36,6 +36,31 @@ PASTA = Path(__file__).parent / "data" / "_stories"
 # esticada — esticar deforma a arte e denuncia montagem automática.
 LARGURA, ALTURA = 1080, 1920
 
+# ─── Formatos de arte ────────────────────────────────────────────────────────
+# O Story Creator deixou de fazer só story. Cada destino tem o seu formato, e
+# publicar no formato errado custa recorte automático da rede — que é quem vai
+# decidir o que cortar, normalmente em cima do texto.
+#
+# `vertical` (4:5) é o padrão do feed de propósito: é o retrato mais alto que o
+# Instagram aceita sem cortar, ou seja, o maior espaço de tela por publicação.
+# `quadrado` existe porque é o que mais redes aceitam igual.
+FORMATOS: dict[str, dict] = {
+    "story":    {"nome": "Story / Reels (9:16)", "px": (1080, 1920), "proporcao": "9:16"},
+    "vertical": {"nome": "Feed vertical (4:5)",  "px": (1080, 1350), "proporcao": "4:5"},
+    "quadrado": {"nome": "Feed quadrado (1:1)",  "px": (1080, 1080), "proporcao": "1:1"},
+    "paisagem": {"nome": "Paisagem (16:9)",      "px": (1920, 1080), "proporcao": "16:9"},
+    "pin":      {"nome": "Pin (2:3)",            "px": (1000, 1500), "proporcao": "2:3"},
+}
+
+FORMATO_PADRAO = {"story": "story", "feed": "vertical"}
+
+
+def tamanho_do_formato(formato: str) -> tuple:
+    """Pixels de um formato. Nome desconhecido cai no story, que era o único
+    formato que existia — assim nada quebra para quem já usava."""
+    f = FORMATOS.get((formato or "").strip().lower())
+    return tuple(f["px"]) if f else (LARGURA, ALTURA)
+
 # Fontes candidatas, da mais próxima do Instagram para a mais genérica. Se
 # nenhuma existir, cai na bitmap do Pillow: feia, mas nunca derruba a composição.
 _FONTES = ["segoeuib.ttf", "seguisb.ttf", "arialbd.ttf", "arial.ttf"]
@@ -71,16 +96,23 @@ def _texto_do_link(link: str, rotulo: str = "") -> str:
     return (t[:28] + "…") if len(t) > 29 else t or "link"
 
 
-def _encaixar(img: Image.Image) -> Image.Image:
-    """Encaixa em 1080x1920 SEM esticar: a arte inteira cabe, o resto vira fundo."""
+def _encaixar(img: Image.Image, larg: int = None, alt: int = None) -> Image.Image:
+    """Encaixa no formato pedido SEM esticar: a arte inteira cabe, o resto vira fundo.
+
+    O tamanho virou parâmetro quando o Story Creator passou a fazer post de feed
+    também: feed é 1:1, 4:5 ou 16:9, e story é 9:16. Esticar continua fora de
+    cogitação — deforma a arte e denuncia montagem automática.
+    """
+    larg = larg or LARGURA
+    alt = alt or ALTURA
     img = img.convert("RGB")
-    if (img.width, img.height) == (LARGURA, ALTURA):
+    if (img.width, img.height) == (larg, alt):
         return img
-    escala = min(LARGURA / img.width, ALTURA / img.height)
+    escala = min(larg / img.width, alt / img.height)
     novo = img.resize((max(1, int(img.width * escala)), max(1, int(img.height * escala))),
                       Image.LANCZOS)
-    fundo = Image.new("RGB", (LARGURA, ALTURA), (16, 16, 16))
-    fundo.paste(novo, ((LARGURA - novo.width) // 2, (ALTURA - novo.height) // 2))
+    fundo = Image.new("RGB", (larg, alt), (16, 16, 16))
+    fundo.paste(novo, ((larg - novo.width) // 2, (alt - novo.height) // 2))
     return fundo
 
 
@@ -143,20 +175,23 @@ def _baixar(url: str, limite_mb: int = 8) -> bytes:
     return dados
 
 
-def _fundo_do_post(mini: Image.Image) -> Image.Image:
-    """Fundo 9:16 a partir da própria miniatura, borrada e escurecida.
+def _fundo_do_post(mini: Image.Image, larg: int = None, alt: int = None) -> Image.Image:
+    """Fundo a partir da própria miniatura, borrada e escurecida.
 
     É o que o Instagram faz quando você compartilha um post sem escolher fundo —
-    e evita exigir que você prepare uma arte só para repostar.
+    e evita exigir que você prepare uma arte só para repostar. O tamanho é
+    parâmetro porque o mesmo repost serve story (9:16) e feed (1:1, 4:5).
     """
     from PIL import ImageFilter
-    escala = max(LARGURA / mini.width, ALTURA / mini.height)
+    larg = larg or LARGURA
+    alt = alt or ALTURA
+    escala = max(larg / mini.width, alt / mini.height)
     g = mini.convert("RGB").resize(
         (max(1, int(mini.width * escala)), max(1, int(mini.height * escala))), Image.LANCZOS)
-    esq = (g.width - LARGURA) // 2
-    topo = (g.height - ALTURA) // 2
-    g = g.crop((esq, topo, esq + LARGURA, topo + ALTURA)).filter(ImageFilter.GaussianBlur(40))
-    escuro = Image.new("RGB", (LARGURA, ALTURA), (0, 0, 0))
+    esq = (g.width - larg) // 2
+    topo = (g.height - alt) // 2
+    g = g.crop((esq, topo, esq + larg, topo + alt)).filter(ImageFilter.GaussianBlur(40))
+    escuro = Image.new("RGB", (larg, alt), (0, 0, 0))
     return Image.blend(g, escuro, 0.45)
 
 
@@ -203,7 +238,8 @@ def _desenhar_card(img: Image.Image, mini: Image.Image, username: str,
 
 def compor(dados: bytes, link: str, x: float, y: float,
            largura: float, altura: float, rotulo: str = "",
-           post: dict = None, mini_bytes: bytes = None) -> dict:
+           post: dict = None, mini_bytes: bytes = None,
+           tamanho: tuple = None) -> dict:
     """Desenha os stickers na imagem e devolve o arquivo pronto para publicar.
 
     x/y são o CENTRO do retângulo, e largura/altura o tamanho — todos de 0 a 1,
@@ -218,14 +254,15 @@ def compor(dados: bytes, link: str, x: float, y: float,
     Sem `dados` mas com `post`, o fundo é a própria miniatura borrada: repostar
     não deveria exigir que você prepare uma arte.
     """
-    cx, cy = float(x) * LARGURA, float(y) * ALTURA
-    cw, ch = float(largura) * LARGURA, float(altura) * ALTURA
+    L, A = tamanho or (LARGURA, ALTURA)
+    cx, cy = float(x) * L, float(y) * A
+    cw, ch = float(largura) * L, float(altura) * A
 
     mini = Image.open(io.BytesIO(mini_bytes)) if mini_bytes else None
     if dados:
-        img = _encaixar(Image.open(io.BytesIO(dados)))
+        img = _encaixar(Image.open(io.BytesIO(dados)), L, A)
     elif mini is not None:
-        img = _fundo_do_post(mini)
+        img = _fundo_do_post(mini, L, A)
     else:
         raise ValueError("sem imagem de fundo e sem publicação para repostar")
 
@@ -236,16 +273,16 @@ def compor(dados: bytes, link: str, x: float, y: float,
         d = ImageDraw.Draw(img, "RGBA")
         if not (link or "").strip():
             PASTA.mkdir(parents=True, exist_ok=True)
-            nome = "story_%d.jpg" % int(time.time() * 1000)
+            nome = "arte_%d.jpg" % int(time.time() * 1000)
             caminho = PASTA / nome
             img.save(caminho, "JPEG", quality=92)
             return {"arquivo": nome, "caminho": str(caminho),
-                    "largura_px": LARGURA, "altura_px": ALTURA}
+                    "largura_px": L, "altura_px": A}
         # O chip desce para debaixo do card, com folga — e as coordenadas do link
         # acompanham, senao o desenho e a area tocavel se separariam.
-        ch = min(ch, ALTURA * 0.075)
-        cw = min(cw, LARGURA * 0.62)
-        cy = min(ALTURA - ch / 2 - 20, cy + (float(altura) * ALTURA) / 2 + ch * 0.9)
+        ch = min(ch, A * 0.075)
+        cw = min(cw, L * 0.62)
+        cy = min(A - ch / 2 - 20, cy + (float(altura) * A) / 2 + ch * 0.9)
 
     caixa = [cx - cw / 2, cy - ch / 2, cx + cw / 2, cy + ch / 2]
     raio = max(8, int(min(cw, ch) * 0.28))
@@ -269,16 +306,16 @@ def compor(dados: bytes, link: str, x: float, y: float,
            font=fonte, fill=(20, 20, 20, 255))
 
     PASTA.mkdir(parents=True, exist_ok=True)
-    nome = "story_%d.jpg" % int(time.time() * 1000)
+    nome = "arte_%d.jpg" % int(time.time() * 1000)
     caminho = PASTA / nome
     img.save(caminho, "JPEG", quality=92)
     saida = {"arquivo": nome, "caminho": str(caminho),
-             "largura_px": LARGURA, "altura_px": ALTURA}
+             "largura_px": L, "altura_px": A}
     if post:
         # Onde o chip do link REALMENTE ficou, para o publicar mandar a area
         # tocavel no mesmo lugar do desenho.
-        saida["link_rect"] = {"x": cx / LARGURA, "y": cy / ALTURA,
-                              "largura": cw / LARGURA, "altura": ch / ALTURA}
+        saida["link_rect"] = {"x": cx / L, "y": cy / A,
+                              "largura": cw / L, "altura": ch / A}
     return saida
 
 
@@ -374,16 +411,41 @@ def _calar_expose(cl) -> None:
 
 def publicar(perfil: dict, caminho: str, link: str,
              x: float, y: float, largura: float, altura: float,
-             post: dict = None, link_rect: dict = None, cl=None) -> dict:
-    """Publica o story: chip de link, card de repost, ou os dois.
+             post: dict = None, link_rect: dict = None, cl=None,
+             destino: str = "story", legenda: str = "") -> dict:
+    """Publica no Instagram: story (padrão) ou post de feed.
 
     `link_rect` vem do `compor` quando há repost — é onde o chip foi DESENHADO,
     e é o que mandamos como área tocável. Sem isso o desenho ficaria embaixo do
     card e o toque em outro lugar.
+
+    ## Feed não tem link clicável, e isso não é limitação nossa
+
+    No story, `StoryLink` cria uma área tocável de verdade. **No feed do
+    Instagram não existe link clicável** — nem na legenda, que é texto puro. Com
+    `destino="feed"` o chip continua sendo DESENHADO na arte (é o que avisa a
+    pessoa para onde ir), mas nenhum sticker é enviado, porque não há sticker
+    nenhum para enviar. Fingir que há produziria uma publicação que parece ter
+    link e não tem.
+
+    Pelo mesmo motivo o repost muda de natureza: `StoryMedia` é sticker de
+    story. No feed, o card da publicação de outra pessoa fica só desenhado.
     """
     from instagrapi.types import StoryLink, StoryMedia
 
     cl = cl or cliente(perfil)
+    dest = (destino or "story").strip().lower()
+
+    if dest == "feed":
+        # A legenda é o que de fato carrega o link no feed: não clica, mas a
+        # pessoa lê e digita. Por isso ela é o campo que importa aqui.
+        media = cl.photo_upload(Path(caminho), caption=legenda or "")
+        return {"pk": str(media.pk), "conta": cl.username, "destino": "feed",
+                "repostou": bool(post), "com_link": False,
+                "aviso": ("o feed do Instagram não tem link clicável — o chip "
+                          "está desenhado na arte e o link vai na legenda")
+                         if (link or "").strip() else ""}
+
     kw = {}
 
     if (link or "").strip():
@@ -399,5 +461,5 @@ def publicar(perfil: dict, caminho: str, link: str,
         raise ValueError("nada para publicar: sem link e sem publicação a repostar")
 
     story = cl.photo_upload_to_story(Path(caminho), **kw)
-    return {"pk": str(story.pk), "conta": cl.username,
+    return {"pk": str(story.pk), "conta": cl.username, "destino": "story",
             "repostou": bool(post), "com_link": "links" in kw}

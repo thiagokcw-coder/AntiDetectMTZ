@@ -5377,7 +5377,8 @@ async def story_resolver_post(body: StoryResolverRequest):
 async def story_compor(imagem: UploadFile = File(None), link: str = Form(""),
                        x: float = Form(0.5), y: float = Form(0.75),
                        largura: float = Form(0.62), altura: float = Form(0.08),
-                       rotulo: str = Form(""), post_json: str = Form("")):
+                       rotulo: str = Form(""), post_json: str = Form(""),
+                       formato: str = Form("story")):
     """Desenha os stickers na arte. Nao publica e nao toca o Instagram.
 
     `post_json` vem do /story/resolver-post; com ele o retangulo vira o CARD da
@@ -5399,7 +5400,8 @@ async def story_compor(imagem: UploadFile = File(None), link: str = Form(""),
     if not dados and not post:
         raise HTTPException(400, "Envie uma imagem ou busque uma publicacao para repostar")
     try:
-        return story_mod.compor(dados, link, x, y, largura, altura, rotulo, post, mini)
+        return story_mod.compor(dados, link, x, y, largura, altura, rotulo, post, mini,
+                                tamanho=story_mod.tamanho_do_formato(formato))
     except ValueError as e:
         raise HTTPException(400, str(e))
     except Exception as e:
@@ -5429,6 +5431,10 @@ class StoryPublicarRequest(BaseModel):
     # desce o chip para baixo do card, e a area tocavel tem de acompanhar).
     post: dict | None = None
     link_rect: dict | None = None
+    # story (padrao, como sempre foi) ou feed. O feed do Instagram nao tem link
+    # clicavel: o chip fica desenhado e o link vai na legenda.
+    destino: str = "story"
+    legenda: str = ""
 
 
 @app.post("/story/publicar")
@@ -5446,7 +5452,7 @@ async def story_publicar(body: StoryPublicarRequest):
         return await asyncio.to_thread(
             story_mod.publicar, p, str(f), body.link,
             body.x, body.y, body.largura, body.altura,
-            body.post, body.link_rect)
+            body.post, body.link_rect, None, body.destino, body.legenda)
     except Exception as e:
         raise HTTPException(400, f"{type(e).__name__}: {e}")
 
@@ -5456,12 +5462,32 @@ async def story_publicar(body: StoryPublicarRequest):
 # PESSOA com conta em cada rede. A decisão de quem publica mora em `redes.py`
 # (função pura, testável sem rede); aqui fica só a casca HTTP.
 
+def _personalizacoes(bruto: str) -> dict:
+    """Lê o JSON `{rede: {legenda, link, arquivo, formato, destino}}` da tela.
+
+    JSON quebrado vira 400 com a mensagem, e não personalização silenciosamente
+    ignorada: publicar com a legenda comum numa rede onde o usuário escreveu
+    outra é pior que recusar — ele só descobriria depois de publicado.
+    """
+    if not (bruto or "").strip():
+        return {}
+    try:
+        d = json.loads(bruto)
+    except Exception as e:
+        raise HTTPException(400, f"personalizacoes não é um JSON válido: {e}")
+    if not isinstance(d, dict):
+        raise HTTPException(400, "personalizacoes precisa ser um objeto {rede: {...}}")
+    return {k: v for k, v in d.items() if isinstance(v, dict)}
+
+
 @app.get("/redes")
 def redes_catalogo():
     """A matriz das redes: transporte, formatos, limite de legenda e se o
     caminho daquela rede já foi medido ao vivo."""
     import redes as _redes
+    import story as _story
     return {"redes": [dict(r) for r in _redes.REDES],
+            "formatos": {k: dict(v, px=list(v["px"])) for k, v in _story.FORMATOS.items()},
             "espalhar_segundos_padrao": _redes.ESPALHAR_SEGUNDOS_PADRAO}
 
 
@@ -5498,7 +5524,9 @@ def redes_perfis():
 
 @app.post("/redes/plano")
 async def redes_plano(profile_id: str = Form(...), redes_pedidas: str = Form(""),
-                      legenda: str = Form(""), arquivo_nome: str = Form("")):
+                      legenda: str = Form(""), arquivo_nome: str = Form(""),
+                      destino: str = Form("feed"), link: str = Form(""),
+                      personalizacoes: str = Form("")):
     """A prévia: quem publicaria, quem seria recusado e por quê — sem publicar.
 
     Separado do publicar de propósito. O plano é a parte que decide, e ele
@@ -5511,8 +5539,10 @@ async def redes_plano(profile_id: str = Form(...), redes_pedidas: str = Form("")
         raise HTTPException(404, "Perfil não encontrado")
     pedidas = [r for r in (redes_pedidas or "").split(",") if r.strip()]
     contas = db.list_accounts_by_profile(profile_id)
-    conteudo = {"arquivo": arquivo_nome, "legenda": legenda}
-    plano = _redes.montar_plano(contas, conteudo, pedidas)
+    conteudo = {"arquivo": arquivo_nome, "legenda": legenda,
+                "link": link, "destino": destino}
+    plano = _redes.montar_plano(contas, conteudo, pedidas,
+                                _personalizacoes(personalizacoes))
     return {"plano": [d.como_dict() for d in plano],
             "resumo": _redes.resumo_do_plano(plano),
             "tipo": _redes.tipo_do_conteudo(conteudo)}
@@ -5522,7 +5552,9 @@ async def redes_plano(profile_id: str = Form(...), redes_pedidas: str = Form("")
 async def redes_publicar(profile_id: str = Form(...), arquivo: UploadFile = File(None),
                          redes_pedidas: str = Form(""), legenda: str = Form(""),
                          link: str = Form(""), simular: bool = Form(True),
-                         espalhar_segundos: float = Form(-1.0)):
+                         espalhar_segundos: float = Form(-1.0),
+                         destino: str = Form("feed"),
+                         personalizacoes: str = Form("")):
     """A LEVA: um clique, todas as redes do perfil.
 
     `simular` nasce **True**. É o padrão deste projeto para motor que nunca
@@ -5552,7 +5584,8 @@ async def redes_publicar(profile_id: str = Form(...), arquivo: UploadFile = File
         raise HTTPException(400, "este perfil não tem nenhuma conta cadastrada")
 
     pedidas = [r for r in (redes_pedidas or "").split(",") if r.strip()]
-    conteudo = {"arquivo": caminho, "legenda": legenda, "link": link}
+    conteudo = {"arquivo": caminho, "legenda": legenda, "link": link,
+                "destino": destino}
     espalhar = (_redes.ESPALHAR_SEGUNDOS_PADRAO if espalhar_segundos < 0
                 else espalhar_segundos)
 
@@ -5561,6 +5594,7 @@ async def redes_publicar(profile_id: str = Form(...), arquivo: UploadFile = File
         r = await _redes.publicar_em_todas(
             p, contas, conteudo, pedidas,
             espalhar_segundos=espalhar, simular=simular,
+            personalizacoes=_personalizacoes(personalizacoes),
             # A rotação de IP é injetada, não reimplementada: é a MESMA função
             # que o Spider, o InstaFollow e o botão Abrir usam, com a guarda do
             # perfil com proxy próprio já dentro dela.

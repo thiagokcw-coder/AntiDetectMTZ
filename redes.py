@@ -88,6 +88,8 @@ REDES: tuple[dict, ...] = (
         "id": "instagram",
         "nome": "Instagram",
         "transporte": "instagrapi",
+        "destinos": ("story", "feed"),
+        "formato_padrao": {"story": "story", "feed": "vertical"},
         "compositor": "https://www.instagram.com/",
         "formatos": ("imagem", "video"),
         "legenda_max": 2200,
@@ -98,6 +100,8 @@ REDES: tuple[dict, ...] = (
         "id": "facebook",
         "nome": "Facebook",
         "transporte": "navegador",
+        "destinos": ("story", "feed"),
+        "formato_padrao": {"story": "story", "feed": "quadrado"},
         "compositor": "https://www.facebook.com/",
         "formatos": ("imagem", "video", "texto"),
         "legenda_max": 63206,
@@ -109,6 +113,8 @@ REDES: tuple[dict, ...] = (
         "id": "threads",
         "nome": "Threads",
         "transporte": "navegador",
+        "destinos": ("feed",),
+        "formato_padrao": {"feed": "quadrado"},
         "compositor": "https://www.threads.com/",
         "formatos": ("imagem", "video", "texto"),
         "legenda_max": 500,
@@ -119,6 +125,8 @@ REDES: tuple[dict, ...] = (
         "id": "x",
         "nome": "X (Twitter)",
         "transporte": "navegador",
+        "destinos": ("feed",),
+        "formato_padrao": {"feed": "paisagem"},
         "compositor": "https://x.com/compose/post",
         "formatos": ("imagem", "video", "texto"),
         "legenda_max": 280,
@@ -129,6 +137,8 @@ REDES: tuple[dict, ...] = (
         "id": "tiktok",
         "nome": "TikTok",
         "transporte": "navegador",
+        "destinos": ("feed",),
+        "formato_padrao": {"feed": "story"},
         "compositor": "https://www.tiktok.com/tiktokstudio/upload",
         "formatos": ("video",),
         "legenda_max": 2200,
@@ -140,6 +150,8 @@ REDES: tuple[dict, ...] = (
         "id": "youtube",
         "nome": "YouTube",
         "transporte": "navegador",
+        "destinos": ("feed",),
+        "formato_padrao": {"feed": "paisagem"},
         "compositor": "https://studio.youtube.com/",
         "formatos": ("video",),
         "legenda_max": 5000,
@@ -151,6 +163,8 @@ REDES: tuple[dict, ...] = (
         "id": "kwai",
         "nome": "Kwai",
         "transporte": "navegador",
+        "destinos": ("feed",),
+        "formato_padrao": {"feed": "story"},
         "compositor": "https://www.kwai.com/",
         "formatos": ("video",),
         "legenda_max": 500,
@@ -161,6 +175,8 @@ REDES: tuple[dict, ...] = (
         "id": "linkedin",
         "nome": "LinkedIn",
         "transporte": "navegador",
+        "destinos": ("feed",),
+        "formato_padrao": {"feed": "quadrado"},
         "compositor": "https://www.linkedin.com/feed/",
         "formatos": ("imagem", "video", "texto"),
         "legenda_max": 3000,
@@ -172,6 +188,8 @@ REDES: tuple[dict, ...] = (
         "id": "pinterest",
         "nome": "Pinterest",
         "transporte": "navegador",
+        "destinos": ("feed",),
+        "formato_padrao": {"feed": "pin"},
         "compositor": "https://www.pinterest.com/pin-builder/",
         "formatos": ("imagem", "video"),
         "legenda_max": 500,
@@ -182,6 +200,8 @@ REDES: tuple[dict, ...] = (
         "id": "bluesky",
         "nome": "Bluesky",
         "transporte": "navegador",
+        "destinos": ("feed",),
+        "formato_padrao": {"feed": "quadrado"},
         "compositor": "https://bsky.app/",
         "formatos": ("imagem", "video", "texto"),
         "legenda_max": 300,
@@ -193,6 +213,8 @@ REDES: tuple[dict, ...] = (
         "id": "telegram",
         "nome": "Telegram",
         "transporte": "navegador",
+        "destinos": ("feed",),
+        "formato_padrao": {"feed": "quadrado"},
         "compositor": "https://web.telegram.org/",
         "formatos": ("imagem", "video", "texto"),
         "legenda_max": 1024,
@@ -237,8 +259,13 @@ def nome(rede_id: str) -> str:
 
 
 @dataclass
-class Destino:
-    """Uma rede da leva, já decidida."""
+class Alvo:
+    """Uma rede da leva, já decidida.
+
+    Chamava-se `Destino`. Virou `Alvo` quando o Story Creator passou a fazer
+    post de feed: aí "destino" passou a significar story-ou-feed, e dois
+    sentidos para a mesma palavra no mesmo arquivo é como se lê errado.
+    """
 
     rede_id: str
     conta_id: Optional[str] = None
@@ -246,6 +273,15 @@ class Destino:
     transporte: str = ""
     publica: bool = False
     motivo: str = ""
+    #: story | feed — o que esta rede vai receber nesta leva
+    destino: str = "feed"
+    #: nome do formato de arte (ver story.FORMATOS)
+    formato: str = ""
+    #: já com a personalização aplicada por cima do conteúdo comum
+    legenda: str = ""
+    link: str = ""
+    arquivo: str = ""
+    personalizado: tuple = ()
     #: preenchido depois, pelo orquestrador
     desfecho: str = ""
     detalhe: str = ""
@@ -261,6 +297,12 @@ class Destino:
             "transporte": self.transporte,
             "publica": self.publica,
             "motivo": self.motivo,
+            "destino": self.destino,
+            "formato": self.formato,
+            "legenda": self.legenda,
+            "link": self.link,
+            "arquivo": self.arquivo,
+            "personalizado": list(self.personalizado),
             "desfecho": self.desfecho,
             "detalhe": self.detalhe,
             "quando": self.quando,
@@ -284,28 +326,71 @@ def tipo_do_conteudo(conteudo: dict) -> str:
     return "texto"
 
 
+def conteudo_da_rede(conteudo: dict, personalizacao: dict, r: dict,
+                     destino: str) -> tuple:
+    """O conteúdo COMUM com a personalização daquela rede por cima.
+
+    Função à parte, e pura, porque "o que cada rede recebe" é a pergunta que a
+    tela faz o tempo todo (para a prévia) e o orquestrador faz uma vez (para
+    publicar). Se cada lado calculasse por conta, a prévia mostraria uma coisa e
+    sairia outra — e seria a prévia que o usuário leria.
+
+    Devolve `(conteudo_final, campos_personalizados)`. O segundo é só para a
+    tela poder marcar o que foi trocado: rede que herdou tudo e rede que
+    reescreveu a legenda não devem parecer iguais.
+    """
+    p = personalizacao or {}
+    final = dict(conteudo)
+    trocados = []
+
+    for campo in ("legenda", "link", "arquivo"):
+        v = p.get(campo)
+        # String vazia NÃO é herança: é "quero esta rede sem legenda". Só a
+        # ausência da chave herda — senão não haveria como apagar a legenda de
+        # uma rede só, que é metade do motivo de existir personalização.
+        if campo in p and v != final.get(campo):
+            final[campo] = v or ""
+            trocados.append(campo)
+
+    formato = p.get("formato") or (r.get("formato_padrao") or {}).get(destino) or "quadrado"
+    if p.get("formato"):
+        trocados.append("formato")
+    final["formato"] = formato
+    final["destino"] = destino
+    return final, tuple(trocados)
+
+
 def montar_plano(contas: list[dict], conteudo: dict,
-                 redes_pedidas: Optional[list[str]] = None) -> list[Destino]:
-    """Quem publica, quem é recusado e por quê — antes de tocar em rede nenhuma.
+                 redes_pedidas: Optional[list[str]] = None,
+                 personalizacoes: Optional[dict] = None) -> list[Alvo]:
+    """Quem publica, com o quê, e quem é recusado por quê — antes de tocar em
+    rede nenhuma.
 
     `contas` são as contas do perfil (uma por rede, como `list_accounts_by_profile`
     devolve). `redes_pedidas` vazio significa TODAS as que o perfil tem.
+    `personalizacoes` é `{rede: {legenda, link, arquivo, formato, destino}}` e
+    vence o conteúdo comum, campo a campo.
 
     A ordem das recusas é do mais barato para o mais caro de descobrir: rede
-    desconhecida, conta que não está ativa, formato incompatível, legenda longa.
+    desconhecida, conta que não está ativa, destino que a rede não tem, formato
+    incompatível, legenda longa. **A legenda conferida é a da rede**, não a
+    comum — senão personalizar para caber no X de 280 não adiantaria nada.
     """
-    tipo = tipo_do_conteudo(conteudo)
-    legenda = conteudo.get("legenda") or ""
     pedidas = {r.strip().lower() for r in (redes_pedidas or []) if r and r.strip()}
+    pers = {k.strip().lower(): v for k, v in (personalizacoes or {}).items() if k}
+    # Padrão FEED, não story: nove das onze redes não têm story nenhum, e
+    # "publicar" sem dizer mais nada significa uma publicação normal. Story é o
+    # caso especial, e quem o quer diz.
+    destino_comum = (conteudo.get("destino") or "feed").strip().lower()
 
-    plano: list[Destino] = []
+    plano: list[Alvo] = []
     for c in contas:
         rid = (c.get("platform") or REDE_PADRAO).strip().lower()
         if pedidas and rid not in pedidas:
             continue
 
-        d = Destino(rede_id=rid, conta_id=c.get("id"),
-                    username=c.get("username") or "")
+        d = Alvo(rede_id=rid, conta_id=c.get("id"),
+                 username=c.get("username") or "")
         r = rede(rid)
         if not r:
             d.motivo = "rede não reconhecida pelo app — publique na mão"
@@ -313,6 +398,17 @@ def montar_plano(contas: list[dict], conteudo: dict,
             continue
 
         d.transporte = r["transporte"]
+        meu = pers.get(rid) or {}
+        destino = (meu.get("destino") or destino_comum).strip().lower()
+        d.destino = destino
+
+        final, trocados = conteudo_da_rede(conteudo, meu, r, destino)
+        d.legenda = final.get("legenda") or ""
+        d.link = final.get("link") or ""
+        d.arquivo = final.get("arquivo") or ""
+        d.formato = final.get("formato") or ""
+        d.personalizado = trocados
+        tipo = tipo_do_conteudo(final)
 
         status = (c.get("status") or "").strip().lower()
         if status != "active":
@@ -329,27 +425,38 @@ def montar_plano(contas: list[dict], conteudo: dict,
             plano.append(d)
             continue
 
+        if destino not in r["destinos"]:
+            # Story no X ou no YouTube não existe. Recusar aqui é melhor que
+            # publicar no feed sem avisar: a arte 9:16 iria para um lugar que
+            # não é 9:16.
+            d.motivo = "%s não tem %s — ele só recebe %s" % (
+                r["nome"], destino, " e ".join(r["destinos"]))
+            plano.append(d)
+            continue
+
         if tipo not in r["formatos"]:
             d.motivo = "%s aceita %s, e o conteúdo é %s" % (
                 r["nome"], " ou ".join(r["formatos"]), tipo)
             plano.append(d)
             continue
 
-        if legenda and len(legenda) > r["legenda_max"]:
-            d.motivo = "a legenda tem %d caracteres e o limite do %s é %d" % (
-                len(legenda), r["nome"], r["legenda_max"])
+        if d.legenda and len(d.legenda) > r["legenda_max"]:
+            d.motivo = "a legenda tem %d caracteres e o limite do %s é %d%s" % (
+                len(d.legenda), r["nome"], r["legenda_max"],
+                "" if "legenda" in trocados else " — personalize a legenda desta rede")
             plano.append(d)
             continue
 
         d.publica = True
-        d.motivo = ("publica sozinho" if r["transporte"] == "instagrapi"
-                    else "abre o compositor para você confirmar")
+        base = ("publica sozinho" if r["transporte"] == "instagrapi"
+                else "abre o compositor para você confirmar")
+        d.motivo = base + (" · personalizado: " + ", ".join(trocados) if trocados else "")
         plano.append(d)
 
     return plano
 
 
-def resumo_do_plano(plano: list[Destino]) -> dict:
+def resumo_do_plano(plano: list[Alvo]) -> dict:
     """Contagens para a tela, sem ela precisar recontar."""
     automaticas = [d for d in plano if d.publica and d.transporte == "instagrapi"]
     assistidas = [d for d in plano if d.publica and d.transporte != "instagrapi"]
@@ -387,6 +494,7 @@ async def publicar_em_todas(perfil: dict, contas: list[dict], conteudo: dict,
                             redes_pedidas: Optional[list[str]] = None,
                             espalhar_segundos: float = ESPALHAR_SEGUNDOS_PADRAO,
                             simular: bool = False,
+                            personalizacoes: Optional[dict] = None,
                             rotacionar=None,
                             log=None) -> dict:
     """Publica o conteúdo em todas as redes do perfil, na mesma leva.
@@ -401,7 +509,7 @@ async def publicar_em_todas(perfil: dict, contas: list[dict], conteudo: dict,
     é justamente a que não se liga confiando.
     """
     fala = log or (lambda *_: None)
-    plano = montar_plano(contas, conteudo, redes_pedidas)
+    plano = montar_plano(contas, conteudo, redes_pedidas, personalizacoes)
     vao = [d for d in plano if d.publica]
 
     resumo = resumo_do_plano(plano)
@@ -421,7 +529,7 @@ async def publicar_em_todas(perfil: dict, contas: list[dict], conteudo: dict,
     atrasos = _espalhamento(len(vao), espalhar_segundos)
     inicio = time.time()
 
-    async def uma(d: Destino, atraso: float):
+    async def uma(d: Alvo, atraso: float):
         if atraso > 0:
             await asyncio.sleep(atraso)
         d.quando = time.time() - inicio
@@ -431,13 +539,17 @@ async def publicar_em_todas(perfil: dict, contas: list[dict], conteudo: dict,
             fala("   ◌ %s: simulado (+%.1fs)" % (nome(d.rede_id), d.quando))
             return
         try:
+            # O conteúdo que sai é o DA REDE (já personalizado no plano), nunca
+            # o comum: era aqui que a prévia e a publicação divergiriam.
             if d.transporte == "instagrapi":
-                d.resultado = await _publicar_instagram(perfil, conteudo)
+                d.resultado = await _publicar_instagram(perfil, d)
                 d.desfecho = "publicado"
-                d.detalhe = "publicado como @%s" % (
-                    d.resultado.get("conta") or d.username)
+                d.detalhe = "%s publicado como @%s" % (
+                    d.destino, d.resultado.get("conta") or d.username)
+                if d.resultado.get("aviso"):
+                    d.detalhe += " — " + d.resultado["aviso"]
             else:
-                d.resultado = await _abrir_compositor(perfil, d, conteudo)
+                d.resultado = await _abrir_compositor(perfil, d)
                 d.desfecho = "assistido"
                 d.detalhe = "compositor aberto — confirme na janela do perfil"
             fala("   ✓ %s: %s (+%.1fs)" % (nome(d.rede_id), d.desfecho, d.quando))
@@ -494,29 +606,29 @@ async def _rotacionar_uma_vez(perfil: dict, simular: bool, fala, rotacionar) -> 
     return r
 
 
-async def _publicar_instagram(perfil: dict, conteudo: dict) -> dict:
-    """O caminho que já funciona, reusado inteiro.
+async def _publicar_instagram(perfil: dict, d: Alvo) -> dict:
+    """O caminho que já funciona, reusado inteiro — agora story OU feed.
 
     Delega ao `story.py` em vez de refazer: a autenticação por cookie sem login
     é o que não queima a conta, e duplicar isso aqui criaria uma segunda versão
     do único trecho que não pode divergir.
+
+    Recebe o `Alvo` e não o conteúdo comum porque é o Alvo que carrega a
+    personalização já resolvida — arquivo, legenda, link e destino desta rede.
     """
     import story
 
-    arquivo = conteudo.get("arquivo")
-    if not arquivo:
+    if not d.arquivo:
         raise ValueError("o Instagram precisa de imagem ou vídeo")
 
     return await asyncio.to_thread(
-        story.publicar, perfil, arquivo,
-        conteudo.get("link") or "",
-        float(conteudo.get("x") or 0.5), float(conteudo.get("y") or 0.8),
-        float(conteudo.get("largura") or 0.6), float(conteudo.get("altura") or 0.1),
-        conteudo.get("post"), conteudo.get("link_rect"),
+        story.publicar, perfil, d.arquivo, d.link,
+        0.5, 0.8, 0.6, 0.1,
+        None, None, None, d.destino, d.legenda,
     )
 
 
-async def _abrir_compositor(perfil: dict, d: Destino, conteudo: dict) -> dict:
+async def _abrir_compositor(perfil: dict, d: Alvo) -> dict:
     """Modo assistido: abre o compositor da rede na janela do perfil.
 
     Uma aba por rede, na MESMA janela — é o que uma pessoa faz, e é o que
@@ -531,5 +643,5 @@ async def _abrir_compositor(perfil: dict, d: Destino, conteudo: dict) -> dict:
         raise ValueError("não sei onde fica o compositor do %s" % nome(d.rede_id))
 
     await sm.abrir_aba(perfil, url)
-    return {"compositor": url, "arquivo": conteudo.get("arquivo"),
-            "legenda": conteudo.get("legenda") or ""}
+    return {"compositor": url, "arquivo": d.arquivo, "legenda": d.legenda,
+            "destino": d.destino, "formato": d.formato}

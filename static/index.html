@@ -393,10 +393,27 @@
             <div style="font-size:11px;color:var(--muted);margin-bottom:3px">Texto do chip (opcional)</div>
             <input id="st-rotulo" placeholder="ex.: ENTRE NO GRUPO" oninput="storyDesenharPrevia()" style="width:100%;box-sizing:border-box;padding:8px 10px;background:var(--surface);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px">
           </div>
+          <div style="flex:1;min-width:210px">
+            <div style="font-size:11px;color:var(--muted);margin-bottom:3px">O que publicar</div>
+            <select id="st-destino" onchange="storyTrocouDestino()" style="width:100%;padding:8px 10px;background:var(--surface);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px">
+              <option value="story:story">Story (9:16)</option>
+              <option value="feed:vertical">Post de feed — vertical 4:5</option>
+              <option value="feed:quadrado">Post de feed — quadrado 1:1</option>
+              <option value="feed:paisagem">Post de feed — paisagem 16:9</option>
+            </select>
+          </div>
           <div>
-            <div style="font-size:11px;color:var(--muted);margin-bottom:3px">Imagem (vertical, 9:16)<span id="st-img-opc" style="display:none"> — opcional</span></div>
+            <div style="font-size:11px;color:var(--muted);margin-bottom:3px">Imagem<span id="st-img-opc" style="display:none"> — opcional</span></div>
             <input id="st-arquivo" type="file" accept="image/*" onchange="storyCarregarImagem(event)" style="font-size:12px">
           </div>
+        </div>
+        <div id="st-legenda-caixa" style="margin-top:10px;display:none">
+          <div style="font-size:11px;color:var(--muted);margin-bottom:3px">Legenda do post</div>
+          <textarea id="st-legenda" rows="2" placeholder="O feed do Instagram não tem link clicável — cole o link aqui, é por onde a pessoa copia."
+                    style="width:100%;box-sizing:border-box;padding:8px 10px;background:var(--surface);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;resize:vertical"></textarea>
+        </div>
+        <div id="st-aviso-feed" class="form-hint" style="margin-top:6px;display:none;color:#f59e0b">
+          ⚠ No <b>feed</b> o chip fica só <b>desenhado</b> — o Instagram não tem link clicável em post, nem na legenda. Quem leva a pessoa ao destino é o texto, não o toque.
         </div>
         <div class="form-hint" style="margin-top:6px">Colou um link de publicação (<code>/p/</code>, <code>/reel/</code>)? Ele vira <b>repost</b> sozinho — o Instagram não faz isso com link colado, quem entende é o app.</div>
         <div class="form-hint" style="margin-top:4px">Use <b>wa.me</b>, não <code>chat.whatsapp.com</code> — o domínio de convite de grupo é dos mais marcados que existem.</div>
@@ -420,7 +437,7 @@
         <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
           <button class="btn" onclick="storyCompor(this)">🎨 Compor a arte</button>
           <button class="btn btn-primary" id="st-publicar" onclick="storyPublicar(this)" disabled
-                  title="Clique antes em “Compor a arte” — é a arte composta que sobe, então ela precisa existir.">📤 Publicar story</button>
+                  title="Clique antes em “Compor a arte” — é a arte composta que sobe, então ela precisa existir.">📤 <span id="st-publicar-rotulo">Publicar story</span></button>
           <span id="st-publicar-por-que" style="font-size:12px;color:#f59e0b">⬅ componha a arte primeiro</span>
           <span id="st-status" style="font-size:12px;color:var(--muted)"></span>
         </div>
@@ -449,7 +466,14 @@
           </div>
           <div style="flex:1;min-width:160px">
             <div style="font-size:11px;color:var(--muted);margin-bottom:3px">Link (opcional)</div>
-            <input id="pb-link" placeholder="https://wa.me/5551…" style="width:100%;box-sizing:border-box;padding:8px 10px;background:var(--surface);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px">
+            <input id="pb-link" oninput="pubPrever()" placeholder="https://wa.me/5551…" style="width:100%;box-sizing:border-box;padding:8px 10px;background:var(--surface);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px">
+          </div>
+          <div style="flex:1;min-width:170px">
+            <div style="font-size:11px;color:var(--muted);margin-bottom:3px">O que publicar</div>
+            <select id="pb-destino" onchange="pubPrever()" style="width:100%;padding:8px 10px;background:var(--surface);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px">
+              <option value="feed">Post (feed)</option>
+              <option value="story">Story — só Instagram e Facebook têm</option>
+            </select>
           </div>
         </div>
         <div style="margin-top:10px">
@@ -2253,8 +2277,14 @@ function showPage(name) {
 // aqui criaria uma segunda verdade sobre a mesma pergunta, e seria essa que o
 // usuário veria.
 let _pbRedes = [];       // o catálogo (GET /redes)
+let _pbFormatos = {};    // story.FORMATOS, para os seletores
 let _pbPerfis = [];      // perfis com a cobertura de redes
 let _pbMarcadas = null;  // Set de redes marcadas, ou null = todas
+// {rede: {legenda, link, formato, destino}} — só o que o usuário TROCOU. Rede
+// ausente herda o conteúdo comum, e é essa ausência que distingue "herdei" de
+// "quero esta rede sem legenda" (string vazia).
+let _pbPers = {};
+let _pbAberta = null;    // qual rede está com o painel de personalização aberto
 
 async function loadPublicar() {
   try {
@@ -2263,6 +2293,7 @@ async function loadPublicar() {
       api('GET', '/redes/perfis'),
     ]);
     _pbRedes = cat.redes || [];
+    _pbFormatos = cat.formatos || {};
     _pbPerfis = perfis.perfis || [];
     const esp = document.getElementById('pb-espalhar');
     if (esp && !esp.dataset.tocado) esp.value = cat.espalhar_segundos_padrao ?? 12;
@@ -2289,6 +2320,10 @@ function _pbPerfilAtual() {
 
 function pubTrocouPerfil() {
   _pbMarcadas = null;   // trocou de persona: volta a marcar todas
+  // A personalização era daquela persona. Mantê-la escreveria a legenda de um
+  // perfil na publicação de outro -- e ninguém conferiria.
+  _pbPers = {};
+  _pbAberta = null;
   pubPrever();
 }
 
@@ -2335,6 +2370,9 @@ async function pubPrever() {
     // Só o NOME do arquivo: é dele que sai o tipo (imagem/vídeo), e mandar os
     // bytes só para calcular a prévia subiria o vídeo inteiro a cada tecla.
     fd.append('arquivo_nome', arq ? arq.name : '');
+    fd.append('destino', document.getElementById('pb-destino').value);
+    fd.append('link', document.getElementById('pb-link').value || '');
+    fd.append('personalizacoes', JSON.stringify(_pbPers));
     const r = await apiForm('POST', '/redes/plano', fd);
     plano = r.plano || [];
   } catch (e) {
@@ -2346,18 +2384,25 @@ async function pubPrever() {
   alvo.innerHTML = plano.map(d => {
     const marcada = pedidas.has(d.rede);
     const entra = d.publica && marcada;
+    const temPers = (d.personalizado || []).length > 0;
     const cor = !d.publica ? 'var(--muted)' : (marcada ? '#22c55e' : 'var(--muted)');
     const fundo = entra ? 'rgba(34,197,94,.10)' : 'var(--surface)';
     const selo = d.transporte === 'instagrapi' ? '⚡ sozinho' : '🖐 assistido';
-    return `<div onclick="pubAlternar('${escapeHtml(d.rede)}')" title="${escapeHtml(d.motivo)}"
-      style="cursor:pointer;min-width:170px;flex:1;max-width:240px;padding:9px 11px;border:1px solid ${cor};border-radius:10px;background:${fundo}">
-      <div style="display:flex;align-items:center;gap:6px">
+    const fmt = _pbFormatos[d.formato];
+    return `<div style="min-width:205px;flex:1;max-width:290px;padding:9px 11px;border:1px solid ${temPers ? '#818cf8' : cor};border-radius:10px;background:${fundo}">
+      <div style="display:flex;align-items:center;gap:6px;cursor:pointer" onclick="pubAlternar('${escapeHtml(d.rede)}')" title="${escapeHtml(d.motivo)}">
         <input type="checkbox" ${entra ? 'checked' : ''} ${d.publica ? '' : 'disabled'} onclick="event.stopPropagation();pubAlternar('${escapeHtml(d.rede)}')">
         <b style="font-size:12px">${escapeHtml(d.rede_nome)}</b>
         <span style="font-size:10px;color:var(--muted);margin-left:auto">${selo}</span>
       </div>
-      <div style="font-size:11px;color:var(--muted);margin-top:3px">@${escapeHtml(d.username || '—')}</div>
+      <div style="font-size:11px;color:var(--muted);margin-top:3px">@${escapeHtml(d.username || '—')}${fmt ? ' · ' + escapeHtml(fmt.proporcao) : ''}</div>
       <div style="font-size:10px;color:${d.publica ? 'var(--muted)' : '#f59e0b'};margin-top:3px">${escapeHtml(d.motivo)}</div>
+      <div style="display:flex;gap:6px;align-items:center;margin-top:5px">
+        <button class="btn btn-sm" style="font-size:10px;padding:2px 7px" onclick="pubAbrirPers('${escapeHtml(d.rede)}')">${_pbAberta === d.rede ? '▾' : '▸'} personalizar</button>
+        ${temPers ? `<span style="font-size:10px;color:#818cf8" title="campos trocados nesta rede">✎ ${escapeHtml((d.personalizado || []).join(', '))}</span>
+          <button class="btn btn-sm" style="font-size:10px;padding:2px 7px;margin-left:auto" title="voltar ao conteudo comum" onclick="pubLimparPers('${escapeHtml(d.rede)}')">↺</button>` : ''}
+      </div>
+      ${_pbAberta === d.rede ? pubPainelPers(d) : ''}
     </div>`;
   }).join('');
 
@@ -2368,6 +2413,58 @@ async function pubPrever() {
   faltam.innerHTML = semConta.length
     ? `Sem conta cadastrada neste perfil: <b>${escapeHtml(semConta.join(', '))}</b>. Cadastre na aba Contas para a leva alcançar essas redes.`
     : 'Este perfil tem conta em todas as redes que o app conhece.';
+}
+
+/** O painel de personalizacao de UMA rede.
+ *
+ * Os campos nascem com o valor EFETIVO daquela rede (ja herdado), nao vazios:
+ * campo vazio sugeriria que a rede vai sem legenda, quando ela vai com a
+ * comum. O backend e quem calcula o valor efetivo (`redes.conteudo_da_rede`) e
+ * manda no plano -- se a tela recalculasse, a previa e a publicacao poderiam
+ * divergir, e seria a previa que o usuario leria. */
+function pubPainelPers(d) {
+  const r = _pbRedes.find(x => x.id === d.rede) || {};
+  const destinos = r.destinos || ['feed'];
+  const opts = Object.entries(_pbFormatos).map(([k, v]) =>
+    `<option value="${escapeHtml(k)}" ${k === d.formato ? 'selected' : ''}>${escapeHtml(v.nome)}</option>`).join('');
+  const cx = 'width:100%;box-sizing:border-box;padding:5px 7px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:11px';
+  return `<div style="margin-top:7px;padding-top:7px;border-top:1px solid var(--border)">
+    <div style="font-size:10px;color:var(--muted);margin-bottom:2px">Legenda so desta rede — limite ${r.legenda_max ?? '?'}</div>
+    <textarea rows="2" oninput="pubSetPers('${escapeHtml(d.rede)}','legenda',this.value)" style="${cx};resize:vertical">${escapeHtml(d.legenda || '')}</textarea>
+    <div style="font-size:10px;color:var(--muted);margin:5px 0 2px">Link so desta rede</div>
+    <input value="${escapeHtml(d.link || '')}" oninput="pubSetPers('${escapeHtml(d.rede)}','link',this.value)" style="${cx}">
+    <div style="display:flex;gap:6px;margin-top:5px">
+      <div style="flex:1">
+        <div style="font-size:10px;color:var(--muted);margin-bottom:2px">Formato</div>
+        <select onchange="pubSetPers('${escapeHtml(d.rede)}','formato',this.value)" style="${cx}">${opts}</select>
+      </div>
+      ${destinos.length > 1 ? `<div style="flex:1">
+        <div style="font-size:10px;color:var(--muted);margin-bottom:2px">Destino</div>
+        <select onchange="pubSetPers('${escapeHtml(d.rede)}','destino',this.value)" style="${cx}">
+          ${destinos.map(x => `<option value="${escapeHtml(x)}" ${x === d.destino ? 'selected' : ''}>${x === 'story' ? 'Story' : 'Feed'}</option>`).join('')}
+        </select>
+      </div>` : ''}
+    </div>
+  </div>`;
+}
+
+function pubAbrirPers(rede) {
+  _pbAberta = (_pbAberta === rede) ? null : rede;
+  pubPrever();
+}
+
+let _pbTimerPers = null;
+function pubSetPers(rede, campo, valor) {
+  _pbPers[rede] = _pbPers[rede] || {};
+  _pbPers[rede][campo] = valor;
+  // Redesenhar a cada tecla tiraria o foco do campo que esta sendo digitado.
+  clearTimeout(_pbTimerPers);
+  _pbTimerPers = setTimeout(pubPrever, 500);
+}
+
+function pubLimparPers(rede) {
+  delete _pbPers[rede];
+  pubPrever();
 }
 
 async function pubPublicar(btn) {
@@ -2390,6 +2487,8 @@ async function pubPublicar(btn) {
   fd.append('link', document.getElementById('pb-link').value || '');
   fd.append('simular', simular ? 'true' : 'false');
   fd.append('espalhar_segundos', document.getElementById('pb-espalhar').value || '12');
+  fd.append('destino', document.getElementById('pb-destino').value);
+  fd.append('personalizacoes', JSON.stringify(_pbPers));
   if (arq) fd.append('arquivo', arq);
 
   const st = document.getElementById('pb-status');
@@ -4457,6 +4556,7 @@ function storyCarregarImagem(ev) {
     storyDesenharPrevia();
   };
   img.src = URL.createObjectURL(f);
+  storyTrocouDestino();          // a previa nasce na proporcao do destino
   _stArquivoComposto = null;
   storyBotaoPublicar(false, '⬅ imagem nova — componha de novo');
   document.getElementById('st-resultado').innerHTML = '';
@@ -4503,6 +4603,50 @@ function storyAplicarRect() {
 // Espelha o que o backend desenha: rotulo se houver, senao SO o dominio. O
 // sticker do Instagram nunca mostra a URL inteira -- e caminho longo nao cabe no
 // chip, que foi o que apareceu no primeiro teste com arte real.
+// Destino + formato num seletor só, no formato "destino:formato".
+const ST_PX = { story: [1080, 1920], vertical: [1080, 1350], quadrado: [1080, 1080],
+                paisagem: [1920, 1080], pin: [1000, 1500] };
+
+function storyDestino() {
+  const v = (document.getElementById('st-destino')?.value || 'story:story').split(':');
+  return { destino: v[0], formato: v[1] };
+}
+
+/** A prévia passa a ter a PROPORÇÃO DO DESTINO, com a imagem encaixada dentro.
+ *
+ * Isto não é enfeite: o retângulo é posicionado em coordenadas de 0 a 1
+ * relativas à caixa da prévia, e a arte final é o formato escolhido. Enquanto a
+ * prévia tinha a proporção da imagem ENVIADA, mandar uma foto quadrada para um
+ * story 9:16 colocava o chip num lugar na tela e em outro na arte — o mesmo
+ * desalinhamento entre desenho e toque que custou o primeiro story de link, só
+ * que por outro caminho. `object-fit: contain` sobre a caixa com
+ * `aspect-ratio` reproduz exatamente o que o `_encaixar` faz no Pillow. */
+function storyTrocouDestino() {
+  const { destino, formato } = storyDestino();
+  const [L, A] = ST_PX[formato] || ST_PX.story;
+  const img = document.getElementById('st-img');
+  if (img) {
+    img.style.aspectRatio = L + ' / ' + A;
+    img.style.objectFit = 'contain';
+    img.style.background = '#101010';
+    img.style.width = '100%';
+    img.style.height = 'auto';
+  }
+  const feed = destino === 'feed';
+  const rot = document.getElementById('st-publicar-rotulo');
+  if (rot) rot.textContent = feed ? 'Publicar post' : 'Publicar story';
+  document.getElementById('st-legenda-caixa').style.display = feed ? '' : 'none';
+  document.getElementById('st-aviso-feed').style.display = feed ? '' : 'none';
+  // A arte composta ficou com o formato antigo: travar é mais honesto que
+  // publicar 9:16 num post 1:1.
+  if (_stArquivoComposto) {
+    _stArquivoComposto = null;
+    storyBotaoPublicar(false, '⬅ formato novo — componha de novo');
+    document.getElementById('st-resultado').innerHTML = '';
+  }
+  storyAplicarRect();
+}
+
 function storyDesenharPrevia() {
   // Com repost o retangulo e o CARD da publicacao, nao o chip -- a previa tem de
   // dizer isso, senao voce posiciona achando que esta movendo o chip.
@@ -4646,6 +4790,7 @@ async function storyCompor(btn) {
     fd.append('x', _stRect.x); fd.append('y', _stRect.y);
     fd.append('largura', _stRect.largura); fd.append('altura', _stRect.altura);
     fd.append('rotulo', (document.getElementById('st-rotulo').value || '').trim());
+    fd.append('formato', storyDestino().formato);
     const resp = await fetch('/story/compor', { method: 'POST', body: fd });
     if (!resp.ok) throw new Error((await resp.json().catch(() => ({}))).detail || ('HTTP ' + resp.status));
     const r = await resp.json();
@@ -4676,10 +4821,14 @@ async function storyPublicar(btn) {
       link: (link && link !== 'https://wa.me/') ? link : '',
       x: _stRect.x, y: _stRect.y, largura: _stRect.largura, altura: _stRect.altura,
       post: _stPost, link_rect: _stLinkRect,
+      destino: storyDestino().destino,
+      legenda: (document.getElementById('st-legenda').value || ''),
     }, 300000);
     stop();
-    status.innerHTML = `<span style="color:var(--green)">✓ publicado por @${escapeHtml(r.conta || '')} — story pk ${escapeHtml(r.pk || '')}</span>`;
-    toast('Story publicado', 'success');
+    const oque = r.destino === 'feed' ? 'post' : 'story';
+    status.innerHTML = `<span style="color:var(--green)">✓ publicado por @${escapeHtml(r.conta || '')} — ${oque} pk ${escapeHtml(r.pk || '')}</span>`
+      + (r.aviso ? `<span style="color:#f59e0b"> · ${escapeHtml(r.aviso)}</span>` : '');
+    toast(oque === 'feed' ? 'Post publicado' : 'Story publicado', 'success');
   } catch (e) {
     stop();
     status.innerHTML = `<span style="color:var(--red)">${escapeHtml(e.message || 'erro ao publicar')}</span>`;
