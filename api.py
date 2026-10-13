@@ -244,12 +244,24 @@ def get_profiles():
         outcomes = {}
     # Mapas em 1 consulta cada (evita N+1 — caro no banco remoto): contas (versão
     # CRUA da tabela, não a 'merged' com histórico que é lenta) e locks ativos.
+    # `account_status`/`account_username` são do INSTAGRAM, e precisam continuar
+    # sendo: InstaFollow, Spider e Story Creator escolhem o perfil por esse
+    # campo. Com conta em várias redes no mesmo perfil, pegar "a mais recente"
+    # faria um perfil de Instagram banido aparecer como disponível porque o
+    # TikTok dele está ativo. As outras redes vão em `contas_redes`.
     acct_by_profile = {}
+    redes_by_profile: dict[str, list] = {}
     try:
         for a in db.list_accounts():
             pid = a.get("profile_id")
-            if pid and pid not in acct_by_profile:
+            if not pid:
+                continue
+            rede_a = (a.get("platform") or "instagram").lower()
+            if rede_a == "instagram" and pid not in acct_by_profile:
                 acct_by_profile[pid] = a
+            redes_by_profile.setdefault(pid, []).append(
+                {"rede": rede_a, "account_id": a.get("id"),
+                 "username": a.get("username"), "status": a.get("status")})
     except Exception:
         pass
     try:
@@ -262,6 +274,7 @@ def get_profiles():
         a = acct_by_profile.get(item["id"])
         item["account_status"] = (a.get("status") if a else None)
         item["account_username"] = (a.get("username") if a else None)
+        item["contas_redes"] = redes_by_profile.get(item["id"], [])
     return [public_profile(item) for item in items]
 
 
@@ -2189,6 +2202,8 @@ _monitored_resolve = {"running": False}
 def _first_logged_profile():
     """Acha o 1º perfil com conta IG LOGADA (status active) — pra resolver totais."""
     for a in db.list_accounts():
+        if (a.get("platform") or "instagram").lower() != "instagram":
+            continue   # resolver totais do IG por uma conta de outra rede não existe
         if a.get("status") == "active" and a.get("profile_id"):
             p = get_profile(a["profile_id"])
             if p:
@@ -2553,8 +2568,12 @@ async def _check_all_accounts():
     # "in_use" = conta emprestada: verificá-la abriria sessão pelo NOSSO IP numa
     # conta que outra pessoa está usando, e ainda trocaria o rótulo manual.
     terminal = {"banned", "discarded", "in_use"}
+    # Só Instagram: a detecção lê a tela do Instagram (ver a guarda em
+    # `accounts.check_status`). Contas de outras redes entram na varredura só
+    # para gastar 8 segundos e um launch headless cada, sem medir nada.
     pending = [a for a in acc.list_accounts()
                if (a.get("status") or "").lower() not in terminal
+               and (a.get("platform") or "instagram").lower() == "instagram"
                and a.get("profile_id") and a.get("profile_id") not in busy]
     for i, a in enumerate(pending):
         if _creation_stop:
@@ -5302,6 +5321,9 @@ def story_contas():
         pid = a.get("profile_id")
         if not pid or a.get("status") != "active":
             continue
+        # O Story Creator publica por instagrapi: só conta de Instagram.
+        if (a.get("platform") or "instagram").lower() != "instagram":
+            continue
         p = get_profile(pid)
         if p:
             saida.append({"account_id": a["id"], "profile_id": pid,
@@ -5427,3 +5449,125 @@ async def story_publicar(body: StoryPublicarRequest):
             body.post, body.link_rect)
     except Exception as e:
         raise HTTPException(400, f"{type(e).__name__}: {e}")
+
+
+# ─── Publicar em todas as redes (leva multi-rede) ─────────────────────────────
+# O perfil deixou de ser "um navegador com um Instagram" e passou a ser uma
+# PESSOA com conta em cada rede. A decisão de quem publica mora em `redes.py`
+# (função pura, testável sem rede); aqui fica só a casca HTTP.
+
+@app.get("/redes")
+def redes_catalogo():
+    """A matriz das redes: transporte, formatos, limite de legenda e se o
+    caminho daquela rede já foi medido ao vivo."""
+    import redes as _redes
+    return {"redes": [dict(r) for r in _redes.REDES],
+            "espalhar_segundos_padrao": _redes.ESPALHAR_SEGUNDOS_PADRAO}
+
+
+@app.get("/redes/perfis")
+def redes_perfis():
+    """Perfis e a cobertura de redes de cada um — quem já tem conta onde.
+
+    É a tela de "o que falta cadastrar": o perfil é uma persona, e persona com
+    conta em duas redes de doze aparece aqui com as dez faltando.
+    """
+    import redes as _redes
+    saida = []
+    for p in db.list_profiles():
+        contas = db.list_accounts_by_profile(p["id"])
+        por_rede = {}
+        for a in contas:
+            rid = (a.get("platform") or "instagram").lower()
+            if rid in por_rede:
+                continue   # duas contas da mesma rede: a mais nova vence
+            por_rede[rid] = {"account_id": a.get("id"),
+                             "username": a.get("username"),
+                             "status": a.get("status"),
+                             "rede_nome": _redes.nome(rid)}
+        saida.append({
+            "profile_id": p["id"],
+            "perfil": p.get("name"),
+            "proxy": bool((p.get("proxy") or {}).get("host")),
+            "contas": por_rede,
+            "faltam": [r for r in _redes.ids() if r not in por_rede],
+            "ativas": sum(1 for v in por_rede.values() if v["status"] == "active"),
+        })
+    return {"perfis": saida}
+
+
+@app.post("/redes/plano")
+async def redes_plano(profile_id: str = Form(...), redes_pedidas: str = Form(""),
+                      legenda: str = Form(""), arquivo_nome: str = Form("")):
+    """A prévia: quem publicaria, quem seria recusado e por quê — sem publicar.
+
+    Separado do publicar de propósito. O plano é a parte que decide, e ele
+    responde em milissegundos sem tocar em rede nenhuma: dá para o usuário ver
+    a recusa ANTES de subir um vídeo de 50 MB.
+    """
+    import redes as _redes
+    p = get_profile(profile_id)
+    if not p:
+        raise HTTPException(404, "Perfil não encontrado")
+    pedidas = [r for r in (redes_pedidas or "").split(",") if r.strip()]
+    contas = db.list_accounts_by_profile(profile_id)
+    conteudo = {"arquivo": arquivo_nome, "legenda": legenda}
+    plano = _redes.montar_plano(contas, conteudo, pedidas)
+    return {"plano": [d.como_dict() for d in plano],
+            "resumo": _redes.resumo_do_plano(plano),
+            "tipo": _redes.tipo_do_conteudo(conteudo)}
+
+
+@app.post("/redes/publicar")
+async def redes_publicar(profile_id: str = Form(...), arquivo: UploadFile = File(None),
+                         redes_pedidas: str = Form(""), legenda: str = Form(""),
+                         link: str = Form(""), simular: bool = Form(True),
+                         espalhar_segundos: float = Form(-1.0)):
+    """A LEVA: um clique, todas as redes do perfil.
+
+    `simular` nasce **True**. É o padrão deste projeto para motor que nunca
+    rodou (o `dryRun` do InstaFollow existe pelo mesmo motivo): a leva decide
+    tudo, mostra o que faria e não publica. Quem liga é o usuário, na tela.
+    """
+    import redes as _redes
+    p = get_profile(profile_id)
+    if not p:
+        raise HTTPException(404, "Perfil não encontrado")
+
+    caminho = ""
+    if arquivo is not None:
+        dados = await arquivo.read()
+        if dados:
+            story_mod.PASTA.mkdir(parents=True, exist_ok=True)
+            # Nome com o id do perfil e o relógio: duas levas do mesmo perfil
+            # em sequência não podem reaproveitar o arquivo da anterior.
+            sufixo = Path(arquivo.filename or "conteudo.jpg").suffix or ".jpg"
+            destino = story_mod.PASTA / ("leva_%s_%d%s" % (profile_id[:8],
+                                                           int(time.time()), sufixo))
+            destino.write_bytes(dados)
+            caminho = str(destino)
+
+    contas = db.list_accounts_by_profile(profile_id)
+    if not contas:
+        raise HTTPException(400, "este perfil não tem nenhuma conta cadastrada")
+
+    pedidas = [r for r in (redes_pedidas or "").split(",") if r.strip()]
+    conteudo = {"arquivo": caminho, "legenda": legenda, "link": link}
+    espalhar = (_redes.ESPALHAR_SEGUNDOS_PADRAO if espalhar_segundos < 0
+                else espalhar_segundos)
+
+    linhas: list[str] = []
+    try:
+        r = await _redes.publicar_em_todas(
+            p, contas, conteudo, pedidas,
+            espalhar_segundos=espalhar, simular=simular,
+            # A rotação de IP é injetada, não reimplementada: é a MESMA função
+            # que o Spider, o InstaFollow e o botão Abrir usam, com a guarda do
+            # perfil com proxy próprio já dentro dela.
+            rotacionar=lambda perfil: _rotate_ip_for(
+                perfil, log=lambda m: linhas.append(str(m))),
+            log=lambda m: linhas.append(str(m)))
+    except Exception as e:
+        raise HTTPException(400, f"{type(e).__name__}: {e}")
+    r["terminal"] = linhas
+    return r

@@ -539,6 +539,49 @@ async def launch(profile: dict, url: str = "about:blank", headless: bool = False
     return {"profile_id": pid, "status": "starting"}
 
 
+async def abrir_aba(profile: dict, url: str, timeout_abrir: float = 60.0) -> dict:
+    """Abre `url` numa ABA NOVA da janela que este perfil já tem aberta.
+
+    Existe para a leva multi-rede (`redes.py`): seis compositores viram seis
+    abas da MESMA janela, que é o que uma pessoa faz e o que mantém a leva
+    dentro de uma sessão e de uma época de IP. Abrir seis janelas seria seis
+    vezes o custo de RAM e seis `free_profile` brigando pelo mesmo
+    `user_data_dir`.
+
+    Se o perfil ainda não está aberto, abre a janela já na primeira URL e
+    espera ela subir — assim o chamador não precisa saber se havia sessão.
+    """
+    pid = profile["id"]
+    s = _sessions.get(pid)
+    viva = s and s.get("status") == "running" and s.get("page") is not None
+
+    if not viva:
+        # Nenhuma janela: a primeira rede da leva abre a janela, e o `free_first`
+        # continua valendo (é ele que destrava processo órfão e parent.lock).
+        await launch(profile, url=url, mode="manual")
+        limite = time.time() + timeout_abrir
+        while time.time() < limite:
+            s = _sessions.get(pid) or {}
+            if s.get("status") == "running" and s.get("page") is not None:
+                return {"aba": "primeira", "url": url}
+            if s.get("status") == "error":
+                raise RuntimeError(s.get("error") or "falha ao abrir o perfil")
+            await asyncio.sleep(0.5)
+        raise RuntimeError("o perfil não subiu em %gs" % timeout_abrir)
+
+    page = s["page"]
+    if page.is_closed():
+        raise RuntimeError("a janela do perfil foi fechada")
+    nova = await page.context.new_page()
+    # domcontentloaded e não `load`: compositor de rede social carrega mídia e
+    # script por minutos, e esperar o `load` daria timeout numa página que já
+    # está utilizável.
+    await nova.goto(url, wait_until="domcontentloaded")
+    _sessions[pid]["url"] = nova.url
+    _log(f"profile={pid} aba nova: {url}")
+    return {"aba": "nova", "url": nova.url}
+
+
 def _caller_hint() -> str:
     try:
         frames = traceback.extract_stack(limit=5)

@@ -125,14 +125,31 @@ def proxy_limit_status(proxy: Optional[dict], *, rec_map: dict = None, usage_map
     }
 
 
-def profile_account_status(profile_id: str) -> dict:
-    """Se o perfil já tem conta (regra: 1 conta por perfil)."""
-    existing = db.get_account_by_profile(profile_id) if profile_id else None
+def profile_account_status(profile_id: str, platform: str = "instagram") -> dict:
+    """Se o perfil já tem conta NESTA REDE.
+
+    A regra deixou de ser "1 conta por perfil" e passou a ser **1 conta por
+    perfil POR REDE**: o perfil é uma pessoa, e a mesma pessoa tem Instagram,
+    TikTok, YouTube e as demais. O que continua valendo é não ter duas contas
+    da MESMA rede no mesmo perfil — isso sim é duas personas num navegador.
+
+    `redes` sai de brinde para a tela mostrar o que o perfil já cobre.
+    """
+    existing = db.get_account_by_profile(profile_id, platform) if profile_id else None
+    todas = db.list_accounts_by_profile(profile_id) if profile_id else []
     return {
         "has_account": bool(existing),
         "account_id":  existing["id"] if existing else None,
         "username":    existing.get("username") if existing else None,
         "status":      existing.get("status") if existing else None,
+        "platform":    (platform or "instagram"),
+        "redes": [
+            {"rede": (a.get("platform") or "instagram"),
+             "account_id": a.get("id"),
+             "username": a.get("username"),
+             "status": a.get("status")}
+            for a in todas
+        ],
     }
 
 
@@ -729,6 +746,18 @@ async def check_status(account_id: str, headless: bool = True) -> dict:
                           last_checked_at=_now().strftime("%Y-%m-%d %H:%M:%S"),
                           last_check_result="perfil ausente")
         return {"status": acc.get("status"), "detail": "perfil ausente — não foi possível verificar"}
+
+    # SÓ INSTAGRAM. `ig.detect_status` navega no Instagram e lê a tela dele; numa
+    # conta de TikTok ou de YouTube ele encontraria a tela de login do Instagram
+    # e concluiria "sessão expirada". Como a re-verificação automática varre a
+    # lista inteira, sem esta guarda toda conta de outra rede amanheceria
+    # marcada errada — e o pior é que pareceria medição.
+    rede_da_conta = (acc.get("platform") or "instagram").strip().lower()
+    if rede_da_conta != "instagram":
+        ts = _now().strftime("%Y-%m-%d %H:%M:%S")
+        detalhe = "verificação automática só existe para o Instagram — confira a conta na própria rede"
+        db.update_account(account_id, last_checked_at=ts, last_check_result=detalhe)
+        return {"status": acc.get("status"), "detail": detalhe, "rede": rede_da_conta}
 
     result = await sm.check_account_status(profile, ig.detect_status, headless=headless)
     status = result.get("status", "unknown")

@@ -308,6 +308,10 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="4"/><circle cx="12" cy="12" r="3"/><path d="M8 21h8"/></svg>
       Story Creator
     </div>
+    <div class="nav-item" data-page-link="publicar" onclick="showPage('publicar')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z"/></svg>
+      Publicar em todas
+    </div>
 
     <div class="nav-section">Extração</div>
     <div class="nav-item" data-page-link="spider" onclick="showPage('spider')">
@@ -420,6 +424,62 @@
         </div>
         <div class="form-hint" style="margin-top:8px">Compor desenha o chip e mostra o resultado real. Só publique depois de ver a arte composta — é ela que sobe.</div>
         <div id="st-resultado" style="margin-top:12px"></div>
+      </div>
+    </div>
+
+    <div class="page" id="page-publicar">
+      <div class="page-header">
+        <div>
+          <div class="page-title">Publicar em todas</div>
+          <div class="page-sub">O perfil é uma pessoa: o conteúdo sai para todas as redes dela na mesma leva, com um clique.</div>
+        </div>
+      </div>
+
+      <div class="card" style="margin-bottom:14px">
+        <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end">
+          <div style="flex:1;min-width:220px">
+            <div style="font-size:11px;color:var(--muted);margin-bottom:3px">Perfil (a persona)</div>
+            <select id="pb-perfil" onchange="pubTrocouPerfil()" style="width:100%;padding:8px 10px;background:var(--surface);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px"></select>
+          </div>
+          <div style="flex:1;min-width:200px">
+            <div style="font-size:11px;color:var(--muted);margin-bottom:3px">Conteúdo (imagem ou vídeo)</div>
+            <input id="pb-arquivo" type="file" accept="image/*,video/*" onchange="pubPrever()" style="font-size:12px">
+          </div>
+          <div style="flex:1;min-width:160px">
+            <div style="font-size:11px;color:var(--muted);margin-bottom:3px">Link (opcional)</div>
+            <input id="pb-link" placeholder="https://wa.me/5551…" style="width:100%;box-sizing:border-box;padding:8px 10px;background:var(--surface);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px">
+          </div>
+        </div>
+        <div style="margin-top:10px">
+          <div style="font-size:11px;color:var(--muted);margin-bottom:3px">Legenda <span id="pb-legenda-conta"></span></div>
+          <textarea id="pb-legenda" rows="3" oninput="pubPrever()" placeholder="A mesma legenda vai para todas as redes. O limite mais apertado manda — o X corta em 280."
+                    style="width:100%;box-sizing:border-box;padding:8px 10px;background:var(--surface);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;resize:vertical"></textarea>
+        </div>
+      </div>
+
+      <div class="card" style="margin-bottom:14px">
+        <div style="font-weight:600;font-size:13px;margin-bottom:2px">As redes deste perfil</div>
+        <div class="form-hint" style="margin-bottom:10px">Marcada e <b>verde</b> = entra na leva. <b>Cinza</b> = o app explica por que não entra. Cadastre a conta de cada rede na aba <b>Contas</b>, escolhendo a rede no campo "Plataforma".</div>
+        <div id="pb-redes" style="display:flex;flex-wrap:wrap;gap:8px"></div>
+        <div id="pb-faltam" class="form-hint" style="margin-top:10px"></div>
+      </div>
+
+      <div class="card">
+        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+          <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer">
+            <input type="checkbox" id="pb-simular" checked> <b>Simulação</b> — decide tudo e não publica
+          </label>
+          <div style="display:flex;align-items:center;gap:6px;font-size:12px">
+            Espalhar as saídas por
+            <input id="pb-espalhar" type="number" min="0" max="300" value="12" oninput="this.dataset.tocado='1'" style="width:64px;padding:5px 7px;background:var(--surface);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:12px">
+            s
+          </div>
+          <button class="btn btn-primary" id="pb-publicar" onclick="pubPublicar(this)">📣 Publicar na leva</button>
+          <span id="pb-status" style="font-size:12px;color:var(--muted)"></span>
+        </div>
+        <div class="form-hint" style="margin-top:8px">Seis publicações saindo no mesmo milissegundo do mesmo IP é assinatura de máquina — a mesma lição que custou uma conta suspensa em 21/08. Em <code>0</code> elas saem juntas de verdade.</div>
+        <div class="form-hint" style="margin-top:4px">A leva renova o IP do modem <b>uma vez</b>, antes de começar. Rotacionar entre redes separaria em IPs diferentes contas que são a mesma pessoa — o oposto do que a rotação existe para fazer.</div>
+        <div id="pb-resultado" style="margin-top:12px"></div>
       </div>
     </div>
 
@@ -1837,6 +1897,15 @@
         <select id="aa-platform">
           <option value="instagram">Instagram</option>
           <option value="facebook">Facebook</option>
+          <option value="threads">Threads</option>
+          <option value="x">X (Twitter)</option>
+          <option value="tiktok">TikTok</option>
+          <option value="youtube">YouTube</option>
+          <option value="kwai">Kwai</option>
+          <option value="linkedin">LinkedIn</option>
+          <option value="pinterest">Pinterest</option>
+          <option value="bluesky">Bluesky</option>
+          <option value="telegram">Telegram</option>
           <option value="outro">Outro</option>
         </select>
       </div>
@@ -2053,6 +2122,31 @@ let editProfileId = null;
 let pollInterval = null;
 
 // ── Helpers ──────────────────────────────────────────────
+/** Envia FormData (multipart) com timeout, como o `api()` faz com JSON.
+ *
+ * O `api()` serializa o corpo em JSON e põe Content-Type — os dois matam um
+ * upload. O que não podia faltar aqui é o TIMEOUT: foi a ausência dele que
+ * virava "travou carregando eternamente" (ver o CLAUDE.md). O padrão é alto
+ * porque upload de vídeo é lento de verdade; quem chama aperta se quiser. */
+async function apiForm(method, path, formData, timeoutMs = 180000) {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const resp = await fetch(API + path, { method, body: formData, signal: ctrl.signal });
+    if (!resp.ok) {
+      const j = await resp.json().catch(() => ({}));
+      const d = j.detail ?? j.message;
+      throw new Error(typeof d === 'string' ? d : (d ? JSON.stringify(d) : 'HTTP ' + resp.status));
+    }
+    return await resp.json();
+  } catch (e) {
+    if (e.name === 'AbortError') throw new Error(`a requisição passou de ${Math.round(timeoutMs / 1000)}s sem resposta`);
+    throw e;
+  } finally {
+    clearTimeout(t);
+  }
+}
+
 async function api(method, path, body, timeoutMs) {
   // TIMEOUT obrigatório: sem ele, uma requisição que nunca responde (backend caiu,
   // internet fora no meio de uma chamada) deixava a tela em "Carregando..." para
@@ -2147,7 +2241,194 @@ function showPage(name) {
   if (name === 'start') loadStartProxyHealth();
   if (name === 'conhecimento') loadConhecimento();
   if (name === 'story') loadStoryCreator();
+  if (name === 'publicar') loadPublicar();
   if (name === 'localdata') loadLocalData();
+}
+
+// ── Publicar em todas as redes (leva multi-rede) ──────────
+// O perfil é a persona; cada rede é uma conta dela. A decisão de quem publica
+// mora no backend (`redes.montar_plano`) — a tela só mostra. Recalcular o plano
+// aqui criaria uma segunda verdade sobre a mesma pergunta, e seria essa que o
+// usuário veria.
+let _pbRedes = [];       // o catálogo (GET /redes)
+let _pbPerfis = [];      // perfis com a cobertura de redes
+let _pbMarcadas = null;  // Set de redes marcadas, ou null = todas
+
+async function loadPublicar() {
+  try {
+    const [cat, perfis] = await Promise.all([
+      api('GET', '/redes'),
+      api('GET', '/redes/perfis'),
+    ]);
+    _pbRedes = cat.redes || [];
+    _pbPerfis = perfis.perfis || [];
+    const esp = document.getElementById('pb-espalhar');
+    if (esp && !esp.dataset.tocado) esp.value = cat.espalhar_segundos_padrao ?? 12;
+
+    const sel = document.getElementById('pb-perfil');
+    const anterior = sel.value;
+    // Perfil sem nenhuma conta ativa não publica nada — mas aparece na lista,
+    // com o aviso. Esconder deixaria o usuário procurando o perfil que ele
+    // acabou de cadastrar.
+    sel.innerHTML = _pbPerfis.length
+      ? _pbPerfis.map(p => `<option value="${escapeHtml(p.profile_id)}">${escapeHtml(p.perfil || p.profile_id)} — ${p.ativas} rede(s) ativa(s)</option>`).join('')
+      : '<option value="">nenhum perfil cadastrado</option>';
+    if (anterior && _pbPerfis.some(p => p.profile_id === anterior)) sel.value = anterior;
+    pubTrocouPerfil();
+  } catch (e) {
+    document.getElementById('pb-status').textContent = 'Não consegui carregar: ' + e.message;
+  }
+}
+
+function _pbPerfilAtual() {
+  const id = document.getElementById('pb-perfil').value;
+  return _pbPerfis.find(p => p.profile_id === id) || null;
+}
+
+function pubTrocouPerfil() {
+  _pbMarcadas = null;   // trocou de persona: volta a marcar todas
+  pubPrever();
+}
+
+function pubAlternar(rede) {
+  const p = _pbPerfilAtual();
+  if (!p) return;
+  const disponiveis = Object.keys(p.contas || {});
+  if (_pbMarcadas === null) _pbMarcadas = new Set(disponiveis);
+  if (_pbMarcadas.has(rede)) _pbMarcadas.delete(rede); else _pbMarcadas.add(rede);
+  pubPrever();
+}
+
+function _pbRedesPedidas() {
+  const p = _pbPerfilAtual();
+  if (!p) return [];
+  const disponiveis = Object.keys(p.contas || {});
+  if (_pbMarcadas === null) return disponiveis;
+  return disponiveis.filter(r => _pbMarcadas.has(r));
+}
+
+/** Pede o plano ao backend e desenha os cartões de rede. */
+async function pubPrever() {
+  const p = _pbPerfilAtual();
+  const alvo = document.getElementById('pb-redes');
+  const faltam = document.getElementById('pb-faltam');
+  const legenda = document.getElementById('pb-legenda').value || '';
+  const arq = document.getElementById('pb-arquivo').files[0];
+
+  const cont = document.getElementById('pb-legenda-conta');
+  if (cont) cont.textContent = legenda ? `— ${legenda.length} caractere(s)` : '';
+
+  if (!p) { alvo.innerHTML = '<div class="form-hint">Escolha um perfil.</div>'; faltam.textContent = ''; return; }
+  if (!Object.keys(p.contas || {}).length) {
+    alvo.innerHTML = '<div class="form-hint">Este perfil não tem nenhuma conta cadastrada. Cadastre na aba <b>Contas</b>.</div>';
+    faltam.textContent = '';
+    return;
+  }
+
+  let plano = [];
+  try {
+    const fd = new FormData();
+    fd.append('profile_id', p.profile_id);
+    fd.append('legenda', legenda);
+    // Só o NOME do arquivo: é dele que sai o tipo (imagem/vídeo), e mandar os
+    // bytes só para calcular a prévia subiria o vídeo inteiro a cada tecla.
+    fd.append('arquivo_nome', arq ? arq.name : '');
+    const r = await apiForm('POST', '/redes/plano', fd);
+    plano = r.plano || [];
+  } catch (e) {
+    alvo.innerHTML = '<div class="form-hint">Não consegui montar a prévia: ' + escapeHtml(e.message) + '</div>';
+    return;
+  }
+
+  const pedidas = new Set(_pbRedesPedidas());
+  alvo.innerHTML = plano.map(d => {
+    const marcada = pedidas.has(d.rede);
+    const entra = d.publica && marcada;
+    const cor = !d.publica ? 'var(--muted)' : (marcada ? '#22c55e' : 'var(--muted)');
+    const fundo = entra ? 'rgba(34,197,94,.10)' : 'var(--surface)';
+    const selo = d.transporte === 'instagrapi' ? '⚡ sozinho' : '🖐 assistido';
+    return `<div onclick="pubAlternar('${escapeHtml(d.rede)}')" title="${escapeHtml(d.motivo)}"
+      style="cursor:pointer;min-width:170px;flex:1;max-width:240px;padding:9px 11px;border:1px solid ${cor};border-radius:10px;background:${fundo}">
+      <div style="display:flex;align-items:center;gap:6px">
+        <input type="checkbox" ${entra ? 'checked' : ''} ${d.publica ? '' : 'disabled'} onclick="event.stopPropagation();pubAlternar('${escapeHtml(d.rede)}')">
+        <b style="font-size:12px">${escapeHtml(d.rede_nome)}</b>
+        <span style="font-size:10px;color:var(--muted);margin-left:auto">${selo}</span>
+      </div>
+      <div style="font-size:11px;color:var(--muted);margin-top:3px">@${escapeHtml(d.username || '—')}</div>
+      <div style="font-size:10px;color:${d.publica ? 'var(--muted)' : '#f59e0b'};margin-top:3px">${escapeHtml(d.motivo)}</div>
+    </div>`;
+  }).join('');
+
+  const semConta = (p.faltam || []).map(r => {
+    const meta = _pbRedes.find(x => x.id === r);
+    return meta ? meta.nome : r;
+  });
+  faltam.innerHTML = semConta.length
+    ? `Sem conta cadastrada neste perfil: <b>${escapeHtml(semConta.join(', '))}</b>. Cadastre na aba Contas para a leva alcançar essas redes.`
+    : 'Este perfil tem conta em todas as redes que o app conhece.';
+}
+
+async function pubPublicar(btn) {
+  const p = _pbPerfilAtual();
+  if (!p) return toast('Escolha um perfil', 'error');
+  const pedidas = _pbRedesPedidas();
+  if (!pedidas.length) return toast('Marque pelo menos uma rede', 'error');
+
+  const simular = document.getElementById('pb-simular').checked;
+  const arq = document.getElementById('pb-arquivo').files[0];
+  if (!simular && !arq && !document.getElementById('pb-legenda').value.trim()) {
+    return toast('Sem arquivo e sem legenda não há o que publicar', 'error');
+  }
+  if (!simular && !confirm(`Publicar de verdade em ${pedidas.length} rede(s) pelo perfil "${p.perfil}"?`)) return;
+
+  const fd = new FormData();
+  fd.append('profile_id', p.profile_id);
+  fd.append('redes_pedidas', pedidas.join(','));
+  fd.append('legenda', document.getElementById('pb-legenda').value || '');
+  fd.append('link', document.getElementById('pb-link').value || '');
+  fd.append('simular', simular ? 'true' : 'false');
+  fd.append('espalhar_segundos', document.getElementById('pb-espalhar').value || '12');
+  if (arq) fd.append('arquivo', arq);
+
+  const st = document.getElementById('pb-status');
+  st.textContent = simular ? 'Simulando…' : 'Publicando na leva…';
+  // A leva inclui a rotação de IP (~20s) mais o espalhamento: o timeout padrão
+  // de 20s do api() cortaria a resposta no meio de uma publicação que seguiria
+  // acontecendo no servidor.
+  const parar = runBtnCountdown(btn, 35 + Number(document.getElementById('pb-espalhar').value || 12));
+  try {
+    const r = await apiForm('POST', '/redes/publicar', fd, 300000);
+    pubRenderResultado(r);
+    st.textContent = r.simulado
+      ? 'Simulação concluída — nada foi publicado.'
+      : `${r.publicadas} publicada(s), ${r.assistidas} aguardando confirmação, ${r.falhas} falha(s).`;
+    toast(r.simulado ? '◌ Simulação concluída' : '📣 Leva encerrada',
+          r.falhas ? 'error' : 'success');
+  } catch (e) {
+    st.textContent = 'Falhou: ' + e.message;
+    toast('Falhou: ' + e.message, 'error');
+  } finally {
+    if (parar) parar();
+  }
+}
+
+function pubRenderResultado(r) {
+  const linhas = (r.plano || []).map(d => {
+    const icone = { publicado: '✓', assistido: '🖐', simulado: '◌', falhou: '✗' }[d.desfecho] || '⤫';
+    const cor = d.desfecho === 'falhou' ? '#ef4444'
+              : d.desfecho === 'publicado' ? '#22c55e'
+              : d.desfecho ? 'var(--text)' : 'var(--muted)';
+    const quando = d.publica && d.quando ? ` <span style="color:var(--muted)">+${d.quando.toFixed(1)}s</span>` : '';
+    return `<tr>
+      <td style="padding:4px 8px;color:${cor}">${icone} ${escapeHtml(d.rede_nome)}</td>
+      <td style="padding:4px 8px;color:var(--muted)">@${escapeHtml(d.username || '—')}</td>
+      <td style="padding:4px 8px;color:${cor}">${escapeHtml(d.detalhe || d.motivo || '')}${quando}</td>
+    </tr>`;
+  }).join('');
+  const term = (r.terminal || []).map(l => escapeHtml(l)).join('\n');
+  document.getElementById('pb-resultado').innerHTML = `
+    <table style="width:100%;border-collapse:collapse;font-size:12px">${linhas}</table>
+    ${term ? `<pre style="margin-top:10px;padding:10px;background:var(--surface);border:1px solid var(--border);border-radius:8px;font-size:11px;white-space:pre-wrap;color:var(--muted)">${term}</pre>` : ''}`;
 }
 
 function refreshAll() {

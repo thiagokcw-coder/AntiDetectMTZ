@@ -476,12 +476,43 @@ def get_account(account_id: str):
     return _account_row_to_dict(row) if row else None
 
 
-def get_account_by_profile(profile_id: str):
+def get_account_by_profile(profile_id: str, platform: str = "instagram"):
+    """A conta de uma REDE neste perfil (a mais recente, se houver várias).
+
+    `platform` tem padrão 'instagram' de propósito, e não None. Desde que um
+    perfil pode ter conta em várias redes, a consulta sem rede devolveria "a
+    conta mais recente do perfil" — então cadastrar um TikTok num perfil faria
+    o limitador do InstaFollow, a auto-verificação e o Spider passarem a contar
+    pela conta do TikTok, calados. Todos os chamadores antigos falam de
+    Instagram; o padrão preserva o que eles esperam.
+
+    `platform=None` volta ao comportamento antigo (qualquer rede), para quem
+    quiser de fato "a conta mais recente, seja qual for".
+    """
+    sql = "SELECT * FROM accounts WHERE profile_id = ?"
+    args: list = [profile_id]
+    if platform:
+        sql += " AND LOWER(COALESCE(platform, 'instagram')) = ?"
+        args.append(platform.strip().lower())
+    sql += " ORDER BY created_at DESC LIMIT 1"
     with get_conn() as conn:
-        row = _ex(conn,
-            "SELECT * FROM accounts WHERE profile_id = ? ORDER BY created_at DESC LIMIT 1",
-            (profile_id,)).fetchone()
+        row = _ex(conn, sql, tuple(args)).fetchone()
     return _account_row_to_dict(row) if row else None
+
+
+def list_accounts_by_profile(profile_id: str):
+    """TODAS as contas do perfil, uma por rede — a base da publicação em leva.
+
+    Ordenada por rede e, dentro da rede, da mais nova para a mais velha: se
+    alguém cadastrou duas contas da mesma rede no mesmo perfil, a leva usa a
+    mais recente e a outra aparece na lista em vez de desaparecer.
+    """
+    with get_conn() as conn:
+        rows = _ex(conn,
+            "SELECT * FROM accounts WHERE profile_id = ? "
+            "ORDER BY COALESCE(platform, 'instagram'), created_at DESC",
+            (profile_id,)).fetchall()
+    return [_account_row_to_dict(r) for r in rows]
 
 
 def list_accounts():
