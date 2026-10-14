@@ -1935,7 +1935,7 @@
     <div class="modal-actions">
       <button class="btn btn-danger btn-sm" id="ma-delete">Excluir</button>
       <button class="btn btn-ghost btn-sm" id="ma-edit">Editar</button>
-      <button class="btn btn-primary btn-sm" id="ma-open" style="display:none">Abrir no navegador</button>
+      <button class="btn btn-primary btn-sm" id="ma-open" style="display:none" title="Camoufox: perfil antidetect, cookies isolados e IP renovado antes de entrar.">Abrir Camoufox (seguro)</button>
       <button class="btn btn-success btn-sm" id="ma-check">Verificar status</button>
       <button class="btn btn-ghost btn-sm" onclick="closeModal('modal-account')">Fechar</button>
     </div>
@@ -4287,10 +4287,14 @@ function renderAccounts(list) {
           ? '<span style="color:var(--red);font-size:12px">perfil removido</span>'
           : `<span style="color:var(--yellow);font-size:12px">sem perfil — não abre no PC</span>
              <div style="margin-top:4px"><button class="btn btn-ghost btn-sm" onclick="createProfileForAccount('${a.id}', this)">➕ Criar perfil</button></div>`);
-    // O botao do Chrome fica fora do bloco de `profile_exists`: abrir no
-    // navegador normal nao usa perfil Camoufox nenhum, entao conta sem perfil
-    // tambem pode. (Comentario aqui e nao dentro do template: crase dentro de
-    // template literal FECHA a string -- foi o que acabou de quebrar o JS.)
+    // Os DOIS "abrir" vem juntos, nessa ordem, porque sao a mesma decisao
+    // tomada de dois jeitos: Camoufox (isolado, IP novo) ou Chrome (voce
+    // mesmo). O que vem depois -- aquecer, verificar -- e outra coisa.
+    //
+    // O `profile_exists` e partido em DOIS blocos de proposito: o Chrome fica
+    // no meio e nao depende de perfil Camoufox nenhum, entao conta sem perfil
+    // tambem o tem. (Comentario aqui e nao dentro do template: crase dentro de
+    // template literal FECHA a string -- ja quebrou o JS uma vez.)
     return divider + `<tr${rowStyle}>
       <td>
         <div style="font-weight:600">${escapeHtml(a.username || '(sem username)')} <span style="font-weight:400;font-size:10px;color:var(--muted);border:1px solid var(--border);border-radius:4px;padding:1px 5px">${escapeHtml(nomeDaRede(a.platform))}</span></div>
@@ -4304,13 +4308,15 @@ function renderAccounts(list) {
       <td style="font-size:12px">${checked}</td>
       <td style="white-space:nowrap">
         ${a.profile_exists
-          ? `<button class="btn btn-primary btn-sm" onclick="openAccountProfile('${a.profile_id}', this, '${escapeHtml(a.platform || 'instagram')}')" title="Camoufox: perfil antidetect, cookies isolados e IP renovado antes de entrar.">Abrir</button>
-             <button class="btn btn-ghost btn-sm" onclick="warmBrowser('${a.profile_id}', this)" title="Aquecer o navegador (cookies/histórico)" ${browserWarming ? 'disabled' : ''}>${browserWarming ? '🔥 aquecendo ' + fmtCountdown(a.profile_warming.remaining_seconds) : '🔥 Aquecer navegador'}</button>
+          ? `<button class="btn btn-primary btn-sm" onclick="openAccountProfile('${a.profile_id}', this, '${escapeHtml(a.platform || 'instagram')}')" title="Camoufox: perfil antidetect, cookies isolados e IP renovado antes de entrar.">Abrir Camoufox (seguro)</button>`
+          : ''}
+        <button class="btn btn-ghost btn-sm" onclick="abrirNoChrome('${escapeHtml(a.platform || 'instagram')}', this, '${escapeHtml(a.username || '')}')" title="Chrome normal, com os SEUS logins. Não renova o IP e não usa o perfil antidetect.">🌐 Abrir Chrome</button>
+        ${a.profile_exists
+          ? `<button class="btn btn-ghost btn-sm" onclick="warmBrowser('${a.profile_id}', this)" title="Aquecer o navegador (cookies/histórico)" ${browserWarming ? 'disabled' : ''}>${browserWarming ? '🔥 aquecendo ' + fmtCountdown(a.profile_warming.remaining_seconds) : '🔥 Aquecer navegador'}</button>
              ${(a.platform || 'instagram') === 'instagram'
                 ? `<button class="btn btn-success btn-sm" onclick="checkAccount('${a.id}', this)">Verificar</button>`
                 : `<span style="font-size:10px;color:var(--muted)" title="A detecção lê a tela do Instagram; em outra rede ela concluiria 'sessão expirada' sobre nada. Confira a conta na própria rede.">sem verificação automática</span>`}`
           : ''}
-        <button class="btn btn-ghost btn-sm" onclick="abrirNoChrome('${escapeHtml(a.platform || 'instagram')}', this, '${escapeHtml(a.username || '')}')" title="Chrome normal, com os SEUS logins. Não renova o IP e não usa o perfil antidetect.">🌐 Chrome</button>
         <button class="btn btn-ghost btn-sm" onclick="accountDetail('${a.id}')">Detalhes</button>
       </td>
     </tr>`;
@@ -4396,7 +4402,7 @@ async function accountDetail(id) {
       chromeBtn = document.createElement('button');
       chromeBtn.id = 'ma-chrome';
       chromeBtn.className = 'btn btn-ghost btn-sm';
-      chromeBtn.textContent = '🌐 Abrir no Chrome';
+      chromeBtn.textContent = '🌐 Abrir Chrome';
       chromeBtn.title = 'Chrome normal, com os SEUS logins. Não renova o IP e não usa o perfil antidetect.';
       openBtn.parentElement.insertBefore(chromeBtn, openBtn.nextSibling);
     }
