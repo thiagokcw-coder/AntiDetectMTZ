@@ -503,7 +503,92 @@ Apagar PERFIL faz **cascata** (api.py remove emails+contas vinculados) → perdi
 ## Aquecimento: só NAVEGADOR no app; CONTA é no celular (2026-06-17)
 Decisão do usuário: o app só aquece o **navegador/perfil** (warm_pool, "Aquecer navegador antes de abrir", botão 🔥 Aquecer na aba Perfis, warmupProfile). O **aquecimento da CONTA** (atividade no IG) passa a ser feito **no celular** — removido da UI: na aba **Contas** (badge "📷 conta fria/✓" e botão "🔥 Aquecer" da conta + linha "Conta aquecida (IG)" e botão no modal de detalhes), e o botão "🔥 Aquecer conta agora"/"Aquecer conta no Instagram" do workspace de criação (já oculto). Mantido o status/aquecimento do **navegador** ("🌐 navegador ✓/frio"). Funções/endpoints mortos (`warmAccount`, `igWarmup`, `igWarmupActive`, `/accounts/{id}/warmup`, `/instagram/warmup`) seguem no código sem botão. "Comece aqui" já dizia "amadureça no Android". **Botão "🔥 Aquecer navegador" na aba Contas** (`warmBrowser` → `/profiles/{id}/warmup-profile`): como o de conta saiu, esse aquece o NAVEGADOR direto da Contas (o "navegador frio" tinha ficado sem ação). Path de API dos endpoints aqui usa `/` normal (os `\` que aparecem no grep/Read são artefato de exibição — confirmado em runtime: `/profiles/{id}/warmup-profile`). **Status/contagem do aquecimento do navegador:** `api._profile_warming` (dict in-memory `{profile_id: epoch_fim}`) setado no `/profiles/{id}/warmup-profile` e limpo no `finally`; `/accounts` injeta `profile_warming:{active,remaining_seconds}`; a aba Contas mostra badge "🔥 aquecendo MM" + botão desabilitado com contagem (atualiza no poll de 3s via `fmtCountdown`).
 
+## 🔬 MEDIR O COMPOSITOR antes de automatizar cada rede (`compositor.py`, 2026-10-13)
+
+Pedido do usuário: *"a aba de publicar é dedicada a facilitar a postagem em várias redes
+sociais para que não seja feito uma a uma, siga de acordo"*. Só o Instagram publica sozinho;
+as sete outras abrem o compositor e esperam você — ou seja, **continua uma a uma**.
+
+**O que falta não é código, é MEDIÇÃO.** Sete fluxos de DOM escritos sem nunca ter aberto a
+tela de cada rede = sete seletores inventados, e adivinhar rota é o que custou dias aqui (o
+404 de agosto). O que resolveu aquele caso em minutos foi **medir** — o botão "🔬 Capturar
+requisição real".
+
+`compositor.medir(perfil, rede_id)` é o mesmo instrumento: abre o compositor da rede numa
+aba do perfil (sessão logada, mesmo IP, mesma época), lê a **estrutura** da tela — campo de
+arquivo, campo de legenda, botões e como se chamam, com um `seletor` que prefere atributo
+estável (`data-e2e`, `name`, `aria-label`) a caminho de classes — e grava em
+`data/_compositores/` com uma foto. **NÃO publica: não clica, não preenche, não envia.**
+Botão **"🔬 medir compositor"** no cartão de cada rede assistida; `POST /redes/medir-compositor`.
+
+**Nunca lê valor de campo, `document.cookie` nem `localStorage`.** O relatório é arquivo em
+disco que pode ser enviado adiante, e a sessão vive nesses lugares. `data/` é inteiro coberto
+pelo `.gitignore`.
+
+**Não marca a rede como medida.** `REDES[].medido` segue sendo mudança de código: o relatório
+prova que a tela existe, **não** que a publicação funciona.
+
+**⚠ Armadilha medida num DOM de verdade:** exigir largura **e** altura > 1 para "está
+visível" dava **falso negativo** — elemento em bloco herda a largura do pai, que num viewport
+degenerado é zero, então um `div[role=button]` bem visível saía como oculto. Hoje exige caixa
+de layout e não ser o **1×1** com que as redes escondem o `input[type=file]` (e é no escondido
+que o `set_input_files` deve mandar o arquivo — clique não funciona ali).
+
+`session_manager.abrir_aba` ganhou `fn=`, para rodar na aba recém-aberta. Sem isso o medidor
+duplicaria o "reusa a janela viva ou sobe uma nova", e duas cópias divergem na primeira
+correção.
+
+**Decidido com o usuário (13/10):** automatizar o **TikTok primeiro**; e o fluxo de cada rede
+nasce **"preenche e para antes do clique"**, passando a publicar sozinho depois daquela rede
+acertar uma vez — mesmo espírito do `dryRun`. **⚠ O medidor nunca rodou contra uma rede
+real:** falta conta logada em cada uma e um clique no botão.
+
+## 🎬 REELS no Instagram — e nenhuma dependência nova (2026-10-13)
+
+`destinos` do Instagram é **story | feed | reels**. Reels sai por `clip_upload`.
+
+**Medido no instagrapi 2.18.15 instalado:** largura, altura e duração saem do MP4 por
+**parser próprio em Python** (`utils/video.py`, `import struct`); MoviePy só é exigido para
+**gerar a thumbnail** — e nós passamos a capa pronta. Então Reels publica **sem ffmpeg**, que
+este projeto não instalou.
+
+**A CAPA é a arte.** Ela é o que aparece na grade do perfil, então é nela que o chip do
+destino tem que estar: no Reels o compositor desenha a **capa** (9:16) e o **vídeo passa
+intacto**. Na tela, o campo de imagem vira "Capa do Reels" e o vídeo ganha campo próprio; a
+troca de papel acontece **num lugar só**, no envio (`arquivo` é sempre a mídia e `capa` é
+sempre a capa, para o backend). Reels **também não tem link clicável**, e o aviso diz isso
+diferente do feed — ali o chip vai na capa.
+
+**Campo novo `combina` no registro:** que tipo cada destino aceita naquela rede. Só o
+Instagram declara, porque só ele publica sozinho — **o que limita é o transporte, não a
+rede**. Com isso vídeo em feed/story passa a ser recusado **no plano**, dizendo *"o Instagram
+publica vídeo como Reels — troque o destino desta rede para Reels"*. Antes isso passava e
+morria lá na frente com `Invalid file format. Only JPG/JPEG/PNG/WEBP`, **depois** de subir o
+arquivo. Reels sem capa e imagem em Reels também são recusados com o que fazer escrito.
+
+## 🩸 O BUG QUE MATAVA TODA LEVA COM ARQUIVO (achado e corrigido em 2026-10-13)
+
+Em `/redes/publicar`, `destino` é o parâmetro do formulário ("story"/"feed"/"reels"), e
+dentro do `if arquivo` a variável era **sobrescrita pelo caminho do arquivo salvo**. O
+`montar_plano` recebia um `Path` e morria com
+`'WindowsPath' object has no attribute 'strip'` — **inclusive em simulação**, porque o plano
+quebra antes de publicar.
+
+A prévia (`/redes/plano`) **não salva arquivo**, e por isso sempre pareceu certa: os cartões
+renderizavam e o que nunca funcionou foi o **botão Publicar**. Reproduzido antes de consertar.
+
+**O conserto não foi renomear:** o salvamento saiu para **`_salvar_da_leva()`**. Sem variável
+local no endpoint não há o que colidir — o erro deixa de ser *possível* em vez de corrigido.
+
+⚠ **Não "endurecer" o `montar_plano` com `str(destino)`**: isso teria transformado o estouro
+numa recusa silenciosa e errada ("o Instagram não tem C:\...\leva_x.jpg"), que é pior. Ali
+um tipo errado deve gritar.
+
 ## 📣 ABA "PUBLICAR" — editar e publicar no mesmo lugar (2026-10-13)
+
+> ⚠ Atualizado em 13/10: o Instagram ganhou **Reels** (ver a seção acima), o botão
+> Publicar **tinha um bug que o matava com arquivo anexado** (idem) e cada rede assistida
+> ganhou **"🔬 medir compositor"**.
 
 **Uma aba so.** "Story Creator" -> "Editor de conteudo" -> **"Publicar"**, e a
 "Publicar em todas" DESAPARECEU: os cartoes de previa (por formato) e os de

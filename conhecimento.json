@@ -10,6 +10,94 @@
       "area": "contas",
       "estado": "funciona",
       "data": "2026-10-13",
+      "titulo": "Sessao por cookie funciona em QUALQUER rede, nao so no Instagram",
+      "detalhe": "`context.add_cookies` do Playwright aceita qualquer dominio. O que amarrava ao Instagram eram quatro pontos de codigo: o dominio padrao na limpeza, o resumo, a dica da tela e o probe. `import_cookies` passou a receber `dominios=`.",
+      "evidencia": "36 assercoes (test_cookies_multirede) + o usuario importou 33 cookies do TikTok por este caminho. `do_dominio` casa sufixo EXIGINDO o ponto, senao `eviltiktok.com` passaria por subdominio de `tiktok.com` -- assercao propria para isso."
+    },
+    {
+      "area": "contas",
+      "estado": "funciona",
+      "data": "2026-10-13",
+      "titulo": "Para saber se a sessao de uma rede vale, leia o sinal INVERSO",
+      "detalhe": "Nao existe teste universal de 'estou logado', mas site que joga para a tela de login esta dizendo que voce nao esta. Tres sinais: URL final em /login|/signin|/auth (certeza alta), campo de senha visivel (media), nenhum dos dois (baixa -- 'parece logado', nao 'esta'). Falha de carga e INCONCLUSIVO, nunca 'deslogado'. E 'parece logado' NAO marca a conta como ativa: so o Instagram, que tem prova pela API, faz isso.",
+      "evidencia": "27 assercoes (test_probe_generico) com navegador duble, incluindo as cinco URLs reais de login de TikTok, X, Instagram, Google e Facebook."
+    },
+    {
+      "area": "contas",
+      "estado": "licao",
+      "data": "2026-10-13",
+      "titulo": "Procurar 'login' na URL inteira da falso positivo: compare o CAMINHO",
+      "detalhe": "`?next=/login` e parametro, nao destino, e `login.rede.com` e dominio, nao tela. Os dois contavam como 'deslogado' quando se olhava a URL toda.",
+      "evidencia": "Achado pelo proprio teste antes de rodar ao vivo. Virou `ig_session.parece_tela_de_login()` -- funcao unica, porque o medidor de compositor faz a mesma pergunta e duas copias divergiriam na primeira correcao."
+    },
+    {
+      "area": "story",
+      "estado": "nao_funciona",
+      "data": "2026-10-13",
+      "titulo": "A leva com arquivo anexado NUNCA funcionou: `destino` era sobrescrito",
+      "detalhe": "Em `/redes/publicar`, `destino` e o parametro do formulario (story/feed) e dentro do `if arquivo` a variavel recebia o CAMINHO do arquivo salvo. O `montar_plano` levava um Path e morria com `'WindowsPath' object has no attribute 'strip'` -- inclusive em simulacao, porque o plano quebra antes de publicar.",
+      "evidencia": "Reproduzido antes de consertar. A previa (`/redes/plano`) nao salva arquivo e por isso sempre pareceu certa: os cartoes renderizavam e o botao Publicar e que nao funcionava. Consertado tirando o salvamento para `_salvar_da_leva()`: sem variavel local no endpoint, o erro deixa de ser possivel em vez de corrigido."
+    },
+    {
+      "area": "story",
+      "estado": "funciona",
+      "data": "2026-10-13",
+      "titulo": "Reels sai pelo clip_upload SEM instalar ffmpeg/MoviePy",
+      "detalhe": "O instagrapi 2.18.15 le largura, altura e duracao do MP4 com parser proprio em Python (`utils/video.py`, `import struct`). MoviePy so e exigido para GERAR a thumbnail -- passando a capa pronta, Reels publica sem dependencia nova.",
+      "evidencia": "Lido no pacote instalado (`utils/video.py`: `read_video_metadata` puro, `read_video_metadata_with_moviepy` como fallback; `generate_video_thumbnail` e o unico que importa MoviePy sem alternativa). 40 assercoes (test_reels), incluindo clip_upload recebendo video + thumbnail."
+    },
+    {
+      "area": "story",
+      "estado": "licao",
+      "data": "2026-10-13",
+      "titulo": "No Reels a CAPA e a arte, nao o video",
+      "detalhe": "A capa e o que aparece na grade do perfil, entao e nela que o chip do destino tem que estar. O compositor desenha a capa; o video passa intacto (mexer num video exigiria ffmpeg).",
+      "evidencia": "Assercao conferindo o pixel do centro do retangulo na capa composta em 9:16, e que `arquivo_composto` continua sendo o video."
+    },
+    {
+      "area": "story",
+      "estado": "funciona",
+      "data": "2026-10-13",
+      "titulo": "Video no Instagram so sai como Reels -- e o plano agora diz isso",
+      "detalhe": "`photo_upload` recusa mp4 com `Invalid file format. Only JPG/JPEG/PNG/WEBP`, e antes essa recusa chegava DEPOIS de subir o arquivo. Campo novo `combina` no registro diz que tipo cada destino aceita naquela rede -- so o Instagram declara, porque so ele publica sozinho (o que limita e o transporte, nao a rede).",
+      "evidencia": "Assercoes para video em feed e em story, as duas exigindo que o motivo mande trocar para Reels. O teste antigo afirmava o contrario ('video publica no instagram') e estava errado desde que existia."
+    },
+    {
+      "area": "processo",
+      "estado": "funciona",
+      "data": "2026-10-13",
+      "titulo": "Medir o compositor antes de escrever o fluxo de cada rede",
+      "detalhe": "`compositor.py` abre o compositor da rede numa aba do perfil logado e le a ESTRUTURA da tela (campo de arquivo, legenda, botoes e nomes), guardando em `data/_compositores/` com foto. Nao clica, nao preenche, nao envia. E o mesmo padrao do botao 'Capturar requisicao real', que resolveu o 404 de agosto em minutos depois de dias de hipotese.",
+      "evidencia": "21 assercoes, uma delas garantindo que medir NAO clica nem preenche. O trecho de leitura exercitado contra um DOM real com as tres armadilhas das redes (input de arquivo oculto, legenda em contenteditable, botao por data-e2e)."
+    },
+    {
+      "area": "processo",
+      "estado": "licao",
+      "data": "2026-10-13",
+      "titulo": "'Esta visivel?' por largura E altura da falso negativo",
+      "detalhe": "Elemento em bloco herda a largura do pai, que num viewport degenerado (aba de fundo, headless mal dimensionado) e zero -- entao um `div[role=button]` bem visivel saia como oculto. O criterio passou a ser: tem caixa de layout e nao e o 1x1 com que as redes escondem input de arquivo.",
+      "evidencia": "Medido num DOM real: o div dava `width: 0, height: 21` com `innerHeight: 0`. Os seis casos de visibilidade conferidos depois da correcao, sob o mesmo viewport degenerado."
+    },
+    {
+      "area": "processo",
+      "estado": "licao",
+      "data": "2026-10-13",
+      "titulo": "Relatorio de tela logada nao carrega valor de campo nem cookie",
+      "detalhe": "O medidor le so estrutura: nome, rotulo, seletor, visibilidade. Nunca `.value`, `document.cookie` ou `localStorage`. O relatorio e arquivo em disco que pode ser enviado adiante, e a sessao vive nesses lugares.",
+      "evidencia": "Assercao sobre o JSON gravado (sem 'cookie' nem 'sessionid' no texto) e, no DOM real, um campo com valor aparecendo no relatorio SEM o valor. `data/` e inteiro coberto pelo .gitignore."
+    },
+    {
+      "area": "story",
+      "estado": "aberto",
+      "data": "2026-10-13",
+      "titulo": "As sete redes assistidas: falta conta logada e um clique no medidor",
+      "detalhe": "Decidido com o usuario: TikTok primeiro; e o fluxo de cada rede nasce 'preenche e para antes do clique', passando a publicar sozinho depois daquela rede acertar uma vez. Falta tambem um video curto de teste -- TikTok, YouTube e Kwai so aceitam video e nao existe compositor de video aqui.",
+      "evidencia": "Os 11 perfis do cadastro so tem Instagram, fora o TikTok importado em 13/10. Sem sessao logada o medidor so responde 'caiu na tela de login'."
+    },
+    {
+      "area": "contas",
+      "estado": "funciona",
+      "data": "2026-10-13",
       "titulo": "O registro de redes ficou em 8: Pinterest, Bluesky e LinkedIn sairam",
       "detalhe": "Restam Instagram, Facebook, Threads, X, TikTok, YouTube, Kwai e Telegram. O formato 'pin' (2:3) fica no catalogo mesmo sem rede usando: tira-lo faria uma personalizacao antiga salva com 'pin' cair calada no 9:16, porque `tamanho_do_formato` devolve story para nome desconhecido.",
       "evidencia": "Banco conferido antes: 11 contas, todas instagram, zero nas tres redes removidas. As assercoes dos testes foram transferidas para redes equivalentes em vez de apagadas (262 assercoes seguem passando)."

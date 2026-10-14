@@ -7,6 +7,140 @@
 
 ---
 
+## 2026-10-13 (6) — Abrir no Chrome, sessão por cookie em qualquer rede, medir o compositor, Reels
+
+Sessão longa, seis entregas. A linha que liga todas: a aba Publicar existe para publicar em
+**todas as redes de uma vez**, e cada peça aqui tira um pedaço do "uma a uma".
+
+### 🔑 Sessão por COOKIE em qualquer rede (não só Instagram)
+
+Pergunta do usuário depois de abrir o TikTok pelo Camoufox e achá-lo deslogado: *"então
+podemos usar cookies para todas as redes?"* — e a resposta era **sim, com quatro linhas**.
+`context.add_cookies` do Playwright aceita qualquer domínio; o que amarrava ao Instagram
+eram só quatro pontos de código (o domínio padrão na limpeza, o resumo, a dica da tela e o
+probe). `ig_session.import_cookies` passou a receber `dominios=`, e `do_dominio` casa
+sufixo **exigindo o ponto** — senão `eviltiktok.com` passaria por subdomínio de
+`tiktok.com`.
+
+### 🔬 Verificação de login fora do Instagram: o sinal INVERSO
+
+O usuário importou 33 cookies do TikTok e leu *"importou 33 cookie(s); não deu pra
+confirmar o login (?)"*. Não era erro: fora do Instagram **não existia verificação
+nenhuma**, e a honestidade saiu ilegível.
+
+Não existe teste universal de "estou logado", mas existe o inverso, e vale para quase todas:
+**site que te joga na tela de login está dizendo que você não está logado.** `probe_generico`
+lê três sinais — URL final em `/login|/signin|/auth` (certeza **alta**), campo de senha
+visível (**média**), nenhum dos dois (**baixa**, e aí é "parece logado", não "está"). Falha
+de carga é **inconclusivo**, nunca "deslogado". E **"parece logado" NÃO marca a conta como
+ativa**: só o Instagram, que tem prova pela API, faz isso.
+
+**Falso positivo pego pelo próprio teste:** a extração da URL mantinha a query, então
+`?next=/login` contava como tela de login, e `login.rede.com` também. Passou a comparar só
+o **caminho**. Depois virou `parece_tela_de_login()`, função própria, porque o medidor de
+compositor faz a mesma pergunta — duas cópias divergiriam na primeira correção.
+
+### 🖥 Abrir no Chrome normal, ao lado do Camoufox
+
+Dois botões lado a lado: **Abrir Camoufox (seguro)** e **Abrir no Chrome**. O Camoufox é o
+certo para operar a conta (perfil antidetect, cookies isolados, rotação de IP antes de
+entrar) e atrapalha quando você só quer olhar a rede logado como você mesmo.
+
+**O que o Chrome custa, e o app não resolve:** é o navegador onde a sua identidade REAL
+está logada, e sai pelo MESMO modem das contas descartáveis — a correlação que derrubou a
+frota em 16/08. Por isso ele **não rotaciona o IP**: rotacionar ali só derrubaria a sua
+própria sessão sem separar nada. O aviso está na tela.
+
+E o "Abrir" passou a abrir **a rede da conta**, não o Instagram sempre (o usuário abriu uma
+conta de TikTok e caiu no Instagram). Junto, o modal de Detalhes passou a trocar **os dados
+por rede** em vez de mostrar os mesmos campos ao trocar a plataforma.
+
+### 🩸 O bug que matava TODA leva com arquivo anexado
+
+Achado lendo o endpoint para outra coisa. Em `/redes/publicar`, `destino` é o parâmetro do
+formulário ("story"/"feed"), e dentro do `if arquivo` a variável era **sobrescrita pelo
+caminho do arquivo salvo**. O `montar_plano` recebia um `Path` e morria com
+`'WindowsPath' object has no attribute 'strip'` — **inclusive em simulação**, porque o plano
+quebra antes de publicar.
+
+A prévia (`/redes/plano`) não salva arquivo, e por isso **sempre pareceu certa**: os cartões
+renderizavam e o que nunca funcionou foi o botão Publicar. Reproduzido antes de consertar.
+
+**O conserto não foi renomear.** O salvamento saiu para `_salvar_da_leva()`: sem variável
+local no endpoint, não há o que colidir — o erro deixa de ser *possível* em vez de corrigido.
+
+### 🎬 Reels — e nenhuma dependência nova
+
+`destinos` do Instagram virou story | feed | **reels**, por `clip_upload`. Medido no
+instagrapi 2.18.15 instalado: largura, altura e duração saem do MP4 por **parser próprio em
+Python** (`utils/video.py`, `import struct`); MoviePy só entra para gerar a *thumbnail* — e
+nós passamos a thumbnail pronta. Então Reels sai sem ffmpeg, que este projeto não instalou.
+
+**A capa é a arte.** Ela é o que aparece na grade do perfil, então é nela que o chip do
+destino tem que estar: no Reels o compositor desenha a **capa** e o vídeo passa intacto. Na
+tela o campo de imagem vira "Capa do Reels" e o vídeo ganha campo próprio; a troca de papel
+acontece num lugar só, no envio.
+
+**Recusa cedo, com instrução.** Campo novo `combina` no registro diz que tipo cada destino
+aceita naquela rede — só o Instagram declara, porque só ele publica sozinho (o que limita é
+o **transporte**, não a rede). Vídeo em feed/story passa a dizer *"o Instagram publica vídeo
+como Reels — troque o destino desta rede para Reels"*. Antes isso **passava no plano** e
+morria lá na frente com `Invalid file format. Only JPG/JPEG/PNG/WEBP`, depois de subir o
+arquivo.
+
+### 🔬 Medir o compositor: o instrumento que falta para as sete
+
+Pedido do usuário: *"a aba de publicar é dedicada a facilitar a postagem em várias redes
+sociais para que não seja feito uma a uma, siga de acordo"*. O que falta para as sete redes
+assistidas publicarem sozinhas **não é código, é medição**: escrever sete fluxos de DOM sem
+nunca ter aberto a tela de cada rede produz sete seletores inventados, e adivinhar rota é o
+que custou dias aqui (o 404 de agosto). O que resolveu aquele caso em minutos foi o botão
+"🔬 Capturar requisição real".
+
+`compositor.py` é o mesmo instrumento para o compositor: abre o compositor da rede numa aba
+do perfil (sessão logada, mesmo IP, mesma época), lê a **estrutura** da tela — campo de
+arquivo, campo de legenda, botões e como se chamam — e guarda em `data/_compositores/` com
+uma foto. **Não publica: não clica, não preenche, não envia.**
+
+**O que ele nunca lê:** valor de campo, `document.cookie`, `localStorage`. O relatório é
+arquivo em disco que pode ser enviado adiante, e a sessão vive nesses lugares. Um dos testes
+é exatamente isso — um campo com valor aparece no relatório **sem o valor**.
+
+**Armadilha medida num DOM de verdade:** exigir largura **e** altura > 1 para "está visível"
+dava **falso negativo** — elemento em bloco herda a largura do pai, que num viewport
+degenerado é zero, então um `div[role=button]` bem visível saía como oculto. Passou a exigir
+caixa de layout e não ser o 1×1 com que as redes escondem input de arquivo. Erra para o lado
+de **mostrar**: num relatório que uma pessoa lê, esconder um controle que existe é pior que
+listar um duvidoso.
+
+Ele **não marca a rede como medida** — `REDES[].medido` segue sendo mudança de código, porque
+o relatório prova que a tela existe, não que a publicação funciona.
+
+### 🧪 Dois testes eram mais VELHOS que a correção
+
+`test_redes` afirmava **"video publica no instagram"** — errado desde que existia, porque o
+plano aceitava e o `photo_upload` recusava depois. E um bloco sobre **status de conta** usava
+vídeo, então passaria a medir formato sem avisar. Os dois ajustados com o porquê escrito, e
+`test_leva` passou a mandar o Instagram de Reels (vídeo + capa real) para continuar testando
+isolamento de falha numa leva de vídeo. **Teste que falha pode ser mais velho que o fix** —
+a regra da casa funcionou mais uma vez.
+
+### Decisões do usuário nesta sessão
+- Automatizar **o TikTok primeiro**.
+- **Preencher e parar antes do clique na primeira vez de cada rede; publicar sozinho depois
+  de aquela rede acertar uma vez.** Mesmo espírito do `dryRun` do InstaFollow.
+- **Reels agora, com a capa saindo da arte composta.**
+
+### ⚠ O que segue não exercitado
+- O medidor **nunca rodou contra uma rede real** — falta conta logada em cada uma e um
+  clique no botão.
+- **Reels nunca rodou contra o Instagram.** Simulação nasce ligada.
+- A leva compondo nunca publicou de verdade (o bug do `destino` explicava por quê).
+- `share_to_facebook` / `share_to_threads` do `clip_upload` e do `photo_upload`: se
+  funcionarem, duas redes saem do assistido de graça. **Não medido.**
+
+---
+
 ## 2026-10-13 (5) — Pinterest, Bluesky e LinkedIn saem do registro
 
 A pedido. **Conferido no banco antes de remover:** 11 contas, todas Instagram, nenhuma nas
