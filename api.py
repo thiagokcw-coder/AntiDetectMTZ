@@ -1468,6 +1468,16 @@ async def accounts_import_session(account_id: str, body: ImportSessionRequest):
                                           use_local=not bool(p.get("proxy")))
         except Exception as e:
             probe = {"logged": None, "error": str(e)}
+    elif meta.get("site"):
+        # Fora do Instagram não há API para perguntar "quem sou eu", mas dá para
+        # ler o INVERSO: se o site joga para a tela de login, a sessão não valeu.
+        try:
+            g = await igs.probe_generico(p, meta["site"])
+            probe = {"logged": g.get("logado"), "status": g.get("certeza"),
+                     "error": g.get("erro"), "motivo": g.get("motivo"),
+                     "url_final": g.get("url_final")}
+        except Exception as e:
+            probe = {"logged": None, "error": str(e)}
 
     # PERSISTE o resultado — sem isto o usuário recarregava a tela e não sabia se a
     # importação tinha funcionado. Sessão confirmada = a conta está logada no perfil,
@@ -1476,11 +1486,14 @@ async def accounts_import_session(account_id: str, body: ImportSessionRequest):
     n = imported.get("imported")
     try:
         if rede_id != "instagram":
-            # Sem prova de login, o status NÃO muda — só fica o registro do que
-            # entrou. Marcar "ativa" aqui seria afirmar o que não foi medido.
+            # O probe genérico é bom para dizer que NÃO logou (o site manda para
+            # a tela de login) e fraco para afirmar que logou. Então: "não logou"
+            # vira registro claro, e "parece logado" continua sem mexer no status
+            # — afirmar o que não foi medido é o erro que esta base já pagou.
+            visto = probe.get("motivo") or "sem verificação"
             db.update_account(account_id, last_checked_at=quando,
                               last_check_result=f"sessão de {rede_id} importada "
-                                                f"({n} cookies) — confira abrindo o perfil")
+                                                f"({n} cookies) — {visto}")
         elif probe.get("logged"):
             acc.set_status(account_id, "active",
                            f"sessão importada e confirmada em {quando} ({n} cookies)")
@@ -1497,7 +1510,8 @@ async def accounts_import_session(account_id: str, body: ImportSessionRequest):
             "status": probe.get("status"), "error": probe.get("error"),
             "ds_user_id": (probe.get("cookies") or {}).get("ds_user_id"),
             "rede": rede_id, "dominios": doms, "faltando": faltando,
-            "confirmavel": rede_id == "instagram",
+            "motivo": probe.get("motivo"), "certeza": probe.get("status"),
+            "confirmavel": True,
             "registrado_em": quando}
 
 

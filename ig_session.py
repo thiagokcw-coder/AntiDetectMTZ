@@ -232,3 +232,69 @@ async def probe_login(profile: dict, target: str = "instagram", use_local: bool 
         out.update(logged=bool(edge) and n > 0, status=res.get("status"), edges=n)
         return out
     return await sm.run_profile_task(prof, _run, headless=True)
+
+
+async def probe_generico(profile: dict, url: str, timeout_ms: int = 25000) -> dict:
+    """Abre `url` no perfil e tenta dizer se a sessão está logada — em QUALQUER rede.
+
+    Não existe teste universal de "estou logado": cada rede responde de um
+    jeito. O que existe e vale para quase todas é o INVERSO — site que te
+    manda para a tela de login está dizendo que você não está logado. Três
+    sinais, do mais forte para o mais fraco:
+
+      1. a URL final caiu em /login, /signin, /accounts/login…  → DESLOGADO
+      2. existe um campo de senha visível na página             → DESLOGADO
+      3. nenhum dos dois                                        → parece logado
+
+    O caso 3 é "parece", não "é": uma página pode esconder o login atrás de um
+    botão. Por isso o retorno diz `logado: True/False/None` e a tela repete essa
+    incerteza em vez de afirmar. Rótulo que afirma o que não foi medido é o erro
+    que este projeto já pagou quatro vezes.
+
+    Roda headless, numa aba só, sem tocar em nada da conta.
+    """
+    import re as _re
+
+    alvo = (url or "").strip()
+    if not alvo.startswith(("http://", "https://")):
+        return {"logado": None, "erro": "url inválida"}
+
+    async def _run(page):
+        try:
+            await page.goto(alvo, wait_until="domcontentloaded", timeout=timeout_ms)
+        except Exception as e:
+            return {"logado": None, "erro": "não carregou: %s" % str(e)[:120]}
+        try:
+            await page.wait_for_timeout(1500)   # deixa um redirect tardio acontecer
+        except Exception:
+            pass
+        final = page.url or ""
+        try:
+            senha = await page.locator("input[type=password]").count()
+        except Exception:
+            senha = 0
+        return {"url_final": final, "campos_senha": senha}
+
+    got = await sm.run_profile_task(profile, _run, headless=True)
+    if got.get("erro"):
+        return {"logado": None, "erro": got["erro"]}
+
+    final = got.get("url_final") or ""
+    # Só o CAMINHO: sem host e sem query. Um domínio `login.rede.com` não é a
+    # tela de login, e `?next=/login` é parâmetro, não destino — os dois davam
+    # falso positivo quando se olhava a URL inteira.
+    caminho = _re.sub(r"^https?://[^/]*", "", final).split("?")[0].split("#")[0].lower()
+    na_tela_de_login = any(x in caminho for x in
+                           ("/login", "/signin", "/sign-in", "/accounts/login", "/auth"))
+    tem_senha = bool(got.get("campos_senha"))
+
+    if na_tela_de_login:
+        motivo = "o site levou para a tela de login (%s)" % (final[:90] or "?")
+    elif tem_senha:
+        motivo = "a página mostra campo de senha — sessão não reconhecida"
+    else:
+        motivo = "o site abriu sem pedir login (%s)" % (final[:90] or "?")
+
+    return {"logado": (False if (na_tela_de_login or tem_senha) else True),
+            "certeza": "alta" if na_tela_de_login else ("média" if tem_senha else "baixa"),
+            "url_final": final, "motivo": motivo}

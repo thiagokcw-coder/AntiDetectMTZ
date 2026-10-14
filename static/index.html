@@ -4493,14 +4493,29 @@ async function importAccountSession(id, btn) {
   try {
     const r = await api('POST', `/accounts/${encodeURIComponent(id)}/import-session`, { cookies: raw }, 180000);
     stop();
+    // A mensagem diz TRES coisas: quantos cookies entraram, se faltou alguma
+    // chave esperada, e o que a verificação viu. A versão anterior dizia "não
+    // deu pra confirmar o login (?)" fora do Instagram -- tecnicamente honesto e
+    // ilegível: parecia erro quando era só ausência de teste.
+    const falta = (r.faltando || []).length
+      ? `<div style="color:#f59e0b;margin-top:3px">⚠ não vieram os cookies <b>${escapeHtml((r.faltando || []).join(', '))}</b> — normalmente são eles que autenticam. Exporte de novo com a extensão, na página logada.</div>`
+      : '';
+    const quantos = `importou <b>${r.imported}</b> cookie(s) de ${escapeHtml((r.dominios || []).join(', '))}`;
     if (r.logged === true) {
-      out.innerHTML = `<span style="color:var(--green)">✓ sessão importada e LOGADA (status ${r.status}${r.ds_user_id ? ', id ' + escapeHtml(String(r.ds_user_id)) : ''}) — já dá pra extrair no Spider</span>`;
+      const comoSabe = r.motivo
+        ? ` — ${escapeHtml(r.motivo)}${r.certeza === 'baixa' ? ' (sinal fraco: o site não pediu login, mas isso não prova sessão)' : ''}`
+        : ` (status ${escapeHtml(String(r.status || ''))}${r.ds_user_id ? ', id ' + escapeHtml(String(r.ds_user_id)) : ''})`;
+      out.innerHTML = `<span style="color:var(--green)">✓ ${quantos} e o perfil ABRIU LOGADO${comoSabe}</span>` + falta;
       toast('Sessão importada — perfil logado', 'success');
     } else if (r.logged === false) {
-      out.innerHTML = `<span style="color:var(--red)">importou ${r.imported} cookie(s), mas o teste deu NÃO logado (status ${r.status}). Cookie expirado ou IP incoerente — tente proxy do mesmo país.</span>`;
+      const porque = r.motivo
+        ? escapeHtml(r.motivo)
+        : `o teste deu NÃO logado (status ${escapeHtml(String(r.status || ''))})`;
+      out.innerHTML = `<span style="color:var(--red)">${quantos}, mas NÃO logou: ${porque}. Cookie expirado, faltando o de sessão, ou IP muito diferente de onde ele nasceu.</span>` + falta;
       toast('Importou, mas não logou', 'error');
     } else {
-      out.innerHTML = `<span style="color:var(--yellow)">importou ${r.imported} cookie(s); não deu pra confirmar o login (${escapeHtml(r.error || '?')})</span>`;
+      out.innerHTML = `<span style="color:var(--yellow)">${quantos}. Não consegui verificar (${escapeHtml(r.error || 'sem detalhe')}) — abra o perfil para ver.</span>` + falta;
+      toast('Cookies importados; verificação inconclusiva', 'success');
     }
   } catch (e) { stop(); toast(e.message || 'Erro ao importar', 'error'); out.textContent = ''; }
 }
