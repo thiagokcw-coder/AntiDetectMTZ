@@ -1917,8 +1917,8 @@
     </div>
     <div class="form-group">
       <label>🔑 Cookie da sessão <span style="color:var(--muted);font-weight:400">(opcional — do Cookie-Editor)</span></label>
-      <textarea id="aa-cookies" rows="2" placeholder='Cole o JSON de cookies de instagram.com (Cookie-Editor)' style="width:100%;box-sizing:border-box;padding:8px;background:var(--surface);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:12px;font-family:ui-monospace,Consolas,monospace;resize:vertical"></textarea>
-      <div class="form-hint">Se já pegou o cookie no navegador do perfil (Cookie-Editor): ao adicionar, a sessão é <b>importada no perfil</b> (sem login novo, ~50s). O <b>sessionid</b> é httpOnly — precisa vir da extensão. Vazio = pode importar depois em Detalhes.</div>
+      <textarea id="aa-cookies" rows="2" placeholder='Cole o JSON de cookies da rede escolhida (Cookie-Editor)' style="width:100%;box-sizing:border-box;padding:8px;background:var(--surface);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:12px;font-family:ui-monospace,Consolas,monospace;resize:vertical"></textarea>
+      <div class="form-hint" id="aa-cookies-hint">Cookies da <b>rede escolhida acima</b>: ao adicionar, a sessão é <b>importada no perfil</b> (sem login novo, ~50s). Os cookies de sessão são httpOnly — precisam vir da extensão. Vazio = pode importar depois em Detalhes.</div>
     </div>
     <div class="modal-actions">
       <button class="btn btn-ghost" onclick="closeModal('modal-add-account')">Cancelar</button>
@@ -4012,6 +4012,42 @@ async function _garantirRedes() {
   return _pbRedes;
 }
 
+/** Texto da importação de sessão para UMA rede: título, domínio e ressalvas.
+ *
+ * Sai do catálogo (`redes.REDES[].cookie_dominios/cookie_chaves`), não de um
+ * texto fixo: era "instagram.com" para qualquer conta, e mandar exportar
+ * cookie de instagram.com numa conta de TikTok é instrução errada com cara de
+ * certa. Rede sem chave conhecida ganha a ressalva em vez de silêncio. */
+/** Junta uma lista como se escreve em português: "a, b e c". `join(' e ')`
+ * devolvia "a e b e c", que trava a leitura em qualquer lista de três. */
+function _listaPt(xs) {
+  const l = (xs || []).filter(Boolean);
+  if (l.length <= 1) return l[0] || '';
+  return l.slice(0, -1).join(', ') + ' e ' + l[l.length - 1];
+}
+
+function _cookieDica(plataforma) {
+  const rede = (plataforma || 'instagram').toLowerCase();
+  const r = _pbRedes.find(x => x.id === rede);
+  if (!r) return { titulo: '', dominio: rede, exemplo: '[{"name":"...","value":"..."}]', aviso: '' };
+  const dom = (r.cookie_dominios || [rede])[0];
+  const chave = (r.cookie_chaves || [])[0];
+  let aviso = '';
+  if (rede === 'telegram') {
+    aviso = ' <b style="color:#f59e0b">⚠ O Telegram Web guarda a sessão em localStorage, não em cookie — importar cookie provavelmente não vai logar.</b>';
+  } else if (!chave) {
+    aviso = ' <span style="color:#f59e0b">⚠ Ainda não conferimos quais cookies autenticam esta rede — importe e abra o perfil para ver se pegou.</span>';
+  } else if (rede !== 'instagram') {
+    aviso = ' <span style="color:var(--muted)">O app importa e relata, mas <b>não confirma</b> o login fora do Instagram — abra o perfil e veja.</span>';
+  }
+  return {
+    titulo: 'do ' + r.nome,
+    dominio: _listaPt(r.cookie_dominios || []),
+    exemplo: `[{"name":"${chave || 'cookie'}","value":"...","domain":".${dom}"}, ...]`,
+    aviso,
+  };
+}
+
 function nomeDaRede(id) {
   const r = (id || 'instagram').toLowerCase();
   const opt = document.querySelector(`#aa-platform option[value="${CSS.escape(r)}"]`);
@@ -4379,9 +4415,9 @@ async function accountDetail(id) {
         <div id="ma-proxy-result" style="font-size:12px;color:var(--muted);margin-top:6px"></div>
       </div>
       <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--border)">
-        <div style="font-weight:600;font-size:13px;margin-bottom:4px">🔑 Sessão do Instagram</div>
-        <div class="form-hint" style="margin-bottom:6px">Para conta que só loga no app/celular. No <b>Firefox Android</b> (no 4G), entre no <b>instagram.com</b>, exporte os cookies com o <b>Cookie-Editor</b> e cole o JSON aqui. O perfil fica logado <b>sem login novo</b>. O <b>sessionid</b> é httpOnly — só a extensão pega, copiar do navegador não.</div>
-        <textarea id="ma-cookies" rows="3" placeholder='[{"name":"sessionid","value":"...","domain":".instagram.com"}, ...]' style="width:100%;box-sizing:border-box;padding:8px;background:var(--surface);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:12px;font-family:ui-monospace,Consolas,monospace;resize:vertical"></textarea>
+        <div style="font-weight:600;font-size:13px;margin-bottom:4px">🔑 Sessão ${escapeHtml(_cookieDica(a.platform).titulo)}</div>
+        <div class="form-hint" style="margin-bottom:6px">Entra a sessão que JÁ existe, <b>sem login novo</b> — o caminho que não queima conta. Abra <b>${escapeHtml(_cookieDica(a.platform).dominio)}</b> logado (no celular, no 4G, ou em outro navegador), exporte com o <b>Cookie-Editor</b> e cole aqui. Os cookies de sessão são <b>httpOnly</b>: só a extensão pega, copiar do navegador não.${_cookieDica(a.platform).aviso}</div>
+        <textarea id="ma-cookies" rows="3" placeholder='${escapeHtml(_cookieDica(a.platform).exemplo)}' style="width:100%;box-sizing:border-box;padding:8px;background:var(--surface);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:12px;font-family:ui-monospace,Consolas,monospace;resize:vertical"></textarea>
         <div style="margin-top:6px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
           <button class="btn btn-primary btn-sm" onclick="importAccountSession('${a.id}', this)">Importar sessão</button>
           <button class="btn btn-sm" onclick="exportAccountSession('${a.id}', this)" title="Lê os cookies deste perfil sem nenhuma requisição ao Instagram">⬇ Exportar deste perfil</button>
@@ -6946,6 +6982,13 @@ function aaTrocouRede(guardarAtual = true) {
     _aaEscrever(null);
   }
   _aaRotulos(rede, !!conta);
+  const dica = document.getElementById('aa-cookies-hint');
+  if (dica) {
+    const d = _cookieDica(rede);
+    dica.innerHTML = `Cookies de <b>${escapeHtml(d.dominio)}</b>: ao adicionar, a sessão é `
+      + `<b>importada no perfil</b> (sem login novo, ~50s). Os cookies de sessão são httpOnly — `
+      + `precisam vir da extensão. Vazio = pode importar depois em Detalhes.${d.aviso}`;
+  }
   checkAddProfileWarn();
 }
 

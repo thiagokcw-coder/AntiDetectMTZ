@@ -39,22 +39,34 @@ def is_ig_cookie(c: dict) -> bool:
     return "instagram.com" in (c.get("domain") or "")
 
 
-def _clean(c: dict) -> dict:
+def do_dominio(c: dict, dominios) -> bool:
+    """O cookie pertence a algum destes domínios?
+
+    O filtro virou parâmetro quando a importação passou a valer para qualquer
+    rede. Compara por sufixo porque o Cookie-Editor exporta tanto `.tiktok.com`
+    quanto `www.tiktok.com`, e os dois são a mesma sessão.
+    """
+    d = (c.get("domain") or "").lstrip(".").lower()
+    return any(d == x or d.endswith("." + x) for x in (dominios or []))
+
+
+def _clean(c: dict, dominio_padrao: str = ".instagram.com") -> dict:
     """Normaliza um cookie para o formato do add_cookies."""
     out = {k: c[k] for k in _PW_FIELDS if k in c}
     # sameSite só aceita 'Strict' | 'Lax' | 'None'
     ss = str(out.get("sameSite") or "").capitalize()
     out["sameSite"] = ss if ss in ("Strict", "Lax", "None") else "Lax"
     if not out.get("domain"):
-        out["domain"] = ".instagram.com"
+        out["domain"] = dominio_padrao
     if not out.get("path"):
         out["path"] = "/"
     return out
 
 
-def summarize(cookies: list) -> dict:
-    """Resumo seguro p/ log/UI: NUNCA expõe o valor do sessionid."""
-    names = sorted({c.get("name") for c in cookies if is_ig_cookie(c)})
+def summarize(cookies: list, dominios=None) -> dict:
+    """Resumo seguro p/ log/UI: NUNCA expõe o VALOR de cookie nenhum."""
+    doms = list(dominios) if dominios else ["instagram.com"]
+    names = sorted({c.get("name") for c in cookies if do_dominio(c, doms)})
     ds = next((c.get("value") for c in cookies if c.get("name") == "ds_user_id"), None)
     return {"total": len(cookies), "ig": len(names), "names": names,
             "ds_user_id": ds, "has_sessionid": any(c.get("name") == "sessionid"
@@ -124,21 +136,32 @@ async def export_cookies(profile: dict, only_ig: bool = True) -> list:
     return await sm.run_profile_task(profile, _run, headless=True)
 
 
-async def import_cookies(profile: dict, cookies: list, only_auth: bool = False) -> dict:
+async def import_cookies(profile: dict, cookies: list, only_auth: bool = False,
+                         dominios=None) -> dict:
     """Injeta cookies de sessão no perfil (persistem no user_data_dir do perfil).
-    only_auth=True importa apenas os cookies de autenticação (AUTH_NAMES)."""
-    src = [c for c in cookies if is_ig_cookie(c)]
+
+    `dominios` restringe o que entra; vazio = Instagram, que era o único caso
+    quando isto nasceu. O resto do mecanismo sempre foi genérico — quem prendia
+    à rede era só o filtro.
+
+    only_auth=True importa apenas os cookies de autenticação (AUTH_NAMES) —
+    só faz sentido no Instagram, que é de quem essa lista é.
+    """
+    doms = list(dominios) if dominios else ["instagram.com"]
+    src = [c for c in cookies if do_dominio(c, doms)]
     if only_auth:
         src = [c for c in src if c.get("name") in AUTH_NAMES]
-    payload = [_clean(c) for c in src]
+    padrao = "." + doms[0].lstrip(".")
+    payload = [_clean(c, padrao) for c in src]
     if not payload:
-        return {"imported": 0, "error": "nenhum cookie do instagram.com no material recebido"}
+        return {"imported": 0,
+                "error": "nenhum cookie de %s no material recebido" % " / ".join(doms)}
 
     async def _run(page):
         await page.context.add_cookies(payload)
         # Confere o que ficou de fato gravado no contexto.
         now = await page.context.cookies()
-        return summarize(now)
+        return summarize(now, doms)
     got = await sm.run_profile_task(profile, _run, headless=True)
     return {"imported": len(payload), "profile_now": got}
 

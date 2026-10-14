@@ -1417,11 +1417,21 @@ class ImportSessionRequest(BaseModel):
 
 @app.post("/accounts/{account_id}/import-session")
 async def accounts_import_session(account_id: str, body: ImportSessionRequest):
-    """Importa a SESSÃO do Instagram (cookies, incl. sessionid) no perfil da conta —
-    sem login novo. Uso: conta que só loga no app/celular → exporta os cookies de
-    instagram.com pelo Cookie-Editor (Firefox Android) e cola aqui. Confirma logando
-    de leve (1 requisição GraphQL). NÃO registra o valor do sessionid em log."""
+    """Importa a SESSÃO (cookies) no perfil da conta — sem login novo, em QUALQUER
+    rede.
+
+    Era só Instagram. O mecanismo sempre foi genérico (`add_cookies` aceita
+    qualquer domínio); o que prendia era o filtro. Agora os domínios vêm da rede
+    da conta (`redes.REDES[].cookie_dominios`).
+
+    ⚠ A CONFIRMAÇÃO continua sendo só do Instagram: `probe_login` lê a API dele.
+    Nas outras redes a importação é feita e relatada, mas o app NÃO afirma que
+    logou — abra e veja. Dizer "logado" sem medir seria o tipo de rótulo falso
+    que este projeto já pagou quatro vezes.
+
+    NÃO registra o valor de cookie nenhum em log."""
     import ig_session as igs
+    import redes as _redes
     a = acc.get_account(account_id)
     if not a:
         raise HTTPException(404, "Conta não encontrada")
@@ -1429,19 +1439,35 @@ async def accounts_import_session(account_id: str, body: ImportSessionRequest):
     if not p:
         raise HTTPException(400, "Esta conta não tem perfil vinculado. Crie um perfil "
                                  "primeiro (botão '➕ Criar perfil').")
+    rede_id = (a.get("platform") or "instagram").lower()
+    meta = _redes.rede(rede_id) or {}
+    doms = meta.get("cookie_dominios") or ["instagram.com"]
+    chaves = meta.get("cookie_chaves") or []
+
     cookies = igs.parse_cookies_input(body.cookies)
-    if not any(c.get("name") == "sessionid" for c in cookies):
-        raise HTTPException(400, "Não achei o cookie 'sessionid' no que você colou. "
-                                 "Exporte os cookies de instagram.com pelo Cookie-Editor "
-                                 "(o sessionid é httpOnly — precisa da extensão, não dá "
-                                 "pra copiar do navegador).")
-    imported = await igs.import_cookies(p, cookies)
+    do_alvo = [c for c in cookies if igs.do_dominio(c, doms)]
+    if not do_alvo:
+        raise HTTPException(400,
+            "Não achei nenhum cookie de %s no que você colou. Exporte pelo "
+            "Cookie-Editor com a página DA REDE aberta (os cookies de sessão são "
+            "httpOnly — a extensão pega, copiar do navegador não)."
+            % " / ".join(doms))
+
+    # Chave esperada AUSENTE vira AVISO, nunca recusa: a lista de cookies de cada
+    # rede muda, e recusar por uma lista minha deixaria de funcionar um material
+    # que funcionava.
+    nomes = {c.get("name") for c in do_alvo}
+    faltando = [k for k in chaves if k not in nomes]
+
+    imported = await igs.import_cookies(p, cookies, dominios=doms)
     # Confirma o login: usa o proxy do perfil se houver (coerência), senão IP local.
     probe = {"logged": None}
-    try:
-        probe = await igs.probe_login(p, target="instagram", use_local=not bool(p.get("proxy")))
-    except Exception as e:
-        probe = {"logged": None, "error": str(e)}
+    if rede_id == "instagram":
+        try:
+            probe = await igs.probe_login(p, target="instagram",
+                                          use_local=not bool(p.get("proxy")))
+        except Exception as e:
+            probe = {"logged": None, "error": str(e)}
 
     # PERSISTE o resultado — sem isto o usuário recarregava a tela e não sabia se a
     # importação tinha funcionado. Sessão confirmada = a conta está logada no perfil,
@@ -1449,7 +1475,13 @@ async def accounts_import_session(account_id: str, body: ImportSessionRequest):
     quando = time.strftime("%Y-%m-%d %H:%M:%S")
     n = imported.get("imported")
     try:
-        if probe.get("logged"):
+        if rede_id != "instagram":
+            # Sem prova de login, o status NÃO muda — só fica o registro do que
+            # entrou. Marcar "ativa" aqui seria afirmar o que não foi medido.
+            db.update_account(account_id, last_checked_at=quando,
+                              last_check_result=f"sessão de {rede_id} importada "
+                                                f"({n} cookies) — confira abrindo o perfil")
+        elif probe.get("logged"):
             acc.set_status(account_id, "active",
                            f"sessão importada e confirmada em {quando} ({n} cookies)")
         else:
@@ -1464,6 +1496,8 @@ async def accounts_import_session(account_id: str, body: ImportSessionRequest):
     return {"imported": n, "logged": probe.get("logged"),
             "status": probe.get("status"), "error": probe.get("error"),
             "ds_user_id": (probe.get("cookies") or {}).get("ds_user_id"),
+            "rede": rede_id, "dominios": doms, "faltando": faltando,
+            "confirmavel": rede_id == "instagram",
             "registrado_em": quando}
 
 

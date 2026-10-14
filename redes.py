@@ -80,6 +80,13 @@ from typing import Optional
 #   navegador  → abre o compositor no Camoufox do perfil (assistido)
 #   api        → HTTP com credencial própria (nenhuma rede está aqui ainda)
 #
+# `cookie_dominios` são os domínios cujos cookies carregam a sessão daquela
+# rede, e `cookie_chaves` os nomes que a gente ESPERA ver num material bom. As
+# chaves só servem para AVISAR — nunca para recusar: lista de cookie muda, e
+# recusar por uma lista minha deixaria de funcionar um material que funcionava.
+# Lista de chaves vazia = não sabemos (ou a sessão nem mora em cookie: o
+# Telegram Web guarda a dele em localStorage, então importar cookie não loga).
+#
 # `site` é a casa da rede — é o que o botão "Abrir" da aba Contas carrega.
 # `compositor` é a tela de publicar, usada pela leva no modo assistido. São
 # endereços diferentes de propósito: abrir uma conta para conferir não é o mesmo
@@ -96,6 +103,8 @@ REDES: tuple[dict, ...] = (
         "transporte": "instagrapi",
         "destinos": ("story", "feed"),
         "formato_padrao": {"story": "story", "feed": "vertical"},
+        "cookie_dominios": ['instagram.com'],
+        "cookie_chaves": ['sessionid'],
         "site": "https://www.instagram.com/",
         "compositor": "https://www.instagram.com/",
         "formatos": ("imagem", "video"),
@@ -109,6 +118,8 @@ REDES: tuple[dict, ...] = (
         "transporte": "navegador",
         "destinos": ("story", "feed"),
         "formato_padrao": {"story": "story", "feed": "quadrado"},
+        "cookie_dominios": ['facebook.com'],
+        "cookie_chaves": ['c_user', 'xs'],
         "site": "https://www.facebook.com/",
         "compositor": "https://www.facebook.com/",
         "formatos": ("imagem", "video", "texto"),
@@ -123,6 +134,8 @@ REDES: tuple[dict, ...] = (
         "transporte": "navegador",
         "destinos": ("feed",),
         "formato_padrao": {"feed": "quadrado"},
+        "cookie_dominios": ['threads.com', 'threads.net', 'instagram.com'],
+        "cookie_chaves": ['sessionid'],
         "site": "https://www.threads.com/",
         "compositor": "https://www.threads.com/",
         "formatos": ("imagem", "video", "texto"),
@@ -136,6 +149,8 @@ REDES: tuple[dict, ...] = (
         "transporte": "navegador",
         "destinos": ("feed",),
         "formato_padrao": {"feed": "paisagem"},
+        "cookie_dominios": ['x.com', 'twitter.com'],
+        "cookie_chaves": ['auth_token', 'ct0'],
         "site": "https://x.com/",
         "compositor": "https://x.com/compose/post",
         "formatos": ("imagem", "video", "texto"),
@@ -149,6 +164,8 @@ REDES: tuple[dict, ...] = (
         "transporte": "navegador",
         "destinos": ("feed",),
         "formato_padrao": {"feed": "story"},
+        "cookie_dominios": ['tiktok.com'],
+        "cookie_chaves": ['sessionid', 'sid_tt'],
         "site": "https://www.tiktok.com/",
         "compositor": "https://www.tiktok.com/tiktokstudio/upload",
         "formatos": ("video",),
@@ -163,6 +180,8 @@ REDES: tuple[dict, ...] = (
         "transporte": "navegador",
         "destinos": ("feed",),
         "formato_padrao": {"feed": "paisagem"},
+        "cookie_dominios": ['youtube.com', 'google.com'],
+        "cookie_chaves": ['SID', 'SAPISID', '__Secure-1PSID'],
         "site": "https://www.youtube.com/",
         "compositor": "https://studio.youtube.com/",
         "formatos": ("video",),
@@ -177,6 +196,8 @@ REDES: tuple[dict, ...] = (
         "transporte": "navegador",
         "destinos": ("feed",),
         "formato_padrao": {"feed": "story"},
+        "cookie_dominios": ['kwai.com'],
+        "cookie_chaves": [],
         "site": "https://www.kwai.com/",
         "compositor": "https://www.kwai.com/",
         "formatos": ("video",),
@@ -190,6 +211,8 @@ REDES: tuple[dict, ...] = (
         "transporte": "navegador",
         "destinos": ("feed",),
         "formato_padrao": {"feed": "quadrado"},
+        "cookie_dominios": ['web.telegram.org', 'telegram.org'],
+        "cookie_chaves": [],
         "site": "https://web.telegram.org/",
         "compositor": "https://web.telegram.org/",
         "formatos": ("imagem", "video", "texto"),
