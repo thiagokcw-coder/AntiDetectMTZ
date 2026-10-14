@@ -1963,6 +1963,34 @@
   </div>
 </div>
 
+<!-- Modal: onde abrir o compositor para medir.
+     O app NUNCA escolhe o navegador sozinho (pedido do usuario, 14/10): Camoufox
+     e Chrome tem consequencias diferentes -- um e o perfil antidetect com IP
+     rotacionado, o outro e a identidade REAL saindo pelo mesmo modem das contas
+     descartaveis, que e a correlacao que derrubou a frota em 16/08. -->
+<div class="modal-backdrop" id="modal-onde-abrir">
+  <div class="modal" style="max-width:560px">
+    <h2>Onde abrir o <span id="oa-rede">compositor</span>?</h2>
+    <div class="form-hint" style="margin-bottom:12px">Escolha o navegador. A diferença não é só de janela.</div>
+
+    <div style="border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:10px">
+      <div style="font-weight:600;font-size:13px;margin-bottom:4px">🦊 Camoufox (seguro) — e eu consigo <b>medir</b></div>
+      <div class="form-hint">O perfil antidetect da conta: cookies isolados e IP do modem rotacionado antes de entrar. <b>É o único que eu consigo ler</b> — o Chrome é lançado solto, sem Playwright no meio, então ali eu não enxergo a tela.</div>
+      <button class="btn btn-success" style="margin-top:8px;width:100%" onclick="oaConfirmar('camoufox')">Abrir no Camoufox e medir</button>
+    </div>
+
+    <div style="border:1px solid var(--border);border-radius:10px;padding:12px">
+      <div style="font-weight:600;font-size:13px;margin-bottom:4px">🌐 Chrome normal — só abrir, <b>sem medir</b></div>
+      <div class="form-hint" style="color:#f59e0b">⚠ É o navegador onde a sua identidade real está logada, e ele sai pelo <b>mesmo modem</b> das contas descartáveis — a correlação de 16/08. Útil para olhar; não serve para medir.</div>
+      <button class="btn" style="margin-top:8px;width:100%" onclick="oaConfirmar('chrome')">Abrir no Chrome (sem medir)</button>
+    </div>
+
+    <div class="modal-actions" style="margin-top:12px">
+      <button class="btn btn-ghost" onclick="closeModal('modal-onde-abrir')">Cancelar</button>
+    </div>
+  </div>
+</div>
+
 <!-- Modal de launch -->
 <div class="modal-backdrop" id="modal-launch">
   <div class="modal">
@@ -2388,11 +2416,12 @@ function _storyDesenharCartoes() {
         <button class="btn btn-sm" style="font-size:9px;padding:2px 6px" onclick="pubAbrirPers('${escapeHtml(d.rede)}')">${_pbAberta === d.rede ? '▾' : '▸'} personalizar</button>
         ${temPers ? `<button class="btn btn-sm" style="font-size:9px;padding:2px 6px" title="voltar ao conteúdo comum" onclick="pubLimparPers('${escapeHtml(d.rede)}')">↺</button>` : ''}
       </div>
-      ${d.transporte !== 'instagrapi' ? `<div style="margin-top:4px">
-        <button class="btn btn-sm" style="font-size:9px;padding:2px 6px;width:100%" title="Abre o compositor desta rede no perfil e lê a tela (não publica nada). É o que falta para ela publicar sozinha." onclick="pubMedir('${escapeHtml(d.rede)}', this)">🔬 medir compositor</button>
+      ${d.transporte !== 'instagrapi' ? `<div style="margin-top:4px;display:flex;flex-direction:column;gap:3px">
+        <button class="btn btn-sm" style="font-size:9px;padding:2px 6px" title="Pergunta onde abrir, abre o compositor desta rede e lê a tela. Não publica nada." onclick="pubMedir('${escapeHtml(d.rede)}', this)">🔬 abrir e medir</button>
+        <button class="btn btn-sm" style="font-size:9px;padding:2px 6px" title="Mede a aba que já está aberta, no passo em que ela está. É assim que se vê o campo de legenda e o botão de publicar — eles só existem depois que o arquivo entra." onclick="pubMedirAgora('${escapeHtml(d.rede)}', this, false)">🔬 medir o passo atual</button>
       </div>` : ''}
       ${temPers ? `<div style="font-size:9px;color:#818cf8;margin-top:3px">✎ ${escapeHtml((d.personalizado || []).join(', '))}</div>` : ''}
-      ${_pbMedicoes[d.rede] ? `<div style="font-size:9px;margin-top:3px;color:${_pbMedicoes[d.rede].parece_login ? '#f59e0b' : '#22c55e'};line-height:1.3">🔬 ${escapeHtml(_pbMedicoes[d.rede].parece_login ? 'caiu no login — importe a sessão' : (_pbMedicoes[d.rede].achados.arquivos + ' arquivo · ' + _pbMedicoes[d.rede].achados.textos + ' texto · ' + _pbMedicoes[d.rede].achados.botoes + ' botão'))}</div>` : ''}
+      ${_pbMedicoes[d.rede] ? `<div style="font-size:9px;margin-top:3px;color:${_pbMedicoes[d.rede].parece_login || !_pbMedicoes[d.rede].pronto ? '#f59e0b' : '#22c55e'};line-height:1.3">🔬 ${escapeHtml(_pbMedicoes[d.rede].parece_login ? 'caiu no login — importe a sessão' : (!_pbMedicoes[d.rede].pronto ? 'ainda carregando — meça de novo' : ((_pbMedicoes[d.rede].etapa || '') + ': ' + _pbMedicoes[d.rede].achados.arquivos + ' arquivo · ' + _pbMedicoes[d.rede].achados.textos + ' texto · ' + _pbMedicoes[d.rede].achados.botoes + ' botão')))}</div>` : ''}
       ${_pbAberta === d.rede ? pubPainelPers(d) : ''}
     </div>`;
   }).join('');
@@ -2403,34 +2432,76 @@ function _storyDesenharCartoes() {
     : 'Esta persona tem conta em todas as redes que o app conhece.';
 }
 
-/** Mede o compositor de UMA rede: abre no perfil e lê a estrutura da tela.
+/** Mede o compositor de UMA rede: lê a estrutura da tela e guarda o relatório.
  *
  * Existe porque a aba promete publicar em todas de uma vez e hoje sete redes
  * param no "abra e faça você mesmo". O que falta para automatizá-las é ver a
  * tela de cada uma — sem isso os seletores seriam inventados, que é o erro
- * que custou dias nesta base. Não publica: só lê e guarda o relatório.
+ * que custou dias nesta base. Não publica: só lê.
+ *
+ * `abrir=true` navega até o compositor (e PERGUNTA onde abrir antes).
+ * `abrir=false` mede a aba que já está na tela — que é o único jeito de ver o
+ * campo de legenda e o botão de publicar, porque eles só nascem depois que o
+ * arquivo entra. Medido em 14/10: o TikTok Studio abre com a tela de
+ * "selecionar vídeo" e mais nada.
  */
-async function pubMedir(rede, btn) {
+let _oaPendente = null;
+
+function pubMedir(rede, btn) {
   const p = _stPerfilAtual();
   if (!p) { toast('Escolha uma persona primeiro.', true); return; }
-  const conta = (p.contas || {})[rede];
-  if (!conta) {
+  if (!(p.contas || {})[rede]) {
     toast('Esta persona não tem conta no ' + nomeDaRede(rede) + ' — cadastre na aba Contas.', true);
     return;
   }
-  // ~40s: subir a janela (se estiver fechada) + o SPA do compositor carregar.
-  const parar = runBtnCountdown(btn, 40);
+  // Nunca escolher o navegador sozinho: a diferença entre Camoufox e Chrome é
+  // de risco, não de janela.
+  _oaPendente = { rede, btn, perfil: p };
+  document.getElementById('oa-rede').textContent = 'compositor do ' + nomeDaRede(rede);
+  document.getElementById('modal-onde-abrir').classList.add('open');
+}
+
+async function oaConfirmar(onde) {
+  closeModal('modal-onde-abrir');
+  const pend = _oaPendente;
+  _oaPendente = null;
+  if (!pend) return;
+  if (onde === 'chrome') {
+    const r = _pbRedes.find(x => x.id === pend.rede) || {};
+    await abrirNoChrome(pend.rede, pend.btn, (pend.perfil.contas[pend.rede] || {}).username);
+    toast('Abri no Chrome — ali eu não consigo ler a tela, então nada foi medido.', true);
+    return;
+  }
+  await pubMedirAgora(pend.rede, pend.btn, true);
+}
+
+/** Dispara a medição. `abrir` navega; sem ele, mede o passo que está na tela. */
+async function pubMedirAgora(rede, btn, abrir) {
+  const p = _stPerfilAtual();
+  if (!p) { toast('Escolha uma persona primeiro.', true); return; }
+  const etapa = abrir ? 'abertura' : (prompt(
+    'Que passo é este? (só para eu ler os relatórios como um fluxo)\n'
+    + 'ex.: "com o vídeo dentro", "antes de publicar"', 'passo atual') || '').trim();
+  if (!abrir && etapa === '') return;   // cancelou o prompt
+  // Abrir pode subir a janela e esperar o SPA; medir a aba aberta é bem mais rápido.
+  const parar = runBtnCountdown(btn, abrir ? 45 : 12);
   try {
     const fd = new FormData();
     fd.append('profile_id', p.profile_id);
     fd.append('rede', rede);
-    const r = await apiForm('POST', '/redes/medir-compositor', fd);
+    fd.append('abrir', abrir ? 'true' : 'false');
+    fd.append('etapa', etapa);
+    const r = await apiForm('POST', '/redes/medir-compositor', fd, 120000);
     if (parar) parar();
     _pbMedicoes[rede] = r;
     _storyDesenharCartoes();
-    toast(r.parece_login
-      ? '⚠ ' + nomeDaRede(rede) + ': caiu na tela de login — importe a sessão desta conta primeiro.'
-      : '🔬 ' + r.resumo, !!r.parece_login);
+    if (r.parece_login) {
+      toast('⚠ ' + nomeDaRede(rede) + ': caiu na tela de login — importe a sessão desta conta primeiro.', true);
+    } else if (!r.pronto) {
+      toast('⏳ ' + r.resumo, true);
+    } else {
+      toast('🔬 ' + r.resumo);
+    }
   } catch (e) {
     if (parar) parar();
     toast('Não consegui medir: ' + e.message, true);

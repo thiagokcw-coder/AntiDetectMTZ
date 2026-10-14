@@ -600,6 +600,49 @@ async def abrir_aba(profile: dict, url: str, timeout_abrir: float = 60.0,
     return out
 
 
+
+async def tarefa_na_aba(profile: dict, dominios: list, fn):
+    """Roda `fn(page)` na aba JÁ ABERTA cuja URL casa um dos `dominios`.
+
+    Existe para o medidor de compositor (`compositor.py`) poder medir o passo em
+    que a tela está AGORA. Compositor de rede social é um fluxo: no TikTok o
+    campo de legenda e o botão de publicar só existem depois que o vídeo entra,
+    então uma leitura na abertura não pode vê-los.
+
+    Acha a aba pelo DOMÍNIO e não guarda referência da que o app abriu: entre
+    abrir e medir você pode ter navegado, recarregado ou aberto outra — e é a
+    tela que você está vendo que interessa. Com mais de uma casando, vence a
+    ÚLTIMA: num navegador, a aba mais nova é a que está em cima.
+    """
+    pid = profile["id"]
+    s = _sessions.get(pid)
+    if not (s and s.get("status") == "running" and s.get("page")):
+        raise RuntimeError("este perfil não tem janela aberta — abra o compositor primeiro")
+    base = s["page"]
+    if base.is_closed():
+        raise RuntimeError("a janela do perfil foi fechada")
+
+    doms = [d.lower().lstrip(".") for d in (dominios or []) if d]
+    alvo = None
+    vistas = []
+    for pg in base.context.pages:
+        try:
+            if pg.is_closed():
+                continue
+            u = (pg.url or "").lower()
+        except Exception:
+            continue
+        vistas.append(u[:60])
+        if any(d in u for d in doms):
+            alvo = pg
+    if alvo is None:
+        raise RuntimeError(
+            "nenhuma aba aberta em %s (abertas: %s)"
+            % (" ou ".join(doms) or "?", ", ".join(vistas) or "nenhuma"))
+    _log(f"profile={pid} medindo aba: {alvo.url[:80]}")
+    return await fn(alvo)
+
+
 def _caller_hint() -> str:
     try:
         frames = traceback.extract_stack(limit=5)

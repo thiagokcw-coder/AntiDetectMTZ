@@ -141,6 +141,56 @@ _LER_TELA = r"""
 """
 
 
+#: Conta o que existe de interativo na tela. É o sinal de "já carregou": um SPA
+#: entrega o `domcontentloaded` com o corpo VAZIO e monta o resto depois.
+_CONTAR_JS = ("() => document.querySelectorAll("
+              "'button, [role=button], input, textarea, [contenteditable=\"true\"], a'"
+              ").length")
+
+#: Quantos elementos interativos já contam como "a tela apareceu". Três é pouco
+#: de propósito: é o bastante para separar a tela em branco de uma tela de
+#: verdade, e qualquer piso mais alto chutaria o tamanho de uma página que não
+#: conhecemos.
+_MINIMO_DE_ELEMENTOS = 3
+
+
+async def _esperar_conteudo(page, maximo_ms: int, assentar_ms: int = 1500) -> tuple:
+    """Espera a tela APARECER, em vez de esperar um relógio.
+
+    Medido em 14/10, e esta função nasceu do erro: a primeira versão dormia 5s
+    fixos e mediu o **spinner** do TikTok Studio — DOM vazio, foto em branco,
+    relatório dizendo "0 campos" como se tivesse procurado. Dormir um número
+    fixo é apostar na velocidade da rede e do SPA; esperar o conteúdo é medir.
+
+    Devolve `(esperou_ms, elementos, pronto)`. `pronto=False` não é erro: é a
+    informação de que a página ainda não tinha montado, e é ela que impede o
+    relatório de afirmar que não achou nada.
+    """
+    passo = 500
+    gasto = 0
+    n = 0
+    while True:
+        try:
+            n = int(await page.evaluate(_CONTAR_JS) or 0)
+        except Exception:
+            n = 0
+        if n >= _MINIMO_DE_ELEMENTOS:
+            # Apareceu algo: dá um tempo para o resto montar antes de fotografar.
+            # Sem isso mediríamos o esqueleto em vez da tela pronta.
+            try:
+                await page.wait_for_timeout(assentar_ms)
+            except Exception:
+                pass
+            return gasto + assentar_ms, n, True
+        if gasto >= maximo_ms:
+            return gasto, n, False
+        try:
+            await page.wait_for_timeout(passo)
+        except Exception:
+            pass
+        gasto += passo
+
+
 def _visiveis_primeiro(itens: list) -> list:
     """Visível antes de oculto, mantendo a ordem do documento dentro de cada
     grupo. Quem lê o relatório procura primeiro o que está na tela."""
@@ -178,10 +228,18 @@ def _palpite(lido: dict) -> dict:
     }
 
 
-def _resumo(rede_nome: str, lido: dict, login: bool) -> str:
+def _resumo(rede_nome: str, lido: dict, login: bool, pronto: bool = True,
+            esperou_ms: int = 0) -> str:
     if login:
         return ("o compositor do %s respondeu com a tela de login — a sessão "
                 "desta conta não valeu, não há o que medir ainda" % rede_nome)
+    if not pronto:
+        # Dizer "0 campos" aqui seria um relatório FALSO: não é que não exista,
+        # é que não carregou. Foi exatamente isso que o primeiro relatório do
+        # TikTok disse, e custou uma medição inteira.
+        return ("o %s ainda estava CARREGANDO depois de %.0fs — nada foi medido. "
+                "Espere a tela aparecer e clique em medir de novo."
+                % (rede_nome, esperou_ms / 1000.0))
     a = len([x for x in lido.get("arquivos") or [] if x.get("visivel")])
     ao = len(lido.get("arquivos") or [])
     t = len([x for x in lido.get("textos") or [] if x.get("visivel")])
@@ -190,14 +248,22 @@ def _resumo(rede_nome: str, lido: dict, login: bool) -> str:
             "visível(is), %d botão(ões) visível(is)" % (rede_nome, ao, a, t, b))
 
 
-async def medir(perfil: dict, rede_id: str, espera_ms: int = 5000) -> dict:
-    """Abre o compositor de `rede_id` no perfil e devolve o que viu.
+async def medir(perfil: dict, rede_id: str, abrir: bool = True,
+                espera_max_ms: int = 30000, etapa: str = "") -> dict:
+    """Lê a tela do compositor de `rede_id` e devolve o que viu.
 
-    `espera_ms` existe porque compositor de rede social é SPA: o
-    `domcontentloaded` chega antes do formulário existir, e medir aí mediria a
-    tela vazia. Esperar alguns segundos depois do DOM é mais honesto que
-    esperar `load`, que numa página que carrega mídia por minutos daria timeout
-    numa tela já utilizável (a mesma razão do `abrir_aba`).
+    ## Por que `abrir` existe (medido em 14/10)
+
+    Compositor de rede social é um fluxo de ETAPAS, não uma tela. No TikTok
+    Studio a primeira tela só tem "selecionar vídeo"; o campo de legenda e o
+    botão de publicar **só passam a existir depois que o arquivo entra**. Uma
+    foto tirada na abertura não pode vê-los — não por falha, por cronologia.
+
+    Então o medidor também mede a aba que JÁ ESTÁ ABERTA (`abrir=False`),
+    tantas vezes quantas forem precisas: abre uma vez, você avança um passo,
+    mede de novo. `etapa` é o rótulo daquele momento ("antes do upload", "com o
+    vídeo dentro") — é ele que faz dois relatórios da mesma rede serem lidos
+    como um fluxo, e não como duas fotos soltas.
 
     Deixa a aba ABERTA de propósito: a foto é minha, mas a tela é sua — ver o
     que foi medido é metade da medição.
@@ -217,11 +283,11 @@ async def medir(perfil: dict, rede_id: str, espera_ms: int = 5000) -> dict:
     PASTA.mkdir(parents=True, exist_ok=True)
     png = PASTA / ("%s-%s.png" % (rede_id, quando))
 
+    espera = {"ms": 0, "elementos": 0, "pronto": False}
+
     async def _na_aba(page):
-        try:
-            await page.wait_for_timeout(espera_ms)
-        except Exception:
-            pass
+        espera["ms"], espera["elementos"], espera["pronto"] = \
+            await _esperar_conteudo(page, espera_max_ms)
         lido = await page.evaluate(_LER_TELA)
         try:
             await page.screenshot(path=str(png))
@@ -231,10 +297,19 @@ async def medir(perfil: dict, rede_id: str, espera_ms: int = 5000) -> dict:
             lido["_foto_erro"] = str(e)[:140]
         return lido
 
-    aberta = await sm.abrir_aba(perfil, url, fn=_na_aba)
-    lido = aberta.get("resultado") or {}
+    if abrir:
+        aberta = await sm.abrir_aba(perfil, url, fn=_na_aba)
+        lido = aberta.get("resultado") or {}
+        onde = aberta.get("url") or url
+    else:
+        # Medir o passo em que a tela está AGORA. A aba é achada pelo DOMÍNIO da
+        # rede, não pela que o app abriu: você pode ter navegado, recarregado ou
+        # aberto outra — e é a tela que você está vendo que interessa.
+        lido = await sm.tarefa_na_aba(
+            perfil, r.get("cookie_dominios") or [rede_id], _na_aba)
+        onde = lido.get("url") or url
 
-    final = lido.get("url") or aberta.get("url") or url
+    final = lido.get("url") or onde
     login = igs.parece_tela_de_login(final) or bool(lido.get("campos_senha"))
 
     lido["arquivos"] = _visiveis_primeiro(lido.get("arquivos") or [])
@@ -243,15 +318,19 @@ async def medir(perfil: dict, rede_id: str, espera_ms: int = 5000) -> dict:
 
     rel = {
         "rede": rede_id, "rede_nome": r["nome"], "quando": quando,
+        "etapa": etapa or ("abertura" if abrir else "passo atual"),
         "perfil": perfil.get("id"), "perfil_nome": perfil.get("name"),
         "url_pedida": url, "url_final": final,
         "parece_login": login,
+        "pronto": espera["pronto"],
+        "esperou_ms": espera["ms"],
+        "elementos_interativos": espera["elementos"],
         "titulo": lido.get("titulo"),
         "achados": {"arquivos": len(lido["arquivos"]), "textos": len(lido["textos"]),
                     "botoes": len(lido["botoes"])},
         "palpite": _palpite(lido),
         "tela": lido,
-        "resumo": _resumo(r["nome"], lido, login),
+        "resumo": _resumo(r["nome"], lido, login, espera["pronto"], espera["ms"]),
     }
 
     jsn = PASTA / ("%s-%s.json" % (rede_id, quando))

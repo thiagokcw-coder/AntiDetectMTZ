@@ -5602,13 +5602,18 @@ async def redes_plano(profile_id: str = Form(...), redes_pedidas: str = Form("")
 
 
 @app.post("/redes/medir-compositor")
-async def redes_medir_compositor(profile_id: str = Form(...), rede: str = Form(...)):
+async def redes_medir_compositor(profile_id: str = Form(...), rede: str = Form(...),
+                                 abrir: bool = Form(True), etapa: str = Form("")):
     """Abre o compositor da rede no perfil e relata o que existe na tela.
 
     É o instrumento que falta para as sete redes assistidas publicarem sozinhas:
     sem ver a tela, os seletores seriam inventados — e adivinhar rota é o que
     custou dias nesta base (o 404 de agosto). Mede, guarda em
     `data/_compositores/` e NÃO publica nada: não clica, não preenche, não envia.
+
+    `abrir=False` mede a aba que já está aberta, sem navegar: o compositor é um
+    fluxo de ETAPAS e os campos de legenda/publicar só nascem depois do arquivo
+    entrar, então uma leitura na abertura não pode vê-los.
 
     Não marca a rede como medida. `REDES[].medido` continua sendo mudança de
     código, feita quando o fluxo estiver escrito e exercitado — um relatório
@@ -5619,7 +5624,8 @@ async def redes_medir_compositor(profile_id: str = Form(...), rede: str = Form(.
     if not pf:
         raise HTTPException(404, "Perfil não encontrado")
     try:
-        return await _comp.medir(pf, (rede or "").strip().lower())
+        return await _comp.medir(pf, (rede or "").strip().lower(),
+                                 abrir=abrir, etapa=(etapa or "").strip())
     except ValueError as e:
         raise HTTPException(400, str(e))
     except Exception as e:
