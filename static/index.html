@@ -239,6 +239,21 @@
     .ig-panel { padding: 14px; }
     .ig-page-actions .btn, .ig-bulk-actions .btn, .ig-form-actions .btn { width: 100%; justify-content: center; }
   }
+
+/* A coluna de acoes tinha `white-space: nowrap` e ocupava 645px numa linha so,
+   empurrando a tabela para 1438px -- maior que a tela, entao os ultimos botoes
+   ficavam cortados. Deixando quebrar, a coluna cai para a largura do MAIOR
+   botao (~150px) e a tabela volta a caber. `align-content: flex-start` mantem
+   as duas linhas coladas no topo da celula. */
+.acoes-conta {
+  white-space: normal;
+  min-width: 170px;
+}
+.acoes-conta > * {
+  display: inline-flex;
+  margin: 0 4px 4px 0;
+  vertical-align: top;
+}
 </style>
 </head>
 <body>
@@ -4342,13 +4357,13 @@ function renderAccounts(list) {
       <td>${proxyShort(a.proxy)}${pxBadge}</td>
       <td>${wpp}</td>
       <td style="font-size:12px">${checked}</td>
-      <td style="white-space:nowrap">
+      <td class="acoes-conta">
         ${a.profile_exists
           ? `<button class="btn btn-primary btn-sm" onclick="openAccountProfile('${a.profile_id}', this, '${escapeHtml(a.platform || 'instagram')}')" title="Camoufox: perfil antidetect, cookies isolados e IP renovado antes de entrar.">Abrir Camoufox (seguro)</button>`
           : ''}
-        <button class="btn btn-ghost btn-sm" onclick="abrirNoChrome('${escapeHtml(a.platform || 'instagram')}', this, '${escapeHtml(a.username || '')}')" title="Chrome normal, com os SEUS logins. Não renova o IP e não usa o perfil antidetect.">🌐 Abrir Chrome</button>
+        <button class="btn btn-ghost btn-sm" onclick="abrirNoChrome('${escapeHtml(a.platform || 'instagram')}', this, '${escapeHtml(a.username || '')}')" title="Chrome normal, com os SEUS logins. Não renova o IP e não usa o perfil antidetect.">🌐 Chrome</button>
         ${a.profile_exists
-          ? `<button class="btn btn-ghost btn-sm" onclick="warmBrowser('${a.profile_id}', this)" title="Aquecer o navegador (cookies/histórico)" ${browserWarming ? 'disabled' : ''}>${browserWarming ? '🔥 aquecendo ' + fmtCountdown(a.profile_warming.remaining_seconds) : '🔥 Aquecer navegador'}</button>
+          ? `<button class="btn btn-ghost btn-sm" onclick="warmBrowser('${a.profile_id}', this)" title="Aquecer o navegador do perfil (cookies/histórico) antes de usar" ${browserWarming ? 'disabled' : ''}>${browserWarming ? '🔥 ' + fmtCountdown(a.profile_warming.remaining_seconds) : '🔥 Aquecer'}</button>
              ${(a.platform || 'instagram') === 'instagram'
                 ? `<button class="btn btn-success btn-sm" onclick="checkAccount('${a.id}', this)">Verificar</button>`
                 : `<span style="font-size:10px;color:var(--muted)" title="A detecção lê a tela do Instagram; em outra rede ela concluiria 'sessão expirada' sobre nada. Confira a conta na própria rede.">sem verificação automática</span>`}`
