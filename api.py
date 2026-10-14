@@ -5624,3 +5624,103 @@ async def redes_publicar(profile_id: str = Form(...), arquivo: UploadFile = File
         raise HTTPException(400, f"{type(e).__name__}: {e}")
     r["terminal"] = linhas
     return r
+
+
+# ─── Abrir no Chrome NORMAL (ao lado do Camoufox) ────────────────────────────
+#
+# O "Abrir" da aba Contas sobe o Camoufox: perfil antidetect, cookies isolados e
+# rotação de IP antes de entrar. Isso é certo para operar a conta, e atrapalha
+# quando você só quer olhar a rede logado como você mesmo.
+#
+# ⚠ O QUE ISSO CUSTA, e não dá para o app resolver: o Chrome normal é o
+# navegador onde a sua identidade REAL está logada (Meta, Google), e ele sai
+# pelo MESMO modem das contas descartáveis. É exatamente a correlação que
+# derrubou a frota em 16/08 ("não deixar sessões pessoais da Meta abertas
+# durante a automação"). Por isso o Chrome NÃO rotaciona o IP — rotacionar aqui
+# só derrubaria a sua própria sessão sem separar nada.
+
+_CHROME_WIN = [
+    r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+    r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+]
+_CHROME_MAC = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+
+
+def _achar_chrome() -> Optional[str]:
+    """Caminho do Chrome, ou None. Procura em disco ANTES do PATH: no Windows o
+    Chrome quase nunca está no PATH, e no macOS o binário mora dentro do .app."""
+    import shutil
+    import sys
+
+    if sys.platform.startswith("win"):
+        local = os.environ.get("LOCALAPPDATA") or ""
+        candidatos = list(_CHROME_WIN)
+        if local:
+            candidatos.append(os.path.join(local, "Google", "Chrome", "Application", "chrome.exe"))
+    elif sys.platform == "darwin":
+        candidatos = [_CHROME_MAC]
+    else:
+        candidatos = []
+
+    for c in candidatos:
+        if c and os.path.exists(c):
+            return c
+    return shutil.which("chrome") or shutil.which("google-chrome") or shutil.which("chromium")
+
+
+class ChromeAbrirRequest(BaseModel):
+    url: str
+    #: Perfil do Chrome separado para esta persona. Vazio = o Chrome de sempre,
+    #: com as suas abas e os seus logins (que é o pedido "abrir normalmente").
+    perfil: Optional[str] = None
+
+
+@app.post("/chrome/abrir")
+def chrome_abrir(body: ChromeAbrirRequest):
+    """Abre uma URL no Chrome do sistema. NÃO rotaciona o IP e NÃO toca no Camoufox."""
+    import subprocess
+    import sys
+
+    url = (body.url or "").strip()
+    if not url.startswith(("http://", "https://")):
+        raise HTTPException(400, "URL inválida (precisa começar com http:// ou https://)")
+
+    exe = _achar_chrome()
+    args: list[str]
+    if exe:
+        args = [exe]
+        if (body.perfil or "").strip():
+            # Perfil DEDICADO: pasta própria, cookies próprios. Não é antidetect
+            # (o fingerprint é o do Chrome real), mas separa a sessão da conta
+            # das suas abas pessoais.
+            pasta = Path(APP_DIR) / "chrome_profiles" / re.sub(r"[^A-Za-z0-9_.-]", "_", body.perfil)
+            pasta.mkdir(parents=True, exist_ok=True)
+            args.append("--user-data-dir=%s" % pasta)
+        args.append(url)
+    else:
+        # Sem Chrome instalado, abre no navegador padrão em vez de falhar: o
+        # pedido é "abrir fora do Camoufox", e o navegador padrão cumpre isso.
+        import webbrowser
+        webbrowser.open(url)
+        return {"ok": True, "navegador": "padrão do sistema",
+                "aviso": "Chrome não encontrado — abri no navegador padrão"}
+
+    try:
+        # Sem esperar: o Chrome fica aberto, e segurar o processo travaria a
+        # resposta até o usuário fechar a janela.
+        if sys.platform.startswith("win"):
+            subprocess.Popen(args, close_fds=True,
+                             creationflags=getattr(subprocess, "DETACHED_PROCESS", 0))
+        else:
+            subprocess.Popen(args, close_fds=True, start_new_session=True)
+    except Exception as e:
+        raise HTTPException(400, f"não consegui abrir o Chrome: {e}")
+    return {"ok": True, "navegador": "Chrome", "caminho": exe,
+            "perfil_dedicado": bool((body.perfil or "").strip())}
+
+
+@app.get("/chrome/disponivel")
+def chrome_disponivel():
+    """Se há Chrome nesta máquina — a tela usa para não oferecer o que não existe."""
+    exe = _achar_chrome()
+    return {"disponivel": bool(exe), "caminho": exe}

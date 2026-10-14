@@ -4287,6 +4287,10 @@ function renderAccounts(list) {
           ? '<span style="color:var(--red);font-size:12px">perfil removido</span>'
           : `<span style="color:var(--yellow);font-size:12px">sem perfil — não abre no PC</span>
              <div style="margin-top:4px"><button class="btn btn-ghost btn-sm" onclick="createProfileForAccount('${a.id}', this)">➕ Criar perfil</button></div>`);
+    // O botao do Chrome fica fora do bloco de `profile_exists`: abrir no
+    // navegador normal nao usa perfil Camoufox nenhum, entao conta sem perfil
+    // tambem pode. (Comentario aqui e nao dentro do template: crase dentro de
+    // template literal FECHA a string -- foi o que acabou de quebrar o JS.)
     return divider + `<tr${rowStyle}>
       <td>
         <div style="font-weight:600">${escapeHtml(a.username || '(sem username)')} <span style="font-weight:400;font-size:10px;color:var(--muted);border:1px solid var(--border);border-radius:4px;padding:1px 5px">${escapeHtml(nomeDaRede(a.platform))}</span></div>
@@ -4300,12 +4304,13 @@ function renderAccounts(list) {
       <td style="font-size:12px">${checked}</td>
       <td style="white-space:nowrap">
         ${a.profile_exists
-          ? `<button class="btn btn-primary btn-sm" onclick="openAccountProfile('${a.profile_id}', this, '${escapeHtml(a.platform || 'instagram')}')">Abrir</button>
+          ? `<button class="btn btn-primary btn-sm" onclick="openAccountProfile('${a.profile_id}', this, '${escapeHtml(a.platform || 'instagram')}')" title="Camoufox: perfil antidetect, cookies isolados e IP renovado antes de entrar.">Abrir</button>
              <button class="btn btn-ghost btn-sm" onclick="warmBrowser('${a.profile_id}', this)" title="Aquecer o navegador (cookies/histórico)" ${browserWarming ? 'disabled' : ''}>${browserWarming ? '🔥 aquecendo ' + fmtCountdown(a.profile_warming.remaining_seconds) : '🔥 Aquecer navegador'}</button>
              ${(a.platform || 'instagram') === 'instagram'
                 ? `<button class="btn btn-success btn-sm" onclick="checkAccount('${a.id}', this)">Verificar</button>`
                 : `<span style="font-size:10px;color:var(--muted)" title="A detecção lê a tela do Instagram; em outra rede ela concluiria 'sessão expirada' sobre nada. Confira a conta na própria rede.">sem verificação automática</span>`}`
           : ''}
+        <button class="btn btn-ghost btn-sm" onclick="abrirNoChrome('${escapeHtml(a.platform || 'instagram')}', this, '${escapeHtml(a.username || '')}')" title="Chrome normal, com os SEUS logins. Não renova o IP e não usa o perfil antidetect.">🌐 Chrome</button>
         <button class="btn btn-ghost btn-sm" onclick="accountDetail('${a.id}')">Detalhes</button>
       </td>
     </tr>`;
@@ -4385,6 +4390,18 @@ async function accountDetail(id) {
   if (a.profile_exists) {
     openBtn.style.display = '';
     openBtn.onclick = () => openAccountProfile(a.profile_id, openBtn, a.platform || 'instagram');
+    // O gêmeo "no Chrome" nasce ao lado, uma vez só (o modal é reusado).
+    let chromeBtn = document.getElementById('ma-chrome');
+    if (!chromeBtn) {
+      chromeBtn = document.createElement('button');
+      chromeBtn.id = 'ma-chrome';
+      chromeBtn.className = 'btn btn-ghost btn-sm';
+      chromeBtn.textContent = '🌐 Abrir no Chrome';
+      chromeBtn.title = 'Chrome normal, com os SEUS logins. Não renova o IP e não usa o perfil antidetect.';
+      openBtn.parentElement.insertBefore(chromeBtn, openBtn.nextSibling);
+    }
+    chromeBtn.style.display = '';
+    chromeBtn.onclick = () => abrirNoChrome(a.platform || 'instagram', chromeBtn, a.username || '');
   } else {
     openBtn.style.display = 'none';
   }
@@ -5023,6 +5040,31 @@ async function checkAccount(id, btn) {
     toast(e.message || 'Erro ao verificar', 'error');
   } finally {
     stop();
+  }
+}
+
+/** Abre a rede no CHROME normal — fora do Camoufox e sem mexer no IP.
+ *
+ * É o oposto do "Abrir": lá o ponto é a conta agir isolada (perfil antidetect,
+ * cookies próprios, IP renovado); aqui o ponto é você olhar a rede logado como
+ * você mesmo.
+ *
+ * ⚠ Não rotaciona o IP de propósito. A rotação derruba a internet do PC
+ * inteiro — no Chrome ela só cortaria a SUA sessão, sem separar nada, porque
+ * quem está logado ali é você, não a persona. */
+async function abrirNoChrome(rede, btn, username) {
+  await _garantirRedes();
+  const r0 = _pbRedes.find(x => x.id === (rede || 'instagram'));
+  const url = (r0 && r0.site) || 'https://www.instagram.com/';
+  const parar = runBtnCountdown(btn, 3);
+  try {
+    const r = await api('POST', '/chrome/abrir', { url }, 30000);
+    toast(r.aviso ? r.aviso : `Abrindo ${r0 ? r0.nome : 'a rede'} no Chrome…`,
+          r.aviso ? 'error' : 'success');
+  } catch (e) {
+    toast(e.message || 'Não consegui abrir o Chrome', 'error');
+  } finally {
+    if (parar) parar();
   }
 }
 
