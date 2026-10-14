@@ -179,10 +179,15 @@ REDES: tuple[dict, ...] = (
         "site": "https://www.tiktok.com/",
         "compositor": "https://www.tiktok.com/tiktokstudio/upload",
         "formatos": ("video",),
-        "legenda_max": 2200,
+        # 4000, MEDIDO na tela do TikTok Studio em 14/10 (o contador do campo
+        # dizia "92/4000"). Estava 2200 aqui, que era o limite antigo -- numero
+        # que eu tinha posto de cabeca, e que teria recusado legenda boa.
+        "legenda_max": 4000,
         "medido": False,
         "nota": "a Content Posting API exige app aprovado e domínio "
-                "verificado — fora do alcance destas contas",
+                "verificado — fora do alcance destas contas. ⚠ O Studio tem "
+                "aba 'Fotos' além de 'Vídeos' (visto em 14/10): imagem talvez "
+                "entre, mas o fluxo de foto NÃO foi medido",
     },
     {
         "id": "youtube",

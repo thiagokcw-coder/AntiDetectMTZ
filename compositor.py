@@ -45,6 +45,10 @@ _VERBOS_DE_PUBLICAR = (
     "publicar", "publish", "post", "postar", "tweet", "compartilhar", "share",
     "enviar", "upload", "próximo", "proximo", "next", "avançar", "avancar",
     "concluir", "done", "salvar",
+    # Colhidos da tela REAL do TikTok Studio em 14/10 -- "Carregar" e
+    # "Selecionar vídeo" sao os controles de upload dele, e nenhum dos dois
+    # estava nesta lista, que eu tinha escrito de cabeca.
+    "carregar", "selecionar", "escolher", "arraste",
 )
 
 # Lê a estrutura da tela. Roda no navegador, devolve JSON puro.
@@ -101,8 +105,33 @@ _LER_TELA = r"""
   };
   const txt = (el) => ((el.innerText || el.textContent || '') + '')
                         .trim().replace(/\s+/g, ' ').slice(0, 60);
-  const take = (q, lim, fn) => Array.prototype.slice.call(
-      document.querySelectorAll(q), 0, lim).map(fn);
+
+  // Procurar DENTRO dos shadow roots tambem. `querySelectorAll` nao atravessa
+  // shadow DOM, e um input de arquivo escondido ali ficaria invisivel para o
+  // relatorio -- que entao diria "nao achei" sobre algo que existe.
+  const raizes = () => {
+    const out = [document];
+    const pilha = [document];
+    let guarda = 0;
+    while (pilha.length && guarda++ < 30000) {
+      const r = pilha.pop();
+      let els;
+      try { els = r.querySelectorAll('*'); } catch (e) { continue; }
+      for (let i = 0; i < els.length; i++) {
+        if (els[i].shadowRoot) { out.push(els[i].shadowRoot); pilha.push(els[i].shadowRoot); }
+      }
+    }
+    return out;
+  };
+  const RAIZES = raizes();
+  const todos = (q) => {
+    const out = [];
+    for (const r of RAIZES) {
+      try { Array.prototype.push.apply(out, r.querySelectorAll(q)); } catch (e) {}
+    }
+    return out;
+  };
+  const take = (q, lim, fn) => todos(q).slice(0, lim).map(fn);
 
   const arquivos = take('input[type=file]', 20, el => ({
     seletor: sel(el), nome: attr(el, 'name'), id: el.id || '',
@@ -128,13 +157,57 @@ _LER_TELA = r"""
       visivel: vis(el),
     })).filter(b => b.texto || b.aria || b.data_e2e || b.data_testid);
 
+  // ── Clicavel que NAO e <button> ────────────────────────────────────────
+  // Medido no TikTok Studio (14/10): o botao vermelho "Selecionar video" nao e
+  // <button> nem tem role=button, entao a lista de botoes passou por cima dele
+  // -- justo o controle mais importante da tela. `cursor: pointer` e o sinal
+  // que o proprio navegador calcula para "isto se clica".
+  //
+  // Fica numa lista SEPARADA de propriedade: e um palpite estrutural, mais
+  // ruidoso que um <button> de verdade, e misturar os dois faria o relatorio
+  // parecer mais certo do que e.
+  // Duas regras aqui nasceram de um teste que falhou (14/10) e nao sao obvias:
+  //
+  //  - fica o de FORA, nao o de dentro. `cursor` e HERDADO, entao todo
+  //    descendente de um elemento clicavel tambem computa `pointer` -- "o mais
+  //    interno" acabaria sendo o <span> do texto. O elemento de fora e o
+  //    controle; o de dentro e enfeite. Excecao: filho com `aria-label`,
+  //    `data-e2e` ou `data-testid` entra assim mesmo, porque esta IDENTIFICADO
+  //    e vale mais que o pai anonimo.
+  //
+  //  - texto longo NAO desqualifica. Havia um corte em 40 caracteres, e ele
+  //    apagava justamente a zona de arrastar ("Selecione o video a enviar / Ou
+  //    arraste e solte aqui" tem 42) -- que e o alvo do clique. O texto e
+  //    truncado para caber no relatorio, nunca usado para filtrar.
+  const jaEhBotao = (el) => el.matches('button, [role=button], input[type=submit], a[role=button]');
+  const ponteiro = (el) => {
+    try { return !!el && getComputedStyle(el).cursor === 'pointer'; } catch (e) { return false; }
+  };
+  const identificado = (el) => !!(attr(el, 'aria-label') || attr(el, 'data-e2e')
+                                  || attr(el, 'data-testid'));
+  const clicaveis = [];
+  for (const el of todos('div, span, label, a, li')) {
+    if (clicaveis.length >= 40) break;
+    try {
+      if (jaEhBotao(el) || !ponteiro(el)) continue;
+      if (ponteiro(el.parentElement) && !identificado(el)) continue;
+      const t = txt(el);
+      if (!t) continue;
+      clicaveis.push({ seletor: sel(el), tag: el.tagName.toLowerCase(), texto: t,
+                       aria: attr(el, 'aria-label'), data_e2e: attr(el, 'data-e2e'),
+                       visivel: vis(el) });
+    } catch (e) {}
+  }
+
   return {
     titulo: (document.title || '').slice(0, 120),
     url: location.href,
-    campos_senha: document.querySelectorAll('input[type=password]').length,
+    campos_senha: todos('input[type=password]').length,
+    raizes_sombra: RAIZES.length - 1,
     arquivos: arquivos,
     textos: textos,
     botoes: botoes,
+    clicaveis: clicaveis,
     iframes: take('iframe', 10, f => attr(f, 'src').slice(0, 140)),
   };
 }
@@ -216,15 +289,22 @@ def _palpite(lido: dict) -> dict:
     textos = sorted(lido.get("textos") or [], key=_peso, reverse=True)
     leg = next(iter(textos), None)
 
-    pub = []
-    for b in lido.get("botoes") or []:
+    def _tem_verbo(b):
         alvo = ((b.get("texto") or "") + " " + (b.get("aria") or "") + " "
                 + (b.get("data_e2e") or "")).lower()
-        if any(v in alvo for v in _VERBOS_DE_PUBLICAR):
-            pub.append(b)
+        return any(v in alvo for v in _VERBOS_DE_PUBLICAR)
+
+    pub = [b for b in (lido.get("botoes") or []) if _tem_verbo(b)]
+    # Clicavel que nao e <button> entra separado e DEPOIS: no TikTok o controle
+    # de upload e um div, entao ignora-lo deixaria a tela mais importante sem
+    # nenhum candidato. Vem marcado para ninguem confundir com um botao de
+    # verdade.
+    extras = [dict(b, nao_e_botao=True)
+              for b in (lido.get("clicaveis") or []) if _tem_verbo(b)]
     return {
         "arquivo": arq, "legenda": leg,
         "publicar": _visiveis_primeiro(pub)[:5],
+        "clicaveis_com_verbo": _visiveis_primeiro(extras)[:5],
     }
 
 
@@ -244,8 +324,10 @@ def _resumo(rede_nome: str, lido: dict, login: bool, pronto: bool = True,
     ao = len(lido.get("arquivos") or [])
     t = len([x for x in lido.get("textos") or [] if x.get("visivel")])
     b = len([x for x in lido.get("botoes") or [] if x.get("visivel")])
+    c = len([x for x in lido.get("clicaveis") or [] if x.get("visivel")])
     return ("%s: %d campo(s) de arquivo (%d visível(is)), %d campo(s) de texto "
-            "visível(is), %d botão(ões) visível(is)" % (rede_nome, ao, a, t, b))
+            "visível(is), %d botão(ões) e %d clicável(is) que não são botão"
+            % (rede_nome, ao, a, t, b, c))
 
 
 async def medir(perfil: dict, rede_id: str, abrir: bool = True,
@@ -315,6 +397,7 @@ async def medir(perfil: dict, rede_id: str, abrir: bool = True,
     lido["arquivos"] = _visiveis_primeiro(lido.get("arquivos") or [])
     lido["textos"] = _visiveis_primeiro(lido.get("textos") or [])
     lido["botoes"] = _visiveis_primeiro(lido.get("botoes") or [])
+    lido["clicaveis"] = _visiveis_primeiro(lido.get("clicaveis") or [])
 
     rel = {
         "rede": rede_id, "rede_nome": r["nome"], "quando": quando,
@@ -327,7 +410,9 @@ async def medir(perfil: dict, rede_id: str, abrir: bool = True,
         "elementos_interativos": espera["elementos"],
         "titulo": lido.get("titulo"),
         "achados": {"arquivos": len(lido["arquivos"]), "textos": len(lido["textos"]),
-                    "botoes": len(lido["botoes"])},
+                    "botoes": len(lido["botoes"]),
+                    "clicaveis": len(lido["clicaveis"]),
+                    "raizes_sombra": lido.get("raizes_sombra") or 0},
         "palpite": _palpite(lido),
         "tela": lido,
         "resumo": _resumo(r["nome"], lido, login, espera["pronto"], espera["ms"]),
