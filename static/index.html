@@ -411,14 +411,20 @@
             <div style="font-size:11px;color:var(--muted);margin-bottom:3px">O que publicar</div>
             <select id="st-destino" onchange="storyTrocouDestino()" style="width:100%;padding:8px 10px;background:var(--surface);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px">
               <option value="story:story">Story (9:16)</option>
+              <option value="reels:story">Reels (9:16) — vídeo + capa</option>
               <option value="feed:vertical">Post de feed — vertical 4:5</option>
               <option value="feed:quadrado">Post de feed — quadrado 1:1</option>
               <option value="feed:paisagem">Post de feed — paisagem 16:9</option>
             </select>
           </div>
           <div>
-            <div style="font-size:11px;color:var(--muted);margin-bottom:3px">Imagem<span id="st-img-opc" style="display:none"> — opcional</span></div>
+            <div style="font-size:11px;color:var(--muted);margin-bottom:3px"><span id="st-img-rotulo">Imagem</span><span id="st-img-opc" style="display:none"> — opcional</span></div>
             <input id="st-arquivo" type="file" accept="image/*" onchange="storyCarregarImagem(event)" style="font-size:12px">
+          </div>
+          <div id="st-video-caixa" style="display:none">
+            <div style="font-size:11px;color:var(--muted);margin-bottom:3px">Vídeo do Reels</div>
+            <input id="st-video" type="file" accept="video/*" onchange="storyTrocouVideo()" style="font-size:12px">
+            <div id="st-video-nome" style="font-size:10px;color:var(--muted);margin-top:2px"></div>
           </div>
         </div>
         <div id="st-legenda-caixa" style="margin-top:10px;display:none">
@@ -427,7 +433,7 @@
                     style="width:100%;box-sizing:border-box;padding:8px 10px;background:var(--surface);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;resize:vertical"></textarea>
         </div>
         <div id="st-aviso-feed" class="form-hint" style="margin-top:6px;display:none;color:#f59e0b">
-          ⚠ No <b>feed</b> o chip fica só <b>desenhado</b> — o Instagram não tem link clicável em post, nem na legenda. Quem leva a pessoa ao destino é o texto, não o toque.
+          <span id="st-aviso-feed-txt">⚠ No <b>feed</b> o chip fica só <b>desenhado</b> — o Instagram não tem link clicável em post, nem na legenda. Quem leva a pessoa ao destino é o texto, não o toque.</span>
         </div>
         <div class="form-hint" style="margin-top:6px">Colou um link de publicação (<code>/p/</code>, <code>/reel/</code>)? Ele vira <b>repost</b> sozinho — o Instagram não faz isso com link colado, quem entende é o app.</div>
         <div class="form-hint" style="margin-top:4px">Use <b>wa.me</b>, não <code>chat.whatsapp.com</code> — o domínio de convite de grupo é dos mais marcados que existem.</div>
@@ -2320,7 +2326,14 @@ async function _storyPlanoEDesenho() {
     fd.append('legenda', document.getElementById('st-legenda').value || '');
     // Só o NOME do arquivo: é dele que sai o tipo (imagem/vídeo). Mandar os
     // bytes a cada tecla subiria o vídeo inteiro por dígito.
-    fd.append('arquivo_nome', arq ? arq.name : (_stPost ? 'repost.jpg' : ''));
+    // No Reels a MIDIA e o video e a ARTE e a capa: e o nome do video que
+    // diz ao plano que o conteudo e video, e a capa que o deixa recusar
+    // "Reels sem capa" antes de alguem subir o video inteiro.
+    const vid = document.getElementById('st-video')?.files[0];
+    fd.append('arquivo_nome', destino === 'reels'
+      ? (vid ? vid.name : '')
+      : (arq ? arq.name : (_stPost ? 'repost.jpg' : '')));
+    fd.append('capa_nome', destino === 'reels' && arq ? arq.name : '');
     fd.append('destino', destino);
     fd.append('link', storyComChip() ? (document.getElementById('st-link').value || '') : '');
     fd.append('personalizacoes', JSON.stringify(_pbPers));
@@ -2476,7 +2489,14 @@ async function storyPublicarLeva(btn) {
 
   const simular = document.getElementById('st-simular').checked;
   const arq = document.getElementById('st-arquivo').files[0];
-  if (!arq && !_stPost) return toast('Escolha uma imagem ou busque uma publicação', 'error');
+  const vid = document.getElementById('st-video')?.files[0];
+  const ehReels = storyDestino().destino === 'reels';
+  if (ehReels) {
+    if (!vid) return toast('O Reels precisa do vídeo', 'error');
+    if (!arq) return toast('O Reels precisa de uma capa (imagem) — é nela que o chip é desenhado', 'error');
+  } else if (!arq && !_stPost) {
+    return toast('Escolha uma imagem ou busque uma publicação', 'error');
+  }
   if (!simular && !confirm(`Publicar de verdade em ${pedidas.length} rede(s) pela persona "${p.perfil}"?`)) return;
 
   const chip = storyComChip();
@@ -2493,7 +2513,14 @@ async function storyPublicarLeva(btn) {
   fd.append('simular', simular ? 'true' : 'false');
   fd.append('espalhar_segundos', document.getElementById('st-espalhar').value || '12');
   fd.append('personalizacoes', JSON.stringify(_pbPers));
-  if (arq) fd.append('arquivo', arq);
+  // A troca de papel acontece AQUI, num lugar só: para o backend `arquivo` e
+  // sempre a midia e `capa` e sempre a imagem de capa.
+  if (ehReels) {
+    fd.append('arquivo', vid);
+    fd.append('capa', arq);
+  } else if (arq) {
+    fd.append('arquivo', arq);
+  }
 
   const st = document.getElementById('st-status');
   st.textContent = simular ? 'Simulando…' : 'Publicando na leva…';
@@ -4768,10 +4795,27 @@ function storyTrocouDestino() {
     img.style.height = 'auto';
   }
   const feed = destino === 'feed';
+  const reels = destino === 'reels';
   const rot = document.getElementById('st-publicar-rotulo');
-  if (rot) rot.textContent = feed ? 'Publicar post' : 'Publicar story';
-  document.getElementById('st-legenda-caixa').style.display = feed ? '' : 'none';
-  document.getElementById('st-aviso-feed').style.display = feed ? '' : 'none';
+  if (rot) rot.textContent = reels ? 'Publicar Reels' : (feed ? 'Publicar post' : 'Publicar story');
+  // Reels tem legenda, como o feed. E, como o feed, NÃO tem link clicável —
+  // mas por um motivo que vale dizer diferente: ali o chip vai na CAPA, que é
+  // o que aparece na grade do perfil.
+  document.getElementById('st-legenda-caixa').style.display = (feed || reels) ? '' : 'none';
+  document.getElementById('st-aviso-feed').style.display = (feed || reels) ? '' : 'none';
+  const avisoTxt = document.getElementById('st-aviso-feed-txt');
+  if (avisoTxt) {
+    avisoTxt.innerHTML = reels
+      ? '⚠ O <b>Reels</b> não tem link clicável. O chip é desenhado na <b>capa</b> — que é a imagem que aparece na grade do perfil — e o link vai na legenda.'
+      : '⚠ No <b>feed</b> o chip fica só <b>desenhado</b> — o Instagram não tem link clicável em post, nem na legenda. Quem leva a pessoa ao destino é o texto, não o toque.';
+  }
+  // No Reels o arquivo de imagem passa a ser a CAPA: é ela que o compositor
+  // desenha e é ela que carrega o chip. O vídeo é a mídia, e ganha campo
+  // próprio — mexer num vídeo exigiria ffmpeg, que este projeto não instalou.
+  const vcx = document.getElementById('st-video-caixa');
+  if (vcx) vcx.style.display = reels ? '' : 'none';
+  const irot = document.getElementById('st-img-rotulo');
+  if (irot) irot.textContent = reels ? 'Capa do Reels (imagem)' : 'Imagem';
   // A arte composta ficou com o formato antigo: travar é mais honesto que
   // publicar 9:16 num post 1:1.
   if (_stArquivoComposto) {
@@ -4788,6 +4832,18 @@ function storyTrocouDestino() {
  * cima -- foi assim que o caso apareceu, com o chip tapando o "GRUPO DO
  * WHATSAPP" da propria peca. Desmarcado: o retangulo some da previa, o campo
  * de link sai de cena e a arte sobe como esta. */
+/** O vídeo do Reels entrou: só mostra o nome e refaz as prévias.
+ *
+ * Não há prévia do vídeo de propósito — a arte que o app compõe é a CAPA, e
+ * mostrar um quadro do vídeo exigiria ffmpeg. Fingir prévia do que não se
+ * compõe seria prometer o que não acontece. */
+function storyTrocouVideo() {
+  const f = document.getElementById('st-video').files[0];
+  const alvo = document.getElementById('st-video-nome');
+  if (alvo) alvo.textContent = f ? ('🎬 ' + f.name) : '';
+  storyPrevias();
+}
+
 function storyComChip() {
   const c = document.getElementById('st-com-chip');
   return !c || c.checked;

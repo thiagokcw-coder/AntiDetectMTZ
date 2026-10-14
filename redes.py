@@ -101,8 +101,18 @@ REDES: tuple[dict, ...] = (
         "id": "instagram",
         "nome": "Instagram",
         "transporte": "instagrapi",
-        "destinos": ("story", "feed"),
-        "formato_padrao": {"story": "story", "feed": "vertical"},
+        "destinos": ("story", "feed", "reels"),
+        "formato_padrao": {"story": "story", "feed": "vertical",
+                           "reels": "story"},
+        # Que TIPO cada destino aceita, nesta rede. Só o Instagram tem a chave
+        # porque só ele publica sozinho: o que limita aqui é o transporte, não
+        # a rede. `photo_upload*` é foto e `clip_upload` é vídeo, então vídeo no
+        # Instagram só sai como Reels -- recusar com esse motivo escrito é
+        # melhor que chegar no instagrapi e levar um
+        # "Invalid file format. Only JPG/JPEG/PNG/WEBP", que foi o que
+        # acontecia antes de Reels existir aqui.
+        "combina": {"story": ("imagem",), "feed": ("imagem",),
+                    "reels": ("video",)},
         "cookie_dominios": ['instagram.com'],
         "cookie_chaves": ['sessionid'],
         "site": "https://www.instagram.com/",
@@ -272,7 +282,7 @@ class Alvo:
     transporte: str = ""
     publica: bool = False
     motivo: str = ""
-    #: story | feed — o que esta rede vai receber nesta leva
+    #: story | feed | reels — o que esta rede vai receber nesta leva
     destino: str = "feed"
     #: nome do formato de arte (ver story.FORMATOS)
     formato: str = ""
@@ -282,6 +292,10 @@ class Alvo:
     arquivo: str = ""
     #: a arte composta NO FORMATO desta rede (preenchida na hora de publicar)
     arquivo_composto: str = ""
+    #: imagem de capa (só Reels). `capa` é o que veio da tela; `capa_composta`
+    #: é ela depois do compositor -- com o chip, no formato da rede.
+    capa: str = ""
+    capa_composta: str = ""
     #: onde o chip acabou desenhado nessa arte -- vira a area tocavel
     link_rect: dict = field(default_factory=dict)
     #: publicacao de outra pessoa a repostar (so story)
@@ -308,6 +322,8 @@ class Alvo:
             "link": self.link,
             "arquivo": self.arquivo,
             "arquivo_composto": self.arquivo_composto,
+            "capa": self.capa,
+            "capa_composta": self.capa_composta,
             "personalizado": list(self.personalizado),
             "desfecho": self.desfecho,
             "detalhe": self.detalhe,
@@ -413,6 +429,9 @@ def montar_plano(contas: list[dict], conteudo: dict,
         d.link = final.get("link") or ""
         d.arquivo = final.get("arquivo") or ""
         d.formato = final.get("formato") or ""
+        # A capa do Reels acompanha o conteúdo COMUM, como o repost: capas
+        # diferentes por rede não são uma leva, são várias.
+        d.capa = conteudo.get("capa") or ""
         # O repost acompanha o conteúdo comum: é a publicação de outra pessoa
         # que vai virar card. Não é personalizável por rede de propósito —
         # repostar coisas diferentes em cada rede não é uma leva, são várias.
@@ -447,6 +466,29 @@ def montar_plano(contas: list[dict], conteudo: dict,
         if tipo not in r["formatos"]:
             d.motivo = "%s aceita %s, e o conteúdo é %s" % (
                 r["nome"], " ou ".join(r["formatos"]), tipo)
+            plano.append(d)
+            continue
+
+        # O que o TRANSPORTE daquela rede aceita em cada destino (hoje só o
+        # Instagram declara, por ser o único que publica sozinho).
+        combina = (r.get("combina") or {}).get(destino)
+        if combina and tipo not in combina:
+            if destino != "reels" and tipo == "video":
+                d.motivo = ("o %s publica vídeo como Reels — troque o destino "
+                            "desta rede para Reels" % r["nome"])
+            else:
+                d.motivo = "%s em %s aceita %s, e o conteúdo é %s" % (
+                    r["nome"], destino, " ou ".join(combina), tipo)
+            plano.append(d)
+            continue
+
+        if destino == "reels" and not (d.capa or "").strip():
+            # A capa é o que aparece na grade do perfil, e é onde o chip do
+            # destino fica. Sem ela o instagrapi tentaria tirar um quadro do
+            # vídeo com MoviePy, que este projeto não instalou — então a recusa
+            # aqui troca um erro de dependência por uma instrução.
+            d.motivo = ("Reels precisa de uma imagem de capa — envie a capa no "
+                        "editor (é nela que o chip do link é desenhado)")
             plano.append(d)
             continue
 
@@ -643,11 +685,22 @@ async def _compor_para(d: Alvo, conteudo: dict) -> None:
     """
     import story
 
-    if not d.arquivo or tipo_do_conteudo({"arquivo": d.arquivo}) == "video":
+    # No Reels a mídia é o vídeo e a ARTE é a capa: é ela que ganha o chip e
+    # é ela que aparece na grade do perfil. Então o compositor recebe a capa, e
+    # o vídeo passa intacto -- mexer num vídeo exigiria ffmpeg, que este
+    # projeto ainda não instalou.
+    if d.destino == "reels":
+        d.arquivo_composto = d.arquivo
+        if not d.capa:
+            raise ValueError("Reels sem capa — o plano deveria ter recusado antes")
+        fonte = d.capa
+    elif not d.arquivo or tipo_do_conteudo({"arquivo": d.arquivo}) == "video":
         d.arquivo_composto = d.arquivo
         return
+    else:
+        fonte = d.arquivo
 
-    dados = Path(d.arquivo).read_bytes()
+    dados = Path(fonte).read_bytes()
     post = d.post or None
     mini = None
     if post and post.get("mini"):
@@ -664,7 +717,10 @@ async def _compor_para(d: Alvo, conteudo: dict) -> None:
         story.tamanho_do_formato(d.formato),
         bool(conteudo.get("com_chip", True)),
     )
-    d.arquivo_composto = r["caminho"]
+    if d.destino == "reels":
+        d.capa_composta = r["caminho"]
+    else:
+        d.arquivo_composto = r["caminho"]
     # Com repost o chip desce para debaixo do card; o `compor` diz para onde, e
     # é esse retângulo que vira a área tocável — senão desenho e toque se
     # separam (a armadilha medida em 28/08).
@@ -692,6 +748,7 @@ async def _publicar_instagram(perfil: dict, d: Alvo) -> dict:
         story.publicar, perfil, arte, d.link,
         r["x"], r["y"], r["largura"], r["altura"],
         d.post or None, d.link_rect or None, None, d.destino, d.legenda,
+        d.capa_composta or d.capa,
     )
 
 
@@ -713,4 +770,5 @@ async def _abrir_compositor(perfil: dict, d: Alvo) -> dict:
     # A arte COMPOSTA é o que você vai arrastar para o compositor da rede — não
     # a imagem crua, que não tem o chip.
     return {"compositor": url, "arquivo": d.arquivo_composto or d.arquivo,
+            "capa": d.capa_composta or "",
             "legenda": d.legenda, "destino": d.destino, "formato": d.formato}

@@ -5575,7 +5575,8 @@ def redes_perfis():
 async def redes_plano(profile_id: str = Form(...), redes_pedidas: str = Form(""),
                       legenda: str = Form(""), arquivo_nome: str = Form(""),
                       destino: str = Form("feed"), link: str = Form(""),
-                      personalizacoes: str = Form("")):
+                      personalizacoes: str = Form(""),
+                      capa_nome: str = Form("")):
     """A prévia: quem publicaria, quem seria recusado e por quê — sem publicar.
 
     Separado do publicar de propósito. O plano é a parte que decide, e ele
@@ -5589,7 +5590,10 @@ async def redes_plano(profile_id: str = Form(...), redes_pedidas: str = Form("")
     pedidas = [r for r in (redes_pedidas or "").split(",") if r.strip()]
     contas = db.list_accounts_by_profile(profile_id)
     conteudo = {"arquivo": arquivo_nome, "legenda": legenda,
-                "link": link, "destino": destino}
+                "link": link, "destino": destino,
+                # Só o NOME: o plano precisa saber se EXISTE capa para poder
+                # recusar Reels sem capa antes de subir o vídeo inteiro.
+                "capa": capa_nome}
     plano = _redes.montar_plano(contas, conteudo, pedidas,
                                 _personalizacoes(personalizacoes))
     return {"plano": [d.como_dict() for d in plano],
@@ -5622,8 +5626,33 @@ async def redes_medir_compositor(profile_id: str = Form(...), rede: str = Form(.
         raise HTTPException(500, "não consegui medir: %s" % str(e)[:200])
 
 
+def _salvar_da_leva(profile_id: str, nome_original: str, dados: bytes,
+                    prefixo: str = "leva") -> str:
+    """Guarda um arquivo da leva em `data/_stories` e devolve o CAMINHO.
+
+    Existe como função, e não como três linhas dentro do endpoint, porque
+    aquelas três linhas guardavam o resultado numa variável chamada `destino` —
+    o mesmo nome do parâmetro do formulário que diz story/feed/reels. O Path
+    sobrescrevia o destino e o `montar_plano` morria com
+    `'WindowsPath' object has no attribute 'strip'`: a leva com arquivo
+    anexado nunca funcionou, nem em simulação (o plano quebra antes de
+    publicar). Com o salvamento aqui dentro não há variável local no endpoint
+    para colidir com nada — o erro deixa de ser possível em vez de corrigido.
+
+    O nome leva o perfil e o relógio: duas levas do mesmo perfil em sequência
+    não podem reaproveitar o arquivo da anterior.
+    """
+    story_mod.PASTA.mkdir(parents=True, exist_ok=True)
+    sufixo = Path(nome_original or "conteudo.jpg").suffix or ".jpg"
+    alvo = story_mod.PASTA / ("%s_%s_%d%s" % (prefixo, (profile_id or "")[:8],
+                                              int(time.time() * 1000), sufixo))
+    alvo.write_bytes(dados)
+    return str(alvo)
+
+
 @app.post("/redes/publicar")
 async def redes_publicar(profile_id: str = Form(...), arquivo: UploadFile = File(None),
+                         capa: UploadFile = File(None),
                          redes_pedidas: str = Form(""), legenda: str = Form(""),
                          link: str = Form(""), simular: bool = Form(True),
                          espalhar_segundos: float = Form(-1.0),
@@ -5646,14 +5675,14 @@ async def redes_publicar(profile_id: str = Form(...), arquivo: UploadFile = File
     if arquivo is not None:
         dados = await arquivo.read()
         if dados:
-            story_mod.PASTA.mkdir(parents=True, exist_ok=True)
-            # Nome com o id do perfil e o relógio: duas levas do mesmo perfil
-            # em sequência não podem reaproveitar o arquivo da anterior.
-            sufixo = Path(arquivo.filename or "conteudo.jpg").suffix or ".jpg"
-            destino = story_mod.PASTA / ("leva_%s_%d%s" % (profile_id[:8],
-                                                           int(time.time()), sufixo))
-            destino.write_bytes(dados)
-            caminho = str(destino)
+            caminho = _salvar_da_leva(profile_id, arquivo.filename, dados)
+
+    caminho_capa = ""
+    if capa is not None:
+        bytes_capa = await capa.read()
+        if bytes_capa:
+            caminho_capa = _salvar_da_leva(profile_id, capa.filename,
+                                           bytes_capa, prefixo="capa")
 
     contas = db.list_accounts_by_profile(profile_id)
     if not contas:
@@ -5677,7 +5706,7 @@ async def redes_publicar(profile_id: str = Form(...), arquivo: UploadFile = File
 
     conteudo = {"arquivo": caminho, "legenda": legenda, "link": link,
                 "destino": destino, "rotulo": rotulo, "com_chip": com_chip,
-                "rect": rect, "post": post}
+                "rect": rect, "post": post, "capa": caminho_capa}
     espalhar = (_redes.ESPALHAR_SEGUNDOS_PADRAO if espalhar_segundos < 0
                 else espalhar_segundos)
 

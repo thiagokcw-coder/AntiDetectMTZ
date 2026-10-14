@@ -55,7 +55,7 @@ FORMATOS: dict[str, dict] = {
     "pin":      {"nome": "Retrato alto (2:3)",   "px": (1000, 1500), "proporcao": "2:3"},
 }
 
-FORMATO_PADRAO = {"story": "story", "feed": "vertical"}
+FORMATO_PADRAO = {"story": "story", "feed": "vertical", "reels": "story"}
 
 
 def tamanho_do_formato(formato: str) -> tuple:
@@ -427,8 +427,9 @@ def _calar_expose(cl) -> None:
 def publicar(perfil: dict, caminho: str, link: str,
              x: float, y: float, largura: float, altura: float,
              post: dict = None, link_rect: dict = None, cl=None,
-             destino: str = "story", legenda: str = "") -> dict:
-    """Publica no Instagram: story (padrão) ou post de feed.
+             destino: str = "story", legenda: str = "",
+             capa: str = "") -> dict:
+    """Publica no Instagram: story (padrão), post de feed ou Reels.
 
     `link_rect` vem do `compor` quando há repost — é onde o chip foi DESENHADO,
     e é o que mandamos como área tocável. Sem isso o desenho ficaria embaixo do
@@ -450,6 +451,30 @@ def publicar(perfil: dict, caminho: str, link: str,
 
     cl = cl or cliente(perfil)
     dest = (destino or "story").strip().lower()
+
+    if dest == "reels":
+        # ## Reels precisa de CAPA, e a capa não é enfeite
+        #
+        # `clip_upload` chama `analyze_video`, que precisa de largura, altura,
+        # duração e uma thumbnail. As três primeiras o instagrapi 2.18.15 lê do
+        # MP4 com parser próprio em Python (`utils/video.py`) — sem ffmpeg. A
+        # thumbnail é a única peça que ele geraria com MoviePy, que este projeto
+        # NÃO instalou. Passando a capa pronta, Reels sai sem dependência nova.
+        #
+        # E a capa é justamente o que interessa aqui: ela é o que aparece na
+        # grade do perfil, então é nela que o chip do destino tem que estar —
+        # é a mesma arte composta que as outras redes recebem.
+        if not (capa or "").strip():
+            raise ValueError("Reels precisa de uma capa (imagem) — sem ela o "
+                             "instagrapi tentaria tirar um quadro do vídeo com "
+                             "MoviePy, que não está instalado")
+        media = cl.clip_upload(Path(caminho), caption=legenda or "",
+                               thumbnail=Path(capa))
+        return {"pk": str(media.pk), "conta": cl.username, "destino": "reels",
+                "repostou": False, "com_link": False, "capa": str(capa),
+                "aviso": ("o Reels não tem link clicável — o chip está "
+                          "desenhado na CAPA e o link vai na legenda")
+                         if (link or "").strip() else ""}
 
     if dest == "feed":
         # A legenda é o que de fato carrega o link no feed: não clica, mas a
