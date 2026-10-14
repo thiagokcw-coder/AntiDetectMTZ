@@ -234,6 +234,28 @@ async def probe_login(profile: dict, target: str = "instagram", use_local: bool 
     return await sm.run_profile_task(prof, _run, headless=True)
 
 
+
+#: Caminhos que, numa URL FINAL, dizem que a rede nao reconheceu a sessao.
+_CAMINHOS_DE_LOGIN = ("/login", "/signin", "/sign-in", "/accounts/login", "/auth")
+
+
+def parece_tela_de_login(url: str) -> bool:
+    """A URL final e uma tela de login?
+
+    Compara so o CAMINHO: `login.rede.com` e um dominio, nao a tela de login, e
+    `?next=/login` e parametro, nao destino -- os dois davam falso positivo
+    quando se olhava a URL inteira (achado pelo proprio teste, 13/10).
+
+    Mora aqui, e nao dentro do `probe_generico`, porque o medidor de compositor
+    (`compositor.py`) faz a mesma pergunta: se o compositor da rede respondeu
+    com a tela de login, nao ha o que medir ali. Duas copias da regra divergiam
+    na primeira correcao.
+    """
+    import re as _re
+    caminho = _re.sub(r"^https?://[^/]*", "", url or "").split("?")[0].split("#")[0].lower()
+    return any(x in caminho for x in _CAMINHOS_DE_LOGIN)
+
+
 async def probe_generico(profile: dict, url: str, timeout_ms: int = 25000) -> dict:
     """Abre `url` no perfil e tenta dizer se a sessão está logada — em QUALQUER rede.
 
@@ -283,9 +305,7 @@ async def probe_generico(profile: dict, url: str, timeout_ms: int = 25000) -> di
     # Só o CAMINHO: sem host e sem query. Um domínio `login.rede.com` não é a
     # tela de login, e `?next=/login` é parâmetro, não destino — os dois davam
     # falso positivo quando se olhava a URL inteira.
-    caminho = _re.sub(r"^https?://[^/]*", "", final).split("?")[0].split("#")[0].lower()
-    na_tela_de_login = any(x in caminho for x in
-                           ("/login", "/signin", "/sign-in", "/accounts/login", "/auth"))
+    na_tela_de_login = parece_tela_de_login(final)
     tem_senha = bool(got.get("campos_senha"))
 
     if na_tela_de_login:

@@ -539,7 +539,8 @@ async def launch(profile: dict, url: str = "about:blank", headless: bool = False
     return {"profile_id": pid, "status": "starting"}
 
 
-async def abrir_aba(profile: dict, url: str, timeout_abrir: float = 60.0) -> dict:
+async def abrir_aba(profile: dict, url: str, timeout_abrir: float = 60.0,
+                    fn=None) -> dict:
     """Abre `url` numa ABA NOVA da janela que este perfil já tem aberta.
 
     Existe para a leva multi-rede (`redes.py`): seis compositores viram seis
@@ -550,6 +551,12 @@ async def abrir_aba(profile: dict, url: str, timeout_abrir: float = 60.0) -> dic
 
     Se o perfil ainda não está aberto, abre a janela já na primeira URL e
     espera ela subir — assim o chamador não precisa saber se havia sessão.
+
+    `fn` opcional roda NA ABA aberta (`await fn(page)`) e o que ela devolver sai
+    em `resultado`. Existe para o medidor de compositor (`compositor.py`), que
+    precisa ler a tela recém-aberta: sem isso ele teria que duplicar a lógica de
+    "reusa a janela viva ou sobe uma nova", e duas cópias divergem na primeira
+    correção. A aba fica ABERTA depois — quem abre uma aba quer vê-la.
     """
     pid = profile["id"]
     s = _sessions.get(pid)
@@ -560,26 +567,37 @@ async def abrir_aba(profile: dict, url: str, timeout_abrir: float = 60.0) -> dic
         # continua valendo (é ele que destrava processo órfão e parent.lock).
         await launch(profile, url=url, mode="manual")
         limite = time.time() + timeout_abrir
+        nova = None
         while time.time() < limite:
             s = _sessions.get(pid) or {}
             if s.get("status") == "running" and s.get("page") is not None:
-                return {"aba": "primeira", "url": url}
+                nova = s["page"]
+                break
             if s.get("status") == "error":
                 raise RuntimeError(s.get("error") or "falha ao abrir o perfil")
             await asyncio.sleep(0.5)
-        raise RuntimeError("o perfil não subiu em %gs" % timeout_abrir)
+        if nova is None:
+            raise RuntimeError("o perfil não subiu em %gs" % timeout_abrir)
+        # A janela já subiu NA url pedida: abrir outra aba aqui duplicaria a
+        # tela. O `url` reportado segue sendo o pedido, como antes.
+        qual, onde = "primeira", url
+    else:
+        page = s["page"]
+        if page.is_closed():
+            raise RuntimeError("a janela do perfil foi fechada")
+        nova = await page.context.new_page()
+        # domcontentloaded e não `load`: compositor de rede social carrega mídia e
+        # script por minutos, e esperar o `load` daria timeout numa página que já
+        # está utilizável.
+        await nova.goto(url, wait_until="domcontentloaded")
+        _sessions[pid]["url"] = nova.url
+        qual, onde = "nova", nova.url
 
-    page = s["page"]
-    if page.is_closed():
-        raise RuntimeError("a janela do perfil foi fechada")
-    nova = await page.context.new_page()
-    # domcontentloaded e não `load`: compositor de rede social carrega mídia e
-    # script por minutos, e esperar o `load` daria timeout numa página que já
-    # está utilizável.
-    await nova.goto(url, wait_until="domcontentloaded")
-    _sessions[pid]["url"] = nova.url
-    _log(f"profile={pid} aba nova: {url}")
-    return {"aba": "nova", "url": nova.url}
+    _log(f"profile={pid} aba {qual}: {url}")
+    out = {"aba": qual, "url": onde}
+    if fn is not None:
+        out["resultado"] = await fn(nova)
+    return out
 
 
 def _caller_hint() -> str:

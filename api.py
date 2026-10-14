@@ -5597,6 +5597,31 @@ async def redes_plano(profile_id: str = Form(...), redes_pedidas: str = Form("")
             "tipo": _redes.tipo_do_conteudo(conteudo)}
 
 
+@app.post("/redes/medir-compositor")
+async def redes_medir_compositor(profile_id: str = Form(...), rede: str = Form(...)):
+    """Abre o compositor da rede no perfil e relata o que existe na tela.
+
+    É o instrumento que falta para as sete redes assistidas publicarem sozinhas:
+    sem ver a tela, os seletores seriam inventados — e adivinhar rota é o que
+    custou dias nesta base (o 404 de agosto). Mede, guarda em
+    `data/_compositores/` e NÃO publica nada: não clica, não preenche, não envia.
+
+    Não marca a rede como medida. `REDES[].medido` continua sendo mudança de
+    código, feita quando o fluxo estiver escrito e exercitado — um relatório
+    provar que a tela existe não prova que a publicação funciona.
+    """
+    import compositor as _comp
+    pf = get_profile(profile_id)
+    if not pf:
+        raise HTTPException(404, "Perfil não encontrado")
+    try:
+        return await _comp.medir(pf, (rede or "").strip().lower())
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except Exception as e:
+        raise HTTPException(500, "não consegui medir: %s" % str(e)[:200])
+
+
 @app.post("/redes/publicar")
 async def redes_publicar(profile_id: str = Form(...), arquivo: UploadFile = File(None),
                          redes_pedidas: str = Form(""), legenda: str = Form(""),
