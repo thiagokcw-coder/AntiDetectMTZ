@@ -239,12 +239,30 @@ async def probe_login(profile: dict, target: str = "instagram", use_local: bool 
 _CAMINHOS_DE_LOGIN = ("/login", "/signin", "/sign-in", "/accounts/login", "/auth")
 
 
+#: Nomes de parametro que so existem quando o site esta te MANDANDO para o
+#: login -- ele guarda para onde voltar depois. E o NOME que conta, nunca o
+#: valor: `?next=/login` tem "login" no valor e nao significa nada.
+_PARAMS_DE_VOLTA = ("redirect_after_login", "redirect_after_signup",
+                    "redirect_after_sign_up")
+
+
 def parece_tela_de_login(url: str) -> bool:
     """A URL final e uma tela de login?
 
-    Compara so o CAMINHO: `login.rede.com` e um dominio, nao a tela de login, e
-    `?next=/login` e parametro, nao destino -- os dois davam falso positivo
-    quando se olhava a URL inteira (achado pelo proprio teste, 13/10).
+    Dois sinais, e os dois nasceram de medicao:
+
+    1. O CAMINHO cai em /login, /signin, /auth... Compara so o caminho porque
+       `login.rede.com` e um dominio, nao a tela de login, e `?next=/login` e
+       parametro, nao destino -- os dois davam falso positivo quando se olhava
+       a URL inteira (achado pelo proprio teste, 13/10).
+
+    2. A query tem um parametro CHAMADO `redirect_after_login`. Medido em
+       23/10: `x.com/compose/post` deslogado vai para
+       `x.com/i/jf/onboarding/web?redirect_after_login=%2Fcompose%2Fpost`, cujo
+       caminho nao tem "login" em lugar nenhum -- o sinal 1 sozinho diria
+       "parece logado" sobre uma sessao que o X acabou de recusar. Olhar o NOME
+       do parametro nao reabre o falso positivo do item 1, que era sobre o
+       VALOR.
 
     Mora aqui, e nao dentro do `probe_generico`, porque o medidor de compositor
     (`compositor.py`) faz a mesma pergunta: se o compositor da rede respondeu
@@ -252,8 +270,17 @@ def parece_tela_de_login(url: str) -> bool:
     na primeira correcao.
     """
     import re as _re
-    caminho = _re.sub(r"^https?://[^/]*", "", url or "").split("?")[0].split("#")[0].lower()
-    return any(x in caminho for x in _CAMINHOS_DE_LOGIN)
+    from urllib.parse import parse_qs, urlparse
+
+    sem_host = _re.sub(r"^https?://[^/]*", "", url or "")
+    caminho = sem_host.split("?")[0].split("#")[0].lower()
+    if any(x in caminho for x in _CAMINHOS_DE_LOGIN):
+        return True
+    try:
+        nomes = {n.lower() for n in parse_qs(urlparse(url or "").query).keys()}
+    except Exception:
+        return False
+    return bool(nomes & set(_PARAMS_DE_VOLTA))
 
 
 async def probe_generico(profile: dict, url: str, timeout_ms: int = 25000) -> dict:
