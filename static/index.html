@@ -1979,13 +1979,25 @@
       <button class="btn btn-success" style="margin-top:8px;width:100%" onclick="oaConfirmar('camoufox')">Abrir no Camoufox e medir</button>
     </div>
 
+    <div style="border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:10px">
+      <div style="font-weight:600;font-size:13px;margin-bottom:4px">🌐 Chrome de sempre — com os <b>seus logins</b></div>
+      <div class="form-hint">Serve quando a conta nasceu no Chrome e a sessão está lá. <b>Feche todas as janelas do Chrome antes</b> — ele tranca o perfil para si, e eu preciso dele só para mim.</div>
+      <div class="form-hint" style="color:#f59e0b;margin-top:4px">⚠ É o navegador da sua identidade real, saindo pelo mesmo modem das contas descartáveis (a correlação de 16/08). Medir só lê a tela, mas a sessão fica exposta ao mesmo IP.</div>
+      <button class="btn" style="margin-top:8px;width:100%" onclick="oaConfirmar('chrome')">Abrir no Chrome de sempre e medir</button>
+    </div>
+
     <div style="border:1px solid var(--border);border-radius:10px;padding:12px">
-      <div style="font-weight:600;font-size:13px;margin-bottom:4px">🌐 Chrome normal — só abrir, <b>sem medir</b></div>
-      <div class="form-hint" style="color:#f59e0b">⚠ É o navegador onde a sua identidade real está logada, e ele sai pelo <b>mesmo modem</b> das contas descartáveis — a correlação de 16/08. Útil para olhar; não serve para medir.</div>
-      <button class="btn" style="margin-top:8px;width:100%" onclick="oaConfirmar('chrome')">Abrir no Chrome (sem medir)</button>
+      <div style="font-weight:600;font-size:13px;margin-bottom:4px">🧪 Chrome só desta persona — pasta separada</div>
+      <div class="form-hint">Um Chrome com cookies próprios, longe das suas abas pessoais. Na primeira vez você vai precisar <b>entrar na rede ali dentro</b>. Não precisa fechar o seu Chrome.</div>
+      <button class="btn" style="margin-top:8px;width:100%" onclick="oaConfirmar('chrome-persona')">Abrir no Chrome desta persona e medir</button>
+    </div>
+
+    <div class="form-hint" style="margin-top:12px;padding-top:10px;border-top:1px solid var(--border)">
+      ⚠ <b>Quem publica continua sendo o Camoufox.</b> Medir pelo Chrome dá os seletores da tela; não move a sessão para o perfil. Para a leva publicar, a conta precisa estar logada no Camoufox (cookie importado em Contas).
     </div>
 
     <div class="modal-actions" style="margin-top:12px">
+      <button class="btn btn-ghost" style="margin-right:auto" onclick="encerrarChromeMedicao(this)">Encerrar o Chrome que estou dirigindo</button>
       <button class="btn btn-ghost" onclick="closeModal('modal-onde-abrir')">Cancelar</button>
     </div>
   </div>
@@ -2418,10 +2430,10 @@ function _storyDesenharCartoes() {
       </div>
       ${d.transporte !== 'instagrapi' ? `<div style="margin-top:4px;display:flex;flex-direction:column;gap:3px">
         <button class="btn btn-sm" style="font-size:9px;padding:2px 6px" title="Pergunta onde abrir, abre o compositor desta rede e lê a tela. Não publica nada." onclick="pubMedir('${escapeHtml(d.rede)}', this)">🔬 abrir e medir</button>
-        <button class="btn btn-sm" style="font-size:9px;padding:2px 6px" title="Mede a aba que já está aberta, no passo em que ela está. É assim que se vê o campo de legenda e o botão de publicar — eles só existem depois que o arquivo entra." onclick="pubMedirAgora('${escapeHtml(d.rede)}', this, false)">🔬 medir o passo atual</button>
+        <button class="btn btn-sm" style="font-size:9px;padding:2px 6px" title="Mede a aba que já está aberta, no passo em que ela está. É assim que se vê o campo de legenda e o botão de publicar — eles só existem depois que o arquivo entra." onclick="pubMedirAgora('${escapeHtml(d.rede)}', this, false)">🔬 medir o passo atual${_pbOnde[d.rede] && _pbOnde[d.rede].navegador === 'chrome' ? ' (Chrome)' : ''}</button>
       </div>` : ''}
       ${temPers ? `<div style="font-size:9px;color:#818cf8;margin-top:3px">✎ ${escapeHtml((d.personalizado || []).join(', '))}</div>` : ''}
-      ${_pbMedicoes[d.rede] ? `<div style="font-size:9px;margin-top:3px;color:${_pbMedicoes[d.rede].parece_login || !_pbMedicoes[d.rede].pronto ? '#f59e0b' : '#22c55e'};line-height:1.3">🔬 ${escapeHtml(_pbMedicoes[d.rede].parece_login ? 'caiu no login — importe a sessão' : (!_pbMedicoes[d.rede].pronto ? 'ainda carregando — meça de novo' : ((_pbMedicoes[d.rede].etapa || '') + ': ' + _pbMedicoes[d.rede].achados.arquivos + ' arquivo · ' + _pbMedicoes[d.rede].achados.textos + ' texto · ' + _pbMedicoes[d.rede].achados.botoes + ' botão')))}</div>` : ''}
+      ${_pbMedicoes[d.rede] ? `<div style="font-size:9px;margin-top:3px;color:${_pbMedicoes[d.rede].parece_login || !_pbMedicoes[d.rede].pronto ? '#f59e0b' : '#22c55e'};line-height:1.3">🔬 ${escapeHtml(_pbMedicoes[d.rede].parece_login ? 'caiu no login — importe a sessão' : (!_pbMedicoes[d.rede].pronto ? 'ainda carregando — meça de novo' : ((_pbMedicoes[d.rede].navegador === 'chrome' ? '🌐 ' : '🦊 ') + (_pbMedicoes[d.rede].etapa || '') + ': ' + _pbMedicoes[d.rede].achados.arquivos + ' arquivo · ' + _pbMedicoes[d.rede].achados.textos + ' texto · ' + _pbMedicoes[d.rede].achados.botoes + ' botão')))}</div>` : ''}
       ${_pbAberta === d.rede ? pubPainelPers(d) : ''}
     </div>`;
   }).join('');
@@ -2446,6 +2458,10 @@ function _storyDesenharCartoes() {
  * "selecionar vídeo" e mais nada.
  */
 let _oaPendente = null;
+/** Onde cada rede foi medida pela ultima vez. O "medir o passo atual" tem de
+ * ir ao MESMO navegador: medir a abertura no Chrome e o passo seguinte no
+ * Camoufox leria duas telas diferentes como se fossem um fluxo so. */
+let _pbOnde = {};
 
 function pubMedir(rede, btn) {
   const p = _stPerfilAtual();
@@ -2466,13 +2482,26 @@ async function oaConfirmar(onde) {
   const pend = _oaPendente;
   _oaPendente = null;
   if (!pend) return;
-  if (onde === 'chrome') {
-    const r = _pbRedes.find(x => x.id === pend.rede) || {};
-    await abrirNoChrome(pend.rede, pend.btn, (pend.perfil.contas[pend.rede] || {}).username);
-    toast('Abri no Chrome — ali eu não consigo ler a tela, então nada foi medido.', true);
-    return;
-  }
+  _pbOnde[pend.rede] = onde === 'chrome'
+    ? { navegador: 'chrome', chrome_perfil: '' }
+    : (onde === 'chrome-persona'
+        ? { navegador: 'chrome', chrome_perfil: pend.perfil.perfil || pend.perfil.profile_id }
+        : { navegador: 'camoufox', chrome_perfil: '' });
   await pubMedirAgora(pend.rede, pend.btn, true);
+}
+
+/** Fecha o Chrome que o medidor abriu. Não toca no seu Chrome de sempre se ele
+ * não foi aberto por aqui — o backend só fecha o que ele próprio subiu. */
+async function encerrarChromeMedicao(btn) {
+  const parar = runBtnCountdown(btn, 5);
+  try {
+    const r = await api('POST', '/chrome/medir/encerrar', {}, 30000);
+    toast(r.tinha_sessao ? 'Chrome encerrado.' : 'Não havia nenhum Chrome sendo dirigido.');
+  } catch (e) {
+    toast('Não consegui encerrar: ' + e.message, 'error');
+  } finally {
+    if (parar) parar();
+  }
 }
 
 /** Dispara a medição. `abrir` navega; sem ele, mede o passo que está na tela. */
@@ -2486,11 +2515,14 @@ async function pubMedirAgora(rede, btn, abrir) {
   // Abrir pode subir a janela e esperar o SPA; medir a aba aberta é bem mais rápido.
   const parar = runBtnCountdown(btn, abrir ? 45 : 12);
   try {
+    const onde = _pbOnde[rede] || { navegador: 'camoufox', chrome_perfil: '' };
     const fd = new FormData();
     fd.append('profile_id', p.profile_id);
     fd.append('rede', rede);
     fd.append('abrir', abrir ? 'true' : 'false');
     fd.append('etapa', etapa);
+    fd.append('navegador', onde.navegador);
+    fd.append('chrome_perfil', onde.chrome_perfil);
     const r = await apiForm('POST', '/redes/medir-compositor', fd, 120000);
     if (parar) parar();
     _pbMedicoes[rede] = r;

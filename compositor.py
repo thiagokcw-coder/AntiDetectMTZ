@@ -31,6 +31,7 @@ Regra do projeto: nunca registrar valor de cookie ou de sessão.
 """
 import asyncio
 import json
+import os
 import time
 from pathlib import Path
 
@@ -330,8 +331,134 @@ def _resumo(rede_nome: str, lido: dict, login: bool, pronto: bool = True,
             % (rede_nome, ao, a, t, b, c))
 
 
+
+# ─── Medir pelo CHROME, e não só pelo Camoufox ───────────────────────────────
+#
+# O Camoufox é o navegador que PUBLICA, então medir nele é o caminho curto. Mas
+# a sessão de uma rede pode estar no Chrome — foi onde a conta nasceu — e aí não
+# há o que medir no Camoufox. A pedido (23/10), o medidor passa a dirigir os
+# dois; quem escolhe é o usuário, na tela, sempre.
+#
+# ⚠ O QUE NÃO MUDA: quem publica continua sendo o Camoufox. Um relatório tirado
+# do Chrome descreve a tela que AQUELA sessão vê, e é dela que saem os
+# seletores; mas o fluxo vai rodar no perfil Camoufox, que precisa ter a sessão
+# da rede (cookie importado). Medir no Chrome não põe a sessão lá.
+
+#: Uma sessão de Chrome dirigida por vez. O app opera um perfil de cada vez, e
+#: duas instâncias sobre o mesmo `user_data_dir` brigam pelo lock do Chrome.
+_CHROME = {"pw": None, "ctx": None, "pasta": None}
+
+
+def pasta_do_chrome(perfil: str = "") -> Path:
+    """Onde ficam os cookies do Chrome a dirigir.
+
+    Vazio = o Chrome DE SEMPRE, com os seus logins — é o que "abrir pelo Chrome"
+    quer dizer na prática. Com nome, uma pasta dedicada àquela persona, separada
+    das suas abas pessoais (o mesmo lugar que o `POST /chrome/abrir` já usa).
+    """
+    import sys
+    from paths import APP_DIR
+
+    nome = (perfil or "").strip()
+    if nome:
+        import re as _re
+        return Path(APP_DIR) / "chrome_profiles" / _re.sub(r"[^A-Za-z0-9_.-]", "_", nome)
+
+    if sys.platform.startswith("win"):
+        base = os.environ.get("LOCALAPPDATA") or ""
+        return Path(base) / "Google" / "Chrome" / "User Data"
+    if sys.platform == "darwin":
+        return Path.home() / "Library" / "Application Support" / "Google" / "Chrome"
+    return Path.home() / ".config" / "google-chrome"
+
+
+async def fechar_chrome() -> bool:
+    """Encerra o Chrome que estamos dirigindo. Devolve se havia algum."""
+    tinha = _CHROME["ctx"] is not None
+    for chave, fechar in (("ctx", "close"), ("pw", "stop")):
+        alvo = _CHROME.get(chave)
+        if alvo is not None:
+            try:
+                await getattr(alvo, fechar)()
+            except Exception:
+                pass
+    _CHROME.update(pw=None, ctx=None, pasta=None)
+    return tinha
+
+
+async def _contexto_chrome(pasta: Path):
+    """O Chrome dirigido por Playwright, reusando a janela se já está aberta."""
+    from playwright.async_api import async_playwright
+
+    if _CHROME["ctx"] is not None and _CHROME["pasta"] == str(pasta):
+        try:
+            _ = _CHROME["ctx"].pages        # ainda vivo?
+            return _CHROME["ctx"]
+        except Exception:
+            await fechar_chrome()
+    else:
+        await fechar_chrome()
+
+    pasta.mkdir(parents=True, exist_ok=True)
+    pw = await async_playwright().start()
+    try:
+        ctx = await pw.chromium.launch_persistent_context(
+            str(pasta), channel="chrome", headless=False,
+            args=["--no-first-run", "--no-default-browser-check"])
+    except Exception as e:
+        try:
+            await pw.stop()
+        except Exception:
+            pass
+        # A causa quase certa é o Chrome já estar aberto nesse mesmo perfil: o
+        # Chrome tranca o `user_data_dir` e sai calado. Dizer isso vale mais que
+        # repassar a mensagem do Playwright, que fala de "target closed".
+        raise RuntimeError(
+            "não consegui dirigir o Chrome em %s — se for o seu Chrome de "
+            "sempre, FECHE todas as janelas dele e tente de novo (ele tranca o "
+            "perfil para si). Detalhe: %s" % (pasta, str(e)[:160]))
+
+    _CHROME.update(pw=pw, ctx=ctx, pasta=str(pasta))
+    return ctx
+
+
+async def _chrome_abrir(pasta: Path, url: str, fn):
+    """Abre `url` numa aba do Chrome dirigido e roda `fn` nela."""
+    ctx = await _contexto_chrome(pasta)
+    pagina = await ctx.new_page()
+    await pagina.goto(url, wait_until="domcontentloaded")
+    return {"url": pagina.url, "resultado": await fn(pagina)}
+
+
+async def _chrome_na_aba(pasta: Path, dominios: list, fn):
+    """Roda `fn` na aba JÁ ABERTA do Chrome que casa um dos domínios.
+
+    Mesma regra do Camoufox (`session_manager.tarefa_na_aba`): acha pelo
+    domínio e fica com a ÚLTIMA, que é a mais recente.
+    """
+    if _CHROME["ctx"] is None or _CHROME["pasta"] != str(pasta):
+        raise RuntimeError("não há Chrome aberto por mim — use \u201cabrir e medir\u201d primeiro")
+    doms = [d.lower().lstrip(".") for d in (dominios or []) if d]
+    alvo, vistas = None, []
+    for pg in _CHROME["ctx"].pages:
+        try:
+            if pg.is_closed():
+                continue
+            u = (pg.url or "").lower()
+        except Exception:
+            continue
+        vistas.append(u[:60])
+        if any(d in u for d in doms):
+            alvo = pg
+    if alvo is None:
+        raise RuntimeError("nenhuma aba do Chrome em %s (abertas: %s)"
+                           % (" ou ".join(doms) or "?", ", ".join(vistas) or "nenhuma"))
+    return await fn(alvo)
+
+
 async def medir(perfil: dict, rede_id: str, abrir: bool = True,
-                espera_max_ms: int = 30000, etapa: str = "") -> dict:
+                espera_max_ms: int = 30000, etapa: str = "",
+                navegador: str = "camoufox", chrome_perfil: str = "") -> dict:
     """Lê a tela do compositor de `rede_id` e devolve o que viu.
 
     ## Por que `abrir` existe (medido em 14/10)
@@ -379,7 +506,21 @@ async def medir(perfil: dict, rede_id: str, abrir: bool = True,
             lido["_foto_erro"] = str(e)[:140]
         return lido
 
-    if abrir:
+    nav = (navegador or "camoufox").strip().lower()
+    if nav not in ("camoufox", "chrome"):
+        raise ValueError("navegador desconhecido: %r" % navegador)
+    doms = r.get("cookie_dominios") or [rede_id]
+
+    if nav == "chrome":
+        pasta = pasta_do_chrome(chrome_perfil)
+        if abrir:
+            aberta = await _chrome_abrir(pasta, url, _na_aba)
+            lido = aberta.get("resultado") or {}
+            onde = aberta.get("url") or url
+        else:
+            lido = await _chrome_na_aba(pasta, doms, _na_aba)
+            onde = lido.get("url") or url
+    elif abrir:
         aberta = await sm.abrir_aba(perfil, url, fn=_na_aba)
         lido = aberta.get("resultado") or {}
         onde = aberta.get("url") or url
@@ -387,8 +528,7 @@ async def medir(perfil: dict, rede_id: str, abrir: bool = True,
         # Medir o passo em que a tela está AGORA. A aba é achada pelo DOMÍNIO da
         # rede, não pela que o app abriu: você pode ter navegado, recarregado ou
         # aberto outra — e é a tela que você está vendo que interessa.
-        lido = await sm.tarefa_na_aba(
-            perfil, r.get("cookie_dominios") or [rede_id], _na_aba)
+        lido = await sm.tarefa_na_aba(perfil, doms, _na_aba)
         onde = lido.get("url") or url
 
     final = lido.get("url") or onde
@@ -402,6 +542,11 @@ async def medir(perfil: dict, rede_id: str, abrir: bool = True,
     rel = {
         "rede": rede_id, "rede_nome": r["nome"], "quando": quando,
         "etapa": etapa or ("abertura" if abrir else "passo atual"),
+        # De QUAL navegador saiu este relatorio. Importa: quem publica e o
+        # Camoufox, entao um relatorio do Chrome descreve a tela que AQUELA
+        # sessao ve -- os seletores servem, a sessao nao vai junto.
+        "navegador": nav,
+        "chrome_perfil": chrome_perfil if nav == "chrome" else "",
         "perfil": perfil.get("id"), "perfil_nome": perfil.get("name"),
         "url_pedida": url, "url_final": final,
         "parece_login": login,

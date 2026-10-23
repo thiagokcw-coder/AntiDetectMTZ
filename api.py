@@ -614,6 +614,14 @@ async def kill_orphans():
         await sm.shutdown_all()
     except Exception:
         pass
+    # 1b) E o Chrome que o medidor estiver dirigindo — senão fica um processo
+    #     segurando o user_data_dir do Chrome, que é o mesmo sintoma do
+    #     "Firefox já está rodando" por outro navegador.
+    try:
+        import compositor as _comp
+        await _comp.fechar_chrome()
+    except Exception:
+        pass
     # 2) Mata processos Camoufox que sobraram (órfãos). Só "camoufox" — não toca
     #    no Firefox normal do usuário.
     killed = 0
@@ -5603,7 +5611,9 @@ async def redes_plano(profile_id: str = Form(...), redes_pedidas: str = Form("")
 
 @app.post("/redes/medir-compositor")
 async def redes_medir_compositor(profile_id: str = Form(...), rede: str = Form(...),
-                                 abrir: bool = Form(True), etapa: str = Form("")):
+                                 abrir: bool = Form(True), etapa: str = Form(""),
+                                 navegador: str = Form("camoufox"),
+                                 chrome_perfil: str = Form("")):
     """Abre o compositor da rede no perfil e relata o que existe na tela.
 
     É o instrumento que falta para as sete redes assistidas publicarem sozinhas:
@@ -5615,6 +5625,11 @@ async def redes_medir_compositor(profile_id: str = Form(...), rede: str = Form(.
     fluxo de ETAPAS e os campos de legenda/publicar só nascem depois do arquivo
     entrar, então uma leitura na abertura não pode vê-los.
 
+    `navegador` escolhe entre o Camoufox e o Chrome do sistema (dirigido por
+    Playwright). O Chrome serve quando a sessão da rede está lá — mas **quem
+    publica continua sendo o Camoufox**: o relatório dá os seletores, não move
+    a sessão de lugar.
+
     Não marca a rede como medida. `REDES[].medido` continua sendo mudança de
     código, feita quando o fluxo estiver escrito e exercitado — um relatório
     provar que a tela existe não prova que a publicação funciona.
@@ -5625,7 +5640,9 @@ async def redes_medir_compositor(profile_id: str = Form(...), rede: str = Form(.
         raise HTTPException(404, "Perfil não encontrado")
     try:
         return await _comp.medir(pf, (rede or "").strip().lower(),
-                                 abrir=abrir, etapa=(etapa or "").strip())
+                                 abrir=abrir, etapa=(etapa or "").strip(),
+                                 navegador=navegador,
+                                 chrome_perfil=(chrome_perfil or "").strip())
     except ValueError as e:
         raise HTTPException(400, str(e))
     except Exception as e:
@@ -5654,6 +5671,15 @@ def _salvar_da_leva(profile_id: str, nome_original: str, dados: bytes,
                                               int(time.time() * 1000), sufixo))
     alvo.write_bytes(dados)
     return str(alvo)
+
+
+@app.post("/chrome/medir/encerrar")
+async def chrome_medir_encerrar():
+    """Fecha o Chrome que o medidor está dirigindo (não toca no seu Chrome
+    normal se ele não foi aberto por aqui)."""
+    import compositor as _comp
+    tinha = await _comp.fechar_chrome()
+    return {"ok": True, "tinha_sessao": tinha}
 
 
 @app.post("/redes/publicar")
