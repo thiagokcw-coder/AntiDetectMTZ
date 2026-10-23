@@ -5541,9 +5541,12 @@ def _personalizacoes(bruto: str) -> dict:
 def redes_catalogo():
     """A matriz das redes: transporte, formatos, limite de legenda e se o
     caminho daquela rede já foi medido ao vivo."""
+    import publicador as _pub
     import redes as _redes
     import story as _story
-    return {"redes": [dict(r) for r in _redes.REDES],
+    return {"redes": [dict(r, tem_receita=_pub.tem_receita(r["id"]),
+                           receita_medida_em=(_pub.receita(r["id"]) or {}).get("medido_em", ""))
+                      for r in _redes.REDES],
             "formatos": {k: dict(v, px=list(v["px"])) for k, v in _story.FORMATOS.items()},
             "espalhar_segundos_padrao": _redes.ESPALHAR_SEGUNDOS_PADRAO}
 
@@ -5691,7 +5694,8 @@ async def redes_publicar(profile_id: str = Form(...), arquivo: UploadFile = File
                          destino: str = Form("feed"),
                          personalizacoes: str = Form(""),
                          rotulo: str = Form(""), com_chip: bool = Form(True),
-                         rect_json: str = Form(""), post_json: str = Form("")):
+                         rect_json: str = Form(""), post_json: str = Form(""),
+                         auto_publicar: str = Form("")):
     """A LEVA: um clique, todas as redes do perfil.
 
     `simular` nasce **True**. É o padrão deste projeto para motor que nunca
@@ -5748,6 +5752,11 @@ async def redes_publicar(profile_id: str = Form(...), arquivo: UploadFile = File
             p, contas, conteudo, pedidas,
             espalhar_segundos=espalhar, simular=simular,
             personalizacoes=_personalizacoes(personalizacoes),
+            # Quais redes podem APERTAR publicar sozinhas. Vazio por padrão: a
+            # rede medida preenche a tela e para, e só entra aqui depois de ter
+            # acertado uma vez na frente do usuário.
+            auto_publicar=[x.strip().lower()
+                           for x in (auto_publicar or "").split(",") if x.strip()],
             # A rotação de IP é injetada, não reimplementada: é a MESMA função
             # que o Spider, o InstaFollow e o botão Abrir usam, com a guarda do
             # perfil com proxy próprio já dentro dela.

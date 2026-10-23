@@ -553,8 +553,14 @@ async def publicar_em_todas(perfil: dict, contas: list[dict], conteudo: dict,
                             simular: bool = False,
                             personalizacoes: Optional[dict] = None,
                             rotacionar=None,
+                            auto_publicar: Optional[list] = None,
                             log=None) -> dict:
     """Publica o conteúdo em todas as redes do perfil, na mesma leva.
+
+    `auto_publicar` é a lista de redes liberadas a APERTAR publicar sozinhas.
+    Vazia por padrão: rede com receita medida preenche a tela e PARA, e só
+    entra aqui depois de ter acertado uma vez na sua frente (decisão do usuário
+    em 13/10, o mesmo espírito do `dryRun` do InstaFollow).
 
     Devolve o plano com o desfecho de cada rede. **Nenhuma falha derruba a
     leva**: rede que falha é relatada e as outras seguem — a alternativa seria
@@ -612,9 +618,21 @@ async def publicar_em_todas(perfil: dict, contas: list[dict], conteudo: dict,
                 if d.resultado.get("aviso"):
                     d.detalhe += " — " + d.resultado["aviso"]
             else:
-                d.resultado = await _abrir_compositor(perfil, d)
-                d.desfecho = "assistido"
-                d.detalhe = "compositor aberto — confirme na janela do perfil"
+                liberada = d.rede_id in (auto_publicar or ())
+                d.resultado = await _abrir_compositor(perfil, d, liberada)
+                modo = d.resultado.get("modo") or "assistido"
+                if modo == "publicado":
+                    d.desfecho = "publicado"
+                    d.detalhe = "publicado pelo compositor da rede"
+                elif modo == "preenchido":
+                    d.desfecho = "preenchido"
+                    d.detalhe = ("arquivo e legenda já estão na tela — confira e "
+                                 "aperte publicar na janela do perfil")
+                    if d.resultado.get("publicar_habilitado") is False:
+                        d.detalhe += " (⚠ o botão está desabilitado)"
+                else:
+                    d.desfecho = "assistido"
+                    d.detalhe = "compositor aberto — confirme na janela do perfil"
             fala("   ✓ %s: %s (+%.1fs)" % (nome(d.rede_id), d.desfecho, d.quando))
         except Exception as e:  # a leva não cai por causa de uma rede
             d.desfecho = "falhou"
@@ -624,16 +642,19 @@ async def publicar_em_todas(perfil: dict, contas: list[dict], conteudo: dict,
     await asyncio.gather(*(uma(d, a) for d, a in zip(vao, atrasos)))
 
     publicadas = sum(1 for d in plano if d.desfecho == "publicado")
+    preenchidas = sum(1 for d in plano if d.desfecho == "preenchido")
     assistidas = sum(1 for d in plano if d.desfecho == "assistido")
     falhas = sum(1 for d in plano if d.desfecho == "falhou")
-    fala("📣 leva encerrada: %d publicada(s), %d aguardando confirmação, %d falha(s)"
-         % (publicadas, assistidas, falhas))
+    fala("📣 leva encerrada: %d publicada(s), %d preenchida(s) esperando o seu "
+         "clique, %d aberta(s), %d falha(s)"
+         % (publicadas, preenchidas, assistidas, falhas))
 
     return {
         "ok": falhas == 0,
         "simulado": simular,
         "publicadas": publicadas,
         "assistidas": assistidas,
+        "preenchidas": preenchidas,
         "falhas": falhas,
         "rotacao_ip": rotacao,
         "plano": [d.como_dict() for d in plano],
@@ -757,13 +778,23 @@ async def _publicar_instagram(perfil: dict, d: Alvo) -> dict:
     )
 
 
-async def _abrir_compositor(perfil: dict, d: Alvo) -> dict:
-    """Modo assistido: abre o compositor da rede na janela do perfil.
+async def _abrir_compositor(perfil: dict, d: Alvo,
+                            auto_publicar: bool = False) -> dict:
+    """Abre o compositor da rede na janela do perfil — e PREENCHE, se houver
+    receita medida para ela.
 
     Uma aba por rede, na MESMA janela — é o que uma pessoa faz, e é o que
-    mantém a leva dentro de uma sessão e de uma época de IP. A publicação em si
-    é confirmada pelo usuário até o fluxo daquela rede ser medido.
+    mantém a leva dentro de uma sessão e de uma época de IP.
+
+    Rede com receita em `publicador.RECEITAS` recebe o arquivo e a legenda e
+    para **antes do clique final**; só aperta publicar se `auto_publicar`, que
+    a leva liga por rede, depois daquela rede ter acertado uma vez (decisão do
+    usuário em 13/10). Rede sem receita continua como era: abre e espera você.
+
+    Falha ao preencher NÃO derruba a aba: ela fica aberta no ponto onde parou,
+    com o que já entrou. Fechar seria jogar fora o upload e obrigar a refazer.
     """
+    import publicador as pub
     import session_manager as sm
 
     r = rede(d.rede_id) or {}
@@ -771,9 +802,24 @@ async def _abrir_compositor(perfil: dict, d: Alvo) -> dict:
     if not url:
         raise ValueError("não sei onde fica o compositor do %s" % nome(d.rede_id))
 
-    await sm.abrir_aba(perfil, url)
-    # A arte COMPOSTA é o que você vai arrastar para o compositor da rede — não
-    # a imagem crua, que não tem o chip.
-    return {"compositor": url, "arquivo": d.arquivo_composto or d.arquivo,
-            "capa": d.capa_composta or "",
+    # A arte COMPOSTA é o que vai para a rede — não a imagem crua, que não tem
+    # o chip desenhado.
+    arte = d.arquivo_composto or d.arquivo
+    base = {"compositor": url, "arquivo": arte, "capa": d.capa_composta or "",
             "legenda": d.legenda, "destino": d.destino, "formato": d.formato}
+
+    if not pub.tem_receita(d.rede_id):
+        await sm.abrir_aba(perfil, url)
+        base["modo"] = "assistido"
+        return base
+
+    async def _na_aba(page):
+        feito = await pub.preencher(page, d.rede_id, arte, d.legenda)
+        if auto_publicar:
+            feito.update(await pub.apertar_publicar(page, d.rede_id))
+        return feito
+
+    aberta = await sm.abrir_aba(perfil, url, fn=_na_aba)
+    base.update(aberta.get("resultado") or {})
+    base["modo"] = "publicado" if base.get("publicou") else "preenchido"
+    return base

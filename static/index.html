@@ -432,6 +432,13 @@
           <textarea id="st-legenda" rows="2" oninput="storyPrevias()" placeholder="O feed do Instagram não tem link clicável — cole o link aqui, é por onde a pessoa copia."
                     style="width:100%;box-sizing:border-box;padding:8px 10px;background:var(--surface);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;resize:vertical"></textarea>
         </div>
+        <div style="margin-top:8px;display:flex;align-items:flex-start;gap:6px">
+          <input type="checkbox" id="st-auto-publicar" style="margin-top:3px">
+          <label for="st-auto-publicar" class="form-hint" style="margin:0;cursor:pointer">
+            Deixar as redes <b>já medidas</b> apertarem publicar sozinhas.
+            <span style="color:#f59e0b">Só marque depois de ver uma leva preencher a tela certo</span> — desmarcado, elas param antes do clique e você confere.
+          </label>
+        </div>
         <div id="st-aviso-feed" class="form-hint" style="margin-top:6px;display:none;color:#f59e0b">
           <span id="st-aviso-feed-txt">⚠ No <b>feed</b> o chip fica só <b>desenhado</b> — o Instagram não tem link clicável em post, nem na legenda. Quem leva a pessoa ao destino é o texto, não o toque.</span>
         </div>
@@ -2379,6 +2386,10 @@ async function _storyPlanoEDesenho() {
     fd.append('destino', destino);
     fd.append('link', storyComChip() ? (document.getElementById('st-link').value || '') : '');
     fd.append('personalizacoes', JSON.stringify(_pbPers));
+  // Só vai lista aqui se o usuário marcou "pode publicar sozinho". Vazio = a
+  // rede medida preenche a tela e PARA, que é o padrão.
+  fd.append('auto_publicar', document.getElementById('st-auto-publicar')?.checked
+    ? _pbRedes.filter(x => x.tem_receita).map(x => x.id).join(',') : '');
     const r = await apiForm('POST', '/redes/plano', fd);
     _pbPlano = r.plano || [];
   } catch (e) {
@@ -2405,7 +2416,9 @@ function _storyDesenharCartoes() {
     const meta = _pbFormatos[d.formato] || {};
     const px = meta.px || [1080, 1920];
     const borda = !d.publica ? 'var(--border)' : (temPers ? '#818cf8' : (marcada ? '#22c55e' : 'var(--border)'));
-    const selo = d.transporte === 'instagrapi' ? '⚡ sozinho' : '🖐 assistido';
+    const _r0 = _pbRedes.find(x => x.id === d.rede) || {};
+    const selo = d.transporte === 'instagrapi' ? '⚡ sozinho'
+               : (_r0.tem_receita ? '✎ preenche' : '🖐 assistido');
     // A prévia usa object-fit: contain sobre aspect-ratio, que é exatamente o
     // que o `_encaixar` faz no Pillow; o chip usa as MESMAS coordenadas 0-1.
     const previa = temImagem
@@ -2635,7 +2648,7 @@ async function storyPublicarLeva(btn) {
     storyRenderLeva(r);
     st.textContent = r.simulado
       ? 'Simulação concluída — nada foi publicado.'
-      : `${r.publicadas} publicada(s), ${r.assistidas} aguardando confirmação, ${r.falhas} falha(s).`;
+      : `${r.publicadas} publicada(s), ${r.preenchidas || 0} preenchida(s) esperando o seu clique, ${r.assistidas} aberta(s), ${r.falhas} falha(s).`;
     toast(r.simulado ? '◌ Simulação concluída' : '📣 Leva encerrada', r.falhas ? 'error' : 'success');
   } catch (e) {
     st.textContent = 'Falhou: ' + e.message;
@@ -2647,9 +2660,10 @@ async function storyPublicarLeva(btn) {
 
 function storyRenderLeva(r) {
   const linhas = (r.plano || []).map(d => {
-    const icone = { publicado: '✓', assistido: '🖐', simulado: '◌', falhou: '✗' }[d.desfecho] || '⤫';
+    const icone = { publicado: '✓', preenchido: '✎', assistido: '🖐', simulado: '◌', falhou: '✗' }[d.desfecho] || '⤫';
     const cor = d.desfecho === 'falhou' ? '#ef4444'
               : d.desfecho === 'publicado' ? '#22c55e'
+              : d.desfecho === 'preenchido' ? '#818cf8'
               : d.desfecho ? 'var(--text)' : 'var(--muted)';
     const quando = d.publica && d.quando ? ` <span style="color:var(--muted)">+${d.quando.toFixed(1)}s</span>` : '';
     return `<tr>
