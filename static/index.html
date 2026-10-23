@@ -1974,14 +1974,16 @@
     <div class="form-hint" style="margin-bottom:12px">Escolha o navegador. A diferença não é só de janela.</div>
 
     <div style="border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:10px">
-      <div style="font-weight:600;font-size:13px;margin-bottom:4px">🦊 Camoufox (seguro) — e eu consigo <b>medir</b></div>
-      <div class="form-hint">O perfil antidetect da conta: cookies isolados e IP do modem rotacionado antes de entrar. <b>É o único que eu consigo ler</b> — o Chrome é lançado solto, sem Playwright no meio, então ali eu não enxergo a tela.</div>
+      <div style="font-weight:600;font-size:13px;margin-bottom:4px">🦊 Camoufox <span style="color:#22c55e">— recomendado</span></div>
+      <div class="form-hint">O perfil antidetect da conta: cookies isolados e IP do modem rotacionado antes de entrar.</div>
+      <div class="form-hint" style="margin-top:4px"><b>É ele que publica</b>, então o que for medido aqui é exatamente o que o fluxo vai encontrar. Medir no Chrome arrisca ler outra conta — Premium no X, ou business no TikTok, mudam a tela — e aí o seletor não bate.</div>
+      <div class="form-hint" style="margin-top:4px">E a medição aqui <b>já responde se a sessão existe</b>: se abrir o compositor, está logada; se cair no login, o cookie precisa ser importado (o que seria necessário para publicar de qualquer forma).</div>
       <button class="btn btn-success" style="margin-top:8px;width:100%" onclick="oaConfirmar('camoufox')">Abrir no Camoufox e medir</button>
     </div>
 
     <div style="border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:10px">
-      <div style="font-weight:600;font-size:13px;margin-bottom:4px">🌐 Chrome de sempre — com os <b>seus logins</b></div>
-      <div class="form-hint">Serve quando a conta nasceu no Chrome e a sessão está lá. <b>Feche todas as janelas do Chrome antes</b> — ele tranca o perfil para si, e eu preciso dele só para mim.</div>
+      <div style="font-weight:600;font-size:13px;margin-bottom:4px">🌐 Chrome de sempre <span style="color:var(--muted)">— saída de emergência</span></div>
+      <div class="form-hint">Só quando a conta nasceu no Chrome e a sessão <b>não existe</b> no perfil Camoufox. <b>Feche todas as janelas do Chrome antes</b> — ele tranca o perfil para si, e eu preciso dele só para mim.</div>
       <div class="form-hint" style="color:#f59e0b;margin-top:4px">⚠ É o navegador da sua identidade real, saindo pelo mesmo modem das contas descartáveis (a correlação de 16/08). Medir só lê a tela, mas a sessão fica exposta ao mesmo IP.</div>
       <button class="btn" style="margin-top:8px;width:100%" onclick="oaConfirmar('chrome')">Abrir no Chrome de sempre e medir</button>
     </div>
