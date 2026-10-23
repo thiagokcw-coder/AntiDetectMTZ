@@ -182,9 +182,43 @@ except RuntimeError as e:
 t(not [a for a in pg.acoes if a[0] == "click"], "sem nenhum clique")
 
 
+# ══ Facebook: anel por role, porque aria-label carrega o NOME DA CONTA ═══
+# Medido em 23/10: o editor e `div[aria-label="Em que estas a pensar,
+# Uncensored?"]` -- nome da conta E idioma dentro do seletor. Por isso a receita
+# ancora em role=textbox, que e unico na tela (a busca e input/combobox).
+MAPA_FB = {
+    'input[type="file"][accept*="image"]': {},
+    'div[role="textbox"][contenteditable="true"]': {},
+    'div[aria-label="Publicar"]': {"habilitado": False},
+}
+pg = Page(MAPA_FB)
+r = asyncio.run(pub.preencher(pg, "facebook", "/tmp/arte.jpg", "oi pessoal"))
+t(r["legenda"] == 'div[role="textbox"][contenteditable="true"]',
+  "ancora no papel, nunca no aria-label que tem o nome da conta")
+t(r["arquivo"] == 'input[type="file"][accept*="image"]',
+  "e filtra o input pelo accept: o terceiro da tela e so video")
+t(r["publicar_habilitado"] is False,
+  "relata que o botao ainda esta desabilitado em vez de fingir que esta pronto")
+t(r["publicou"] is False, "e nao publica")
+
+# o botao de publicar e LOCALIZADO; a receita lista idiomas em vez de assumir um
+MAPA_EN = {
+    'input[type="file"][accept*="image"]': {},
+    'div[role="textbox"][contenteditable="true"]': {},
+    'div[aria-label="Post"]': {},
+}
+r = asyncio.run(pub.preencher(Page(MAPA_EN), "facebook", "", "hello"))
+t(r["publicar"] == 'div[aria-label="Post"]',
+  "interface em ingles tambem acha o botao")
+
+t(pub.receita("facebook")["url"].endswith("/post/create"),
+  "vai direto para o compositor, sem depender do gatilho do feed")
+
+
 # ══ Rede sem receita ═════════════════════════════════════════════════════
-t(pub.tem_receita("x") and pub.tem_receita("tiktok"), "X e TikTok tem receita")
-for sem in ("youtube", "kwai", "facebook", "threads", "telegram"):
+t(pub.tem_receita("x") and pub.tem_receita("tiktok") and pub.tem_receita("facebook"),
+  "X, TikTok e Facebook tem receita")
+for sem in ("youtube", "kwai", "threads", "telegram"):
     t(not pub.tem_receita(sem), "%s ainda nao foi medido" % sem)
 try:
     asyncio.run(pub.preencher(Page({}), "youtube", "/tmp/a.mp4", "x"))

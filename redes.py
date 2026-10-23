@@ -131,7 +131,10 @@ REDES: tuple[dict, ...] = (
         "cookie_dominios": ['facebook.com'],
         "cookie_chaves": ['c_user', 'xs'],
         "site": "https://www.facebook.com/",
-        "compositor": "https://www.facebook.com/",
+        # MEDIDO em 23/10: clicar em "Em que estás a pensar" leva para
+        # /post/create, ou seja, o compositor TEM url propria. Antes isto
+        # apontava para a home, que era o chute de quem nunca tinha olhado.
+        "compositor": "https://www.facebook.com/post/create",
         "formatos": ("imagem", "video", "texto"),
         "legenda_max": 63206,
         "medido": False,

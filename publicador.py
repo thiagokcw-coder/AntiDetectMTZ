@@ -68,6 +68,40 @@ RECEITAS: dict[str, dict] = {
         "nota": "aceita jpeg/png/webp/gif e mp4/mov; o botão nasce desabilitado "
                 "e habilita quando há texto ou mídia",
     },
+    "facebook": {
+        # MEDIDO em 23/10, nas duas telas. O achado que simplificou tudo: o
+        # compositor TEM url própria — clicar em "Em que estás a pensar" leva
+        # para /post/create. O gatilho do feed é um `div` só com classe atômica
+        # (`x1n2onr6 x1ja2u2z …`) e texto que carrega o NOME DA CONTA, ou seja,
+        # um seletor que muda de conta para conta; ir direto pela URL evita ter
+        # que depender dele.
+        "url": "https://www.facebook.com/post/create",
+        # Três inputs de arquivo na tela, todos ocultos. Os dois do compositor
+        # aceitam imagem E vídeo; o terceiro (no `body`) é só vídeo. Filtrar por
+        # `accept` com imagem separa os certos — as classes (`x1s85apg`) são CSS
+        # atômico do design system da Meta e mudam sozinhas.
+        "arquivo": ['input[type="file"][accept*="image"]',
+                    'input[type="file"]'],
+        "depois_do_arquivo": "",
+        # ⚠ O editor NÃO tem data-testid. O `aria-label` seria o anel mais
+        # firme, mas ele é "Em que estás a pensar, Uncensored?" — carrega o nome
+        # da conta E o idioma. `role=textbox` num `div` é o que sobra, e é
+        # único na tela: o outro campo é a busca, que é `input` com
+        # `role=combobox`.
+        "legenda": ['div[role="textbox"][contenteditable="true"]',
+                    'div[role="textbox"]'],
+        # Localizado, e não há alternativa: a Meta não expõe testid aqui. Lista
+        # os idiomas em vez de assumir um. Nasce DESABILITADO com a tela vazia e
+        # habilita quando há texto ou mídia — `preencher` relata isso.
+        "publicar": ['div[aria-label="Publicar"]', 'div[aria-label="Post"]',
+                     'div[aria-label="Publicar"][role="button"]'],
+        "medido_em": "2026-10-23",
+        "nota": "⚠ a conta está com a interface em português de PORTUGAL ('Em "
+                "que estás a pensar', 'Vídeo em direto') — os seletores de "
+                "aria-label dependem disso. ⚠ anexar o arquivo direto no input "
+                "NÃO foi exercitado: pode ser preciso clicar em 'Foto/vídeo' "
+                "antes. A leva para antes de publicar, então dá para ver.",
+    },
     "tiktok": {
         "url": "https://www.tiktok.com/tiktokstudio/upload",
         # Medido em 23/10, nas DUAS telas. A ordem importa e não é obvia: o
