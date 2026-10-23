@@ -7,6 +7,114 @@
 
 ---
 
+## 2026-10-23 — As redes param de ser "assistidas": seletores MEDIDOS, tela por tela
+
+Pedido que abriu tudo (14/10): *"a aba de publicar é dedicada a facilitar a postagem em
+várias redes sociais para que não seja feito uma a uma, siga de acordo"*. Nove dias depois,
+**X, TikTok e Facebook preenchem o compositor sozinhos** — com seletores lidos da tela, não
+escritos de cabeça.
+
+### 🔬 O medidor, e os dois erros dele que o uso real expôs
+
+A primeira medição do TikTok voltou com ZERO de tudo. A foto explicou: era o **spinner**.
+O medidor dormia 5s fixos e lia o DOM antes do SPA montar. Pior que não medir, o resumo
+dizia *"0 campo(s) de arquivo, 0 de texto, 0 botão"* — **relatório falso**, afirmando que
+procurou. Virou `_esperar_conteudo`: espera a tela APARECER (conta elementos até um piso,
+com timeout) e, quando não aparece, diz *"ainda estava CARREGANDO"* em vez de "0 campos".
+
+O segundo erro era de **cronologia**, e mais grave. Compositor é um fluxo de ETAPAS: no
+TikTok o `input[type=file]` só existe ANTES do vídeo entrar, e o botão de publicar só
+DEPOIS. Uma foto na abertura não pode ver os dois — não por falha, por ordem. Daí
+`medir(abrir=False)`, que mede a aba JÁ ABERTA quantas vezes forem precisas, com um rótulo
+de etapa.
+
+E duas cegueiras do leitor, as duas achadas pela tela real:
+- **O controle principal do TikTok não é um `<button>`.** O "Selecionar vídeo" é um `div`
+  com `cursor:pointer`. A lista de botões passava por cima do item mais importante da tela.
+  Entrou uma lista separada de `clicaveis` — separada de propósito, porque é palpite
+  estrutural e misturar faria o relatório parecer mais certo do que é.
+- **`querySelectorAll` não atravessa shadow root.** Um input escondido ali viraria "não
+  achei" sobre algo que existe.
+
+A regra "está visível" também errou: exigir largura **e** altura > 1 dá falso negativo,
+porque elemento em bloco herda a largura do pai e num viewport degenerado isso é zero.
+
+### 🩸 O bug que matava TODA leva com arquivo
+
+Em `/redes/publicar`, `destino` é o parâmetro do formulário, e dentro do `if arquivo` a
+variável era **sobrescrita pelo caminho do arquivo salvo**. O `montar_plano` recebia um
+`Path` e morria com `'WindowsPath' object has no attribute 'strip'` — **inclusive em
+simulação**. A prévia não salva arquivo e por isso sempre pareceu certa: o que nunca
+funcionou foi o botão Publicar. O conserto não foi renomear: o salvamento saiu para
+`_salvar_da_leva()`, e assim o erro deixa de ser *possível*.
+
+### 🎬 Reels, sem instalar nada
+
+`clip_upload` com a capa pronta. Medido no instagrapi 2.18.15: largura/altura/duração saem
+do MP4 por parser próprio em Python; MoviePy só seria preciso para GERAR a thumbnail. **A
+capa é a arte** — é ela que aparece na grade do perfil, então é nela que o chip vai.
+
+### 🌐 Medir pelo Chrome
+
+A pedido. Eu tinha dito que era impossível; era limitação de COMO o app abria o Chrome
+(`subprocess.Popen`, solto), não do Chrome. Playwright dirige por `channel="chrome"`.
+Fica como saída de emergência: o Camoufox é o recomendado porque **é ele que publica**, e
+medir no Chrome arrisca ler outra conta (Premium no X, business no TikTok mudam a tela).
+
+### 📏 As três receitas, e o que cada tela ensinou
+
+| rede | arquivo | legenda | publicar |
+|---|---|---|---|
+| X | `input[data-testid="fileInput"]` | `div[data-testid="tweetTextarea_0"]` | `button[data-testid="tweetButton"]` |
+| TikTok | `[data-e2e="select_video_container"] input` | `.caption-editor` | `button[data-e2e="post_video_button"]` |
+| Facebook | `input[type=file][accept*="image"]` | `div[role=textbox]` | `div[aria-label="Publicar"]` |
+
+**Três armadilhas que o código trata:**
+1. **Os editores são Draft.js/Lexical.** `fill()` deixa o DOM com cara de preenchido e o
+   estado interno vazio — a publicação sairia SEM legenda e ninguém veria. Só teclado.
+2. **O TikTok pré-preenche a legenda com o NOME DO ARQUIVO.** Sem limpar, sai
+   "YTDown.com_Shorts_Media_…". Limpar virou regra em toda rede.
+3. **O X tem DOIS `fileInput` e DOIS `tweetTextarea_0`** (modal + linha do tempo atrás).
+   Escrever no errado não levanta erro. Por isso `_escrever` **confere que o texto voltou**
+   e tenta o próximo candidato se não voltou.
+
+**O Facebook é o mais frágil dos três:** a Meta não expõe `data-testid` nenhum no
+compositor. Sobram `aria-label` (localizado) e classes atômicas (`x1s85apg`, que mudam
+sozinhas). O `aria-label` do editor é *"Em que estás a pensar, **Uncensored**?"* — nome da
+conta E idioma dentro do seletor —, por isso a âncora é `role=textbox`. A conta está com
+interface em português de **Portugal**.
+
+**Achado que simplificou:** o compositor do Facebook tem URL própria,
+`facebook.com/post/create`, confirmada medindo direto nela. O registro apontava para a
+home, chute de quem nunca tinha olhado.
+
+### ✋ Onde o motor para
+
+`preencher` **nunca** clica em publicar. Publicar é `apertar_publicar`, chamada separada, e
+a leva só chega lá com a rede na lista `auto_publicar` — que nasce vazia. Decisão do
+usuário em 13/10: preenche e para na primeira vez de cada rede; publica sozinho depois que
+aquela rede acertar uma vez. Mesmo espírito do `dryRun` do InstaFollow.
+
+### 🧪 Os testes passaram a ser versionados — porque a suíte sumiu
+
+As ~393 asserções viviam no scratchpad, fora do git. As pastas temporárias foram limpas e
+**sumiram todas**, no meio de uma mudança. Agora moram em `tests/` (81 asserções: login,
+medidor-Chrome, publicador). Daqui para frente o que for escrito nasce lá.
+
+E um erro meu no caminho: o teste do medidor fazia `rmtree` na pasta inteira no fim, e
+`data/_compositores` guarda as medições REAIS — **apagou dois relatórios do usuário**.
+Passou a limpar só o que ele próprio criou, e a contar quantos reais preservou.
+
+### ⚠ O que segue não exercitado
+- **Nenhuma das três receitas rodou contra a rede real.** O próximo passo é uma leva com
+  simulação desligada e o checkbox DESMARCADO: as abas abrem preenchidas e esperam.
+- No Facebook, **anexar o arquivo direto no input não foi exercitado** — pode ser preciso
+  clicar em "Foto/vídeo" antes. A leva para antes de publicar, então dá para ver.
+- Reels nunca rodou contra o Instagram.
+- Faltam medir: Threads, YouTube, Kwai, Telegram.
+
+---
+
 ## 2026-10-13 (6) — Abrir no Chrome, sessão por cookie em qualquer rede, medir o compositor, Reels
 
 Sessão longa, seis entregas. A linha que liga todas: a aba Publicar existe para publicar em

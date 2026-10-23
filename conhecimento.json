@@ -1,11 +1,115 @@
 {
-  "atualizado": "2026-10-13",
+  "atualizado": "2026-10-23",
   "objetivo": {
     "produto": "NOTIFICAR. O follow existe para entregar a notificação, e o nome da conta (ex.: 10122.capitaomartim = nome + número) é a carga que viaja nela. Seguir de volta e converter para grupo são secundários.",
     "indicador": "entregas = contas × dias de vida × ritmo",
     "alvos": "12 perfis de mídia local do RS"
   },
   "itens": [
+    {
+      "area": "story",
+      "estado": "funciona",
+      "data": "2026-10-23",
+      "titulo": "X, TikTok e Facebook preenchem o compositor sozinhos",
+      "detalhe": "`publicador.py` leva arquivo e legenda ate a tela e PARA antes do clique final. Publicar e chamada separada (`apertar_publicar`) e so acontece com a rede na lista `auto_publicar`, que nasce vazia.",
+      "evidencia": "Seletores lidos da tela real em 23/10, com a data em cada receita: X `data-testid=tweetButton/fileInput/tweetTextarea_0`; TikTok `data-e2e=post_video_button` e `select_video_container`; Facebook `role=textbox` e `aria-label=Publicar`. 44 assercoes em tests/test_publicador.py."
+    },
+    {
+      "area": "story",
+      "estado": "licao",
+      "data": "2026-10-23",
+      "titulo": "Os editores das redes sao Draft.js: `fill()` nao funciona neles",
+      "detalhe": "X, TikTok e Facebook usam editor rico. `fill()` e escrever em `value` deixam o DOM com cara de preenchido e o estado interno VAZIO -- a publicacao sai sem legenda e ninguem ve o erro ate depois de publicar. So evento de teclado entra.",
+      "evidencia": "Os tres medidos: `div[data-testid=tweetTextarea_0]`, `.caption-editor > .DraftEditor-root`, `div[role=textbox][contenteditable]`. O teste proibe `fill` explicitamente."
+    },
+    {
+      "area": "story",
+      "estado": "sinal",
+      "data": "2026-10-23",
+      "titulo": "O TikTok pre-preenche a legenda com o NOME DO ARQUIVO",
+      "detalhe": "Ao subir o video, a descricao ja vem com o nome do arquivo. Sem limpar antes, a legenda publicada sai 'YTDown.com_Shorts_Media_...'. Limpar virou regra em toda rede -- campo ja vazio nao custa nada para limpar.",
+      "evidencia": "Visto na previa da propria tela do TikTok Studio em 14/10 e de novo em 23/10. O relatorio do medidor nao pega isso porque ele nunca le valor de campo; so a foto mostra."
+    },
+    {
+      "area": "story",
+      "estado": "licao",
+      "data": "2026-10-23",
+      "titulo": "O X tem DOIS compositores na mesma pagina",
+      "detalhe": "`fileInput` e `tweetTextarea_0` aparecem duas vezes: o compositor do modal e o da linha do tempo atras dele. Escrever no errado nao levanta erro nenhum -- so sai publicacao sem legenda.",
+      "evidencia": "Medido em 23/10 (dois de cada no relatorio). O codigo tenta os candidatos em ordem e CONFERE que o texto voltou, descartando o editor que engole."
+    },
+    {
+      "area": "story",
+      "estado": "licao",
+      "data": "2026-10-23",
+      "titulo": "O Facebook e o mais fragil: a Meta nao expoe testid no compositor",
+      "detalhe": "Onde X e TikTok dao ancoras de teste, no Facebook sobram `aria-label` (localizado) e classes atomicas (`x1s85apg`) que mudam sozinhas. O aria-label do editor e 'Em que estas a pensar, Uncensored?' -- carrega o NOME DA CONTA e o idioma, entao a ancora tem de ser `role=textbox`.",
+      "evidencia": "Cinco medicoes em 23/10. A conta esta com interface em portugues de PORTUGAL, do que os seletores de aria-label dependem."
+    },
+    {
+      "area": "story",
+      "estado": "funciona",
+      "data": "2026-10-23",
+      "titulo": "O compositor do Facebook tem URL propria: /post/create",
+      "detalhe": "Clicar em 'Em que estas a pensar' navega para facebook.com/post/create, e ir direto nessa URL abre o compositor. Evita depender do gatilho do feed, que e um div so com classe atomica e texto que inclui o nome da conta.",
+      "evidencia": "Medido duas vezes indo DIRETO na URL (16:26 e 16:27 de 23/10): o editor, o input de arquivo e o botao Publicar renderizaram todos. O registro antes apontava para a home, que era chute."
+    },
+    {
+      "area": "processo",
+      "estado": "licao",
+      "data": "2026-10-23",
+      "titulo": "Relatorio que diz '0 encontrados' sem ter carregado e relatorio FALSO",
+      "detalhe": "O medidor dormia 5s fixos e leu o spinner do TikTok: DOM vazio, e o resumo dizia '0 campo de arquivo, 0 de texto, 0 botao' como se tivesse procurado. Passou a esperar a tela APARECER (conta elementos ate um piso) e, quando nao aparece, a dizer 'ainda estava CARREGANDO'.",
+      "evidencia": "A foto do relatorio era o spinner de duas bolinhas do TikTok. Depois do conserto, a mesma tela deu 14 elementos em 6s."
+    },
+    {
+      "area": "processo",
+      "estado": "licao",
+      "data": "2026-10-23",
+      "titulo": "Compositor e um FLUXO de etapas, nao uma tela",
+      "detalhe": "No TikTok o `input[type=file]` so existe ANTES do video entrar e o botao de publicar so DEPOIS. Uma leitura na abertura nao pode ver os dois -- nao por falha, por cronologia. O medidor passou a medir a aba JA ABERTA quantas vezes for preciso, com rotulo de etapa.",
+      "evidencia": "Medido nas duas telas em 23/10: abertura = 0 textos e 1 input; com o video dentro = 2 textos, 0 inputs e o post_video_button habilitado."
+    },
+    {
+      "area": "processo",
+      "estado": "licao",
+      "data": "2026-10-23",
+      "titulo": "Nem todo controle clicavel e um <button>",
+      "detalhe": "O 'Selecionar video' do TikTok Studio e um `div` com cursor:pointer, sem role=button. Coletar so button/[role=button] passava por cima do controle mais importante da tela. E `querySelectorAll` nao atravessa shadow root.",
+      "evidencia": "Medido em 23/10: o leitor listava 9 itens do menu lateral e nenhum controle de upload. Com a lista de `clicaveis` por cursor:pointer, achou `div[data-e2e=select_video_container]`."
+    },
+    {
+      "area": "processo",
+      "estado": "nao_funciona",
+      "data": "2026-10-23",
+      "titulo": "Testes no scratchpad somem: as ~393 assercoes foram perdidas",
+      "detalhe": "A suite sempre viveu fora do git, em pasta temporaria de sessao. As pastas foram limpas e tudo sumiu de uma vez, no meio de uma mudanca -- sem como provar que uma linha alterada nao tinha quebrado nada. Agora moram em `tests/`, versionadas.",
+      "evidencia": "Nenhum arquivo de teste sobrou em nenhuma das 43 pastas de sessao. Recomecado com 81 assercoes versionadas (login, medidor-Chrome, publicador)."
+    },
+    {
+      "area": "processo",
+      "estado": "licao",
+      "data": "2026-10-23",
+      "titulo": "Teste que limpa pasta inteira apaga dado real",
+      "detalhe": "O teste do medidor fazia `rmtree` em `data/_compositores` no fim, e essa pasta guarda as medicoes REAIS do usuario -- apagou dois relatorios. Passou a guardar o que existia ANTES e limpar so o que ele proprio criou.",
+      "evidencia": "Dois relatorios do TikTok perdidos em 14/10. Hoje o teste imprime quantos preservou."
+    },
+    {
+      "area": "contas",
+      "estado": "funciona",
+      "data": "2026-10-23",
+      "titulo": "O limite de legenda do TikTok e 4000, nao 2200",
+      "detalhe": "O registro dizia 2200, numero que eu tinha posto de cabeca, e teria recusado legenda boa.",
+      "evidencia": "O contador do campo na tela do TikTok Studio dizia '92/4000' (23/10)."
+    },
+    {
+      "area": "story",
+      "estado": "aberto",
+      "data": "2026-10-23",
+      "titulo": "Nenhuma das tres receitas rodou contra a rede real",
+      "detalhe": "O proximo passo e uma leva com simulacao desligada e o checkbox de publicar sozinho DESMARCADO: as abas abrem preenchidas e esperam o clique. No Facebook, anexar o arquivo direto no input tambem nao foi exercitado -- pode ser preciso clicar em 'Foto/video' antes.",
+      "evidencia": "44 assercoes com pagina duble cobrem o motor, mas o Playwright nunca tocou nessas telas. Como a leva para antes de publicar, o custo de errar e zero."
+    },
     {
       "area": "contas",
       "estado": "funciona",

@@ -503,6 +503,56 @@ Apagar PERFIL faz **cascata** (api.py remove emails+contas vinculados) → perdi
 ## Aquecimento: só NAVEGADOR no app; CONTA é no celular (2026-06-17)
 Decisão do usuário: o app só aquece o **navegador/perfil** (warm_pool, "Aquecer navegador antes de abrir", botão 🔥 Aquecer na aba Perfis, warmupProfile). O **aquecimento da CONTA** (atividade no IG) passa a ser feito **no celular** — removido da UI: na aba **Contas** (badge "📷 conta fria/✓" e botão "🔥 Aquecer" da conta + linha "Conta aquecida (IG)" e botão no modal de detalhes), e o botão "🔥 Aquecer conta agora"/"Aquecer conta no Instagram" do workspace de criação (já oculto). Mantido o status/aquecimento do **navegador** ("🌐 navegador ✓/frio"). Funções/endpoints mortos (`warmAccount`, `igWarmup`, `igWarmupActive`, `/accounts/{id}/warmup`, `/instagram/warmup`) seguem no código sem botão. "Comece aqui" já dizia "amadureça no Android". **Botão "🔥 Aquecer navegador" na aba Contas** (`warmBrowser` → `/profiles/{id}/warmup-profile`): como o de conta saiu, esse aquece o NAVEGADOR direto da Contas (o "navegador frio" tinha ficado sem ação). Path de API dos endpoints aqui usa `/` normal (os `\` que aparecem no grep/Read são artefato de exibição — confirmado em runtime: `/profiles/{id}/warmup-profile`). **Status/contagem do aquecimento do navegador:** `api._profile_warming` (dict in-memory `{profile_id: epoch_fim}`) setado no `/profiles/{id}/warmup-profile` e limpo no `finally`; `/accounts` injeta `profile_warming:{active,remaining_seconds}`; a aba Contas mostra badge "🔥 aquecendo MM" + botão desabilitado com contagem (atualiza no poll de 3s via `fmtCountdown`).
 
+## ✎ X, TIKTOK E FACEBOOK PREENCHEM O COMPOSITOR (`publicador.py`, 2026-10-23)
+
+As três foram medidas ao vivo e têm receita. A leva deixa de só ABRIR o compositor: leva o
+arquivo e a legenda até a tela e **para antes do clique final**.
+
+| rede | arquivo | legenda | publicar |
+|---|---|---|---|
+| X | `input[data-testid="fileInput"]` | `div[data-testid="tweetTextarea_0"]` | `button[data-testid="tweetButton"]` |
+| TikTok | `[data-e2e="select_video_container"] input` | `.caption-editor` | `button[data-e2e="post_video_button"]` |
+| Facebook | `input[type=file][accept*="image"]` | `div[role=textbox]` | `div[aria-label="Publicar"]` |
+
+**⚠ AS TRÊS ARMADILHAS, todas medidas — não mexer sem saber delas:**
+1. **Os editores são Draft.js/Lexical.** `fill()` deixa o DOM com cara de preenchido e o
+   estado interno VAZIO: a publicação sai sem legenda e ninguém vê. **Só teclado**
+   (`click` → `Control+A` → `Delete` → `keyboard.type`).
+2. **O TikTok pré-preenche a legenda com o NOME DO ARQUIVO.** Limpar antes é obrigatório, e
+   virou regra em toda rede.
+3. **O X tem DOIS `fileInput` e DOIS `tweetTextarea_0`** (modal + linha do tempo atrás).
+   Escrever no errado não levanta erro. Por isso `_escrever` **confere que o texto voltou**
+   e tenta o próximo candidato.
+
+**O Facebook é o mais frágil:** a Meta não expõe `data-testid` no compositor. Sobram
+`aria-label` (localizado — a conta está em português de **Portugal**) e classes atômicas
+(`x1s85apg`, que mudam sozinhas). O aria-label do editor carrega o **nome da conta** ("Em
+que estás a pensar, Uncensored?"), por isso a âncora é `role=textbox`. O compositor tem URL
+própria: **`facebook.com/post/create`**, confirmada medindo direto nela.
+
+**ONDE PARA:** `preencher` nunca clica em publicar. Publicar é `apertar_publicar`, chamada
+separada, e a leva só chega lá com a rede na lista `auto_publicar` — que **nasce vazia** e
+só enche pelo checkbox na aba. Decisão do usuário (13/10): preenche e para na primeira vez
+de cada rede; publica sozinho depois que aquela rede acertar uma vez. Botão desabilitado
+não é clicado. Falha ao preencher **não fecha a aba** — fechar jogaria fora o upload.
+
+**⚠ NENHUMA DAS TRÊS RODOU CONTRA A REDE REAL.** Primeira leva com simulação desligada e o
+checkbox DESMARCADO.
+
+## 🧪 OS TESTES AGORA SÃO VERSIONADOS — `tests/` (2026-10-23)
+
+As ~393 asserções viviam no **scratchpad**, fora do git. As pastas temporárias de sessão
+foram limpas e **sumiram todas de uma vez**, no meio de uma mudança — sem como provar que
+uma linha alterada não tinha quebrado nada.
+
+Recomeçado em **`tests/`**, versionado: `test_login_detect.py` · `test_medidor_chrome.py` ·
+`test_publicador.py`. Rodar com `venv\Scripts\python.exe tests\<arquivo>.py`. **O que for
+escrito daqui para frente nasce lá.**
+
+⚠ **Teste não limpa pasta inteira.** O do medidor fazia `rmtree` em `data/_compositores`,
+que guarda as medições REAIS, e apagou dois relatórios do usuário. Hoje guarda o que existia
+antes e remove só o que ele criou.
+
 ## 🔬 MEDIR O COMPOSITOR antes de automatizar cada rede (`compositor.py`, 2026-10-13)
 
 Pedido do usuário: *"a aba de publicar é dedicada a facilitar a postagem em várias redes
