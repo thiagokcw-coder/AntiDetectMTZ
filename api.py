@@ -1267,16 +1267,41 @@ def _os_perfil_novo() -> str:
     return "macos" if s == "Darwin" else "windows" if s == "Windows" else "linux"
 
 
+#: A partir de quantos dias sem agir uma conta conta como PARADA. Sete porque
+#: o rodízio do InstaFollow dá a volta em dias, não em semanas: conta que não
+#: trabalhou numa semana inteira não está descansando, está esquecida.
+DIAS_PARA_PARADA = 7
+
+
 @app.get("/accounts")
 def accounts_list():
     rows = acc.list_accounts()
-    # Anexa o estado do aquecimento do NAVEGADOR (contagem regressiva) p/ a UI.
+
+    # Quando cada conta agiu pela última vez. UMA consulta para todas
+    # (`follow_actions_resumo` já existe para ordenar o rodízio por descanso) —
+    # uma por conta seria N consultas para uma tela que recarrega a cada 3s.
+    #
+    # ⚠ A atividade medida é a do InstaFollow, que só existe no Instagram. Conta
+    # de outra rede aparece como "nunca agiu", o que é verdade: nada no app
+    # registra ação fora dali. A tela diz isso em vez de deixar o usuário supor.
+    try:
+        atividade = db.follow_actions_resumo(0)
+    except Exception:
+        atividade = {}
+    agora_ms = int(time.time() * 1000)
+
     for a in rows:
         pid = a.get("profile_id")
         if pid:
             st = _profile_warming_status(pid)
             if st.get("active"):
                 a["profile_warming"] = st
+
+        # A chave do limitador é o USERNAME da conta (ver follower.py).
+        _, ultimo = atividade.get(a.get("username") or "", (0, 0))
+        a["ultima_acao_ms"] = int(ultimo or 0)
+        a["parada_dias"] = (round((agora_ms - ultimo) / 86400000.0, 1)
+                            if ultimo else None)
     return rows
 
 

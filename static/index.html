@@ -1130,6 +1130,27 @@
         </div>
       </div>
 
+      <!-- FILTROS. Substituem os divisores que a tabela desenhava sozinha
+           ("ativas / em uso / com problema"): com filtro, agrupar por divisor
+           diz a mesma coisa duas vezes e ainda empurra as linhas para baixo. -->
+      <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:flex-end;margin-bottom:14px;padding:12px 14px;background:var(--surface);border:1px solid var(--border);border-radius:10px">
+        <div>
+          <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:5px">Estado</div>
+          <div id="ct-chips-estado" style="display:flex;gap:6px;flex-wrap:wrap"></div>
+        </div>
+        <div>
+          <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:5px">Tipo de conta</div>
+          <div id="ct-chips-rede" style="display:flex;gap:6px;flex-wrap:wrap"></div>
+        </div>
+        <div style="flex:1;min-width:170px">
+          <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:5px">Buscar</div>
+          <input id="ct-busca" type="search" placeholder="username, e-mail ou perfil"
+                 oninput="ctFiltrar('busca', this.value)"
+                 style="width:100%;box-sizing:border-box;padding:6px 10px;background:var(--bg);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:12px">
+        </div>
+        <button class="btn btn-ghost btn-sm" id="ct-limpar" onclick="ctLimparFiltros()" style="display:none">✕ limpar filtros</button>
+      </div>
+
       <div class="table-wrap">
         <table>
           <thead><tr>
@@ -4460,47 +4481,167 @@ async function loadAnalytics() {
 
 const _PROBLEM_STATUSES = ['checkpoint', 'banned', 'suspended', 'login_required'];
 
-function renderAccounts(list) {
-  const sub = document.getElementById('accounts-subtitle');
-  // Resumo por status no topo
-  let nActive = 0, nProblem = 0, nNoProfile = 0, nInUse = 0;
-  list.forEach(a => {
-    if (a.status === 'active') nActive++;
-    else if (a.status === 'in_use') nInUse++;
-    else if (_PROBLEM_STATUSES.includes(a.status)) nProblem++;
-    if (!a.profile_exists) nNoProfile++;
+/** A partir de quantos dias sem agir a conta conta como PARADA. Igual ao
+ * `DIAS_PARA_PARADA` do backend — os dois precisam concordar, senão o chip
+ * conta uma coisa e a linha diz outra. */
+const CT_DIAS_PARADA = 7;
+
+let _ctFiltro = { estado: '', rede: '', busca: '' };
+
+/** "Parada" = não agiu há CT_DIAS_PARADA dias, ou nunca agiu.
+ *
+ * ⚠ A atividade que o app registra é a do InstaFollow, que só existe no
+ * Instagram — conta de outra rede nunca agiu e cai aqui por isso. É verdade, e
+ * o chip diz o critério em vez de deixar o número sem explicação.
+ *
+ * Conta com PROBLEMA não é "parada": ela não está parada, está quebrada, e
+ * misturar as duas esconderia justamente a que precisa de ação. */
+function ctParada(a) {
+  if (_PROBLEM_STATUSES.includes(a.status)) return false;
+  return a.parada_dias === null || a.parada_dias === undefined
+    || a.parada_dias >= CT_DIAS_PARADA;
+}
+
+const CT_ESTADOS = [
+  { id: '',        rotulo: 'Todas',       dica: 'Sem filtro de estado' },
+  { id: 'active',  rotulo: '⚡ Ativas',    dica: 'Status "Ativa"',
+    fn: a => a.status === 'active' },
+  { id: 'in_use',  rotulo: '🤝 Em uso',    dica: 'Emprestadas — rótulo manual, não detectado',
+    fn: a => a.status === 'in_use' },
+  { id: 'parada',  rotulo: '⏸ Paradas',   dica: 'Sem nenhuma ação há ' + CT_DIAS_PARADA + ' dias ou mais (ou que nunca agiram)',
+    fn: ctParada },
+  { id: 'problema', rotulo: '⚠ Com problema', dica: 'Em suspensão, banida ou sessão expirada',
+    fn: a => _PROBLEM_STATUSES.includes(a.status) },
+];
+
+function ctFiltrar(campo, valor) {
+  _ctFiltro[campo] = valor;
+  renderAccounts(_accountsCache);
+}
+
+function ctLimparFiltros() {
+  _ctFiltro = { estado: '', rede: '', busca: '' };
+  const b = document.getElementById('ct-busca');
+  if (b) b.value = '';
+  renderAccounts(_accountsCache);
+}
+
+/** Aplica os filtros. Separado do desenho porque os CHIPS precisam contar
+ * sobre a lista inteira — um chip que mostrasse a contagem já filtrada daria
+ * zero em tudo assim que você clicasse no primeiro. */
+function ctAplicar(list) {
+  const est = CT_ESTADOS.find(e => e.id === _ctFiltro.estado);
+  const busca = (_ctFiltro.busca || '').trim().toLowerCase();
+  return list.filter(a => {
+    if (est && est.fn && !est.fn(a)) return false;
+    if (_ctFiltro.rede && (a.platform || 'instagram') !== _ctFiltro.rede) return false;
+    if (busca) {
+      const alvo = [a.username, a.email, a.profile_name].join(' ').toLowerCase();
+      if (!alvo.includes(busca)) return false;
+    }
+    return true;
   });
-  sub.innerHTML = `${list.length} conta(s) registrada(s) &nbsp; `
-    + `<span class="badge badge-active">${nActive} ativa(s)</span> `
-    + (nInUse ? `<span class="badge badge-in_use">${nInUse} em uso</span> ` : '')
-    + `<span class="badge badge-banned">${nProblem} com problema</span> `
-    + `<span class="badge badge-creating">${nNoProfile} sem perfil</span>`;
+}
+
+function ctChip(ativo, rotulo, n, dica, onclick) {
+  const cor = ativo ? 'background:var(--primary);border-color:var(--primary);color:#fff'
+                    : 'background:var(--bg);border-color:var(--border);color:var(--text)';
+  const apagado = n === 0 && !ativo ? 'opacity:.45;' : '';
+  return `<button onclick="${onclick}" title="${escapeHtml(dica)}"
+    style="${cor};${apagado}border-width:1px;border-style:solid;border-radius:999px;padding:4px 11px;font-size:11.5px;cursor:pointer;white-space:nowrap">
+    ${escapeHtml(rotulo)} <span style="opacity:.7">${n}</span></button>`;
+}
+
+/** Desenha os dois conjuntos de chips com a contagem de cada um. */
+function ctDesenharChips(list) {
+  const alvo = document.getElementById('ct-chips-estado');
+  if (!alvo) return;
+  alvo.innerHTML = CT_ESTADOS.map(e => ctChip(
+    _ctFiltro.estado === e.id, e.rotulo,
+    e.fn ? list.filter(e.fn).length : list.length, e.dica,
+    `ctFiltrar('estado', '${e.id}')`)).join('');
+
+  // As redes vêm das contas que EXISTEM, não do catálogo inteiro: oferecer
+  // filtro de YouTube sem nenhuma conta de YouTube é oferecer um clique que
+  // só pode dar lista vazia.
+  const redes = [...new Set(list.map(a => a.platform || 'instagram'))].sort();
+  const caixa = document.getElementById('ct-chips-rede');
+  caixa.innerHTML = ctChip(_ctFiltro.rede === '', 'Todas', list.length,
+                           'Sem filtro de rede', `ctFiltrar('rede', '')`)
+    + redes.map(r => ctChip(_ctFiltro.rede === r, nomeDaRede(r),
+        list.filter(a => (a.platform || 'instagram') === r).length,
+        'Só contas do ' + nomeDaRede(r), `ctFiltrar('rede', '${escapeHtml(r)}')`)).join('');
+
+  const limpar = document.getElementById('ct-limpar');
+  if (limpar) {
+    const algum = _ctFiltro.estado || _ctFiltro.rede || (_ctFiltro.busca || '').trim();
+    limpar.style.display = algum ? '' : 'none';
+  }
+}
+
+/** "parada há 68d" / "nunca agiu" — o porquê do chip, na própria linha.
+ *
+ * Existe para o filtro não ser caixa-preta: o número no chip tem de poder ser
+ * conferido olhando a conta. */
+function ctSeloParada(a) {
+  if (_PROBLEM_STATUSES.includes(a.status)) return '';
+  if (a.parada_dias === null || a.parada_dias === undefined) {
+    return `<div style="font-size:10px;color:var(--muted);margin-top:3px" title="Nenhuma ação registrada. O app só registra atividade do InstaFollow, que é do Instagram.">⏸ nunca agiu</div>`;
+  }
+  if (a.parada_dias >= CT_DIAS_PARADA) {
+    return `<div style="font-size:10px;color:var(--yellow);margin-top:3px">⏸ parada há ${Math.round(a.parada_dias)}d</div>`;
+  }
+  return `<div style="font-size:10px;color:var(--muted);margin-top:3px">agiu há ${a.parada_dias}d</div>`;
+}
+
+function renderAccounts(list) {
+  list = list || [];
+  const sub = document.getElementById('accounts-subtitle');
   const body = document.getElementById('accounts-body');
+
+  // Os chips contam sobre a lista INTEIRA; a tabela mostra a filtrada.
+  ctDesenharChips(list);
+  const vistas = ctAplicar(list);
+
+  const nSemPerfil = vistas.filter(a => !a.profile_exists).length;
+  const nParadas = vistas.filter(ctParada).length;
+  const filtrando = vistas.length !== list.length;
+  sub.innerHTML = (filtrando
+      ? `<b>${vistas.length}</b> de ${list.length} conta(s) &nbsp; `
+      : `${list.length} conta(s) registrada(s) &nbsp; `)
+    + (nParadas ? `<span class="badge badge-checkpoint">${nParadas} parada(s)</span> ` : '')
+    + (nSemPerfil ? `<span class="badge badge-creating">${nSemPerfil} sem perfil</span>` : '');
+
   if (!list.length) {
     body.innerHTML = `<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:30px">
       Nenhuma conta ainda. Crie a conta no celular e clique em "+ Adicionar conta".</td></tr>`;
     return;
   }
-  // Ordena: ATIVAS no topo, contas com PROBLEMA separadas embaixo (divisor no meio).
-  // rank 0 = ativa · 1 = neutra (sem perfil/desconhecida) · 2 = EM USO (emprestada,
-  // em bloco próprio para não se misturar às novas) · 3 = problema (suspensa/banida).
+  if (!vistas.length) {
+    // Lista vazia POR FILTRO é outra coisa de "não tem conta" -- e a saída
+    // tem de estar aqui, senão o usuário acha que perdeu as contas.
+    body.innerHTML = `<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:26px">
+      Nenhuma conta passa nos filtros.
+      <button class="btn btn-ghost btn-sm" style="margin-left:8px" onclick="ctLimparFiltros()">✕ limpar filtros</button>
+    </td></tr>`;
+    return;
+  }
+  list = vistas;
+  // ⚠ Os DIVISORES ("🤝 Em uso", "⚠ Com problema") saíram daqui. Eles existiam
+  // para agrupar o que agora é filtro, e com filtro diziam a mesma coisa duas
+  // vezes — além de, numa lista já filtrada, virar um cabeçalho sozinho em cima
+  // de tudo. A ordenação continua: o que precisa de atenção primeiro.
+  //
+  // rank 0 = ativa · 1 = neutra (sem perfil/desconhecida) · 2 = em uso · 3 = problema
   const _rank = a => a.status === 'active' ? 0
     : a.status === 'in_use' ? 2
     : (_PROBLEM_STATUSES.includes(a.status) ? 3 : 1);
   const _sorted = list.slice().sort((x, y) => _rank(x) - _rank(y));
-  let _dividerDone = false, _inUseDividerDone = false;
   body.innerHTML = _sorted.map(a => {
     const isProblem = _PROBLEM_STATUSES.includes(a.status);
-    let divider = '';
-    if (!_inUseDividerDone && a.status === 'in_use') {
-      _inUseDividerDone = true;
-      divider = `<tr><td colspan="8" style="padding:7px 12px;background:rgba(129,140,248,0.12);color:#a5b4fc;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em">🤝 Em uso — contas emprestadas</td></tr>`;
-    }
-    if (!_dividerDone && isProblem) {
-      _dividerDone = true;
-      divider = `<tr><td colspan="8" style="padding:7px 12px;background:rgba(239,68,68,0.12);color:var(--red);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em">⚠ Contas com problema (em suspensão / banidas)</td></tr>`;
-    }
-    const rowStyle = isProblem ? ' style="background:rgba(239,68,68,0.07)"' : '';
+    const divider = '';
+    const rowStyle = isProblem ? ' style="background:rgba(239,68,68,0.07)"'
+                   : (a.status === 'in_use' ? ' style="background:rgba(129,140,248,0.07)"' : '');
     const ls = a.lifespan?.label || '—';
     const px = a.proxy_usage;
     const pxBadge = px?.blocked ? ' <span class="badge badge-banned" style="font-size:9px">limite</span>' : '';
@@ -4539,7 +4680,7 @@ function renderAccounts(list) {
         <div style="font-size:11px;color:var(--muted)">${escapeHtml(a.email || '')}</div>
       </td>
       <td>${prof}</td>
-      <td>${statusBadge(a.status)}</td>
+      <td>${statusBadge(a.status)}${ctSeloParada(a)}</td>
       <td>${escapeHtml(ls)}</td>
       <td>${proxyShort(a.proxy)}${pxBadge}</td>
       <td>${wpp}</td>
