@@ -102,6 +102,37 @@ RECEITAS: dict[str, dict] = {
                 "NÃO foi exercitado: pode ser preciso clicar em 'Foto/vídeo' "
                 "antes. A leva para antes de publicar, então dá para ver.",
     },
+    "threads": {
+        # MEDIDO em 04/11, nas duas telas, no perfil uncensored.brasil.
+        # O compositor é MODAL e a URL não muda — ao contrário do Facebook, que
+        # tem /post/create. Por isso esta é a primeira receita com
+        # `abrir_compositor`: sem o clique, não há o que preencher.
+        "url": "https://www.threads.com/",
+        "abrir_compositor": {
+            # "Novo post" é o botão da barra lateral; o segundo candidato é o
+            # compositor embutido na linha do tempo. Os dois são localizados —
+            # a Meta não expõe testid aqui, como no Facebook.
+            "clicar": ['div[role="button"]:text-is("Novo post")',
+                       '[aria-label="Corpo da coluna"] div[role="button"][aria-label^="Campo de texto"]'],
+            "esperar": '[role="dialog"] div[role="textbox"]',
+        },
+        # ⚠ TUDO ancorado em `[role="dialog"]`, e isso não é zelo: **"Postar"
+        # existe DUAS vezes na página** — o compositor da linha do tempo e o do
+        # modal — e os dois só têm classe atômica da Meta. Medido: o de fora
+        # mora em `[aria-label="Corpo da coluna"]`, o de dentro no diálogo.
+        # Sem a âncora, escolher seria cara ou coroa, e metade das vezes
+        # publicaria o compositor errado.
+        "arquivo": ['[role="dialog"] input[type="file"][accept*="image"]',
+                    '[role="dialog"] input[type="file"]'],
+        "depois_do_arquivo": "",
+        "legenda": ['[role="dialog"] div[role="textbox"]'],
+        "publicar": ['[role="dialog"] div[role="button"]:text-is("Postar")',
+                     '[role="dialog"] div[role="button"]:text-is("Post")'],
+        "medido_em": "2026-11-04",
+        "nota": "compositor MODAL, sem URL própria; aceita avif/jpeg/png/webp. "
+                "O aria-label do editor ('Campo de texto vazio…') MUDA quando "
+                "há texto — por isso a âncora é o papel, nunca o rótulo",
+    },
     "tiktok": {
         "url": "https://www.tiktok.com/tiktokstudio/upload",
         # Medido em 23/10, nas DUAS telas. A ordem importa e não é obvia: o
@@ -181,6 +212,36 @@ async def _escrever(page, seletores, texto: str) -> str:
     raise RuntimeError("não consegui escrever a legenda — " + " · ".join(erros))
 
 
+async def _abrir_compositor_se_preciso(page, r: dict, feito: dict) -> None:
+    """Clica para abrir o compositor, quando a rede só o mostra em modal.
+
+    Só o Threads precisa disto hoje: o Facebook acabou tendo URL própria
+    (`/post/create`) e o X e o TikTok abrem prontos.
+
+    **Confere ANTES de clicar.** Se o compositor já está aberto, clicar de novo
+    no "Novo post" não é inofensivo — pode fechar o modal, abrir um segundo, ou
+    cair num menu. Medir o estado antes de agir é mais barato que descobrir
+    depois que a leva publicou em outro lugar.
+    """
+    passo = r.get("abrir_compositor")
+    if not passo:
+        return
+    esperar = passo.get("esperar") or ""
+    if esperar:
+        try:
+            if await page.locator(esperar).first.count():
+                feito["abriu_compositor"] = "já estava aberto"
+                return
+        except Exception:
+            pass
+
+    alvo, sel = await _primeiro_que_existe(page, passo.get("clicar") or [])
+    await alvo.click()
+    if esperar:
+        await page.locator(esperar).first.wait_for(state="visible", timeout=20000)
+    feito["abriu_compositor"] = sel
+
+
 async def preencher(page, rede_id: str, arquivo: str = "", legenda: str = "",
                     espera_ms: int = ESPERA_PADRAO_MS) -> dict:
     """Leva arquivo e legenda até o compositor e PARA antes de publicar.
@@ -197,6 +258,11 @@ async def preencher(page, rede_id: str, arquivo: str = "", legenda: str = "",
 
     feito = {"rede": rede_id, "arquivo": "", "legenda": "", "publicou": False,
              "medido_em": r.get("medido_em", "")}
+
+    # Primeiro de tudo: se o compositor só existe em modal, abri-lo. Sem isso o
+    # `_primeiro_que_existe` do arquivo procuraria dentro de um diálogo que
+    # ainda não nasceu e falharia com "não achei nenhum destes".
+    await _abrir_compositor_se_preciso(page, r, feito)
 
     if arquivo:
         alvo, sel = await _primeiro_que_existe(page, r["arquivo"])

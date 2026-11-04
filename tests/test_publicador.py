@@ -47,6 +47,9 @@ class Loc:
     def first(self):
         return self
 
+    async def count(self):
+        return 1 if self.existe else 0
+
     async def wait_for(self, state="visible", timeout=0):
         if not self.existe:
             raise RuntimeError("timeout: %s" % self.sel)
@@ -56,6 +59,12 @@ class Loc:
     async def click(self):
         self.page.acoes.append(("click", self.sel))
         self.page.foco = self
+        # Um clique pode CRIAR tela (o "Novo post" do Threads abre o modal).
+        # Sem isto o duble so saberia testar telas estaticas, e justo o passo
+        # de abrir ficaria sem cobertura.
+        for sel in self.page.nasceNoClique.get(self.sel, []):
+            self.page.mapa.setdefault(sel, {})["existe"] = True
+            self.page._cache.pop(sel, None)
 
     async def set_input_files(self, caminho):
         self.page.acoes.append(("arquivo", self.sel, caminho))
@@ -89,8 +98,9 @@ class Teclado:
 class Page:
     """Pagina duble. `mapa` diz como cada seletor se comporta."""
 
-    def __init__(self, mapa):
+    def __init__(self, mapa, nasceNoClique=None):
         self.mapa, self.acoes, self.foco = mapa, [], None
+        self.nasceNoClique = nasceNoClique or {}
         self.keyboard = Teclado(self)
         self._cache = {}
 
@@ -215,10 +225,66 @@ t(pub.receita("facebook")["url"].endswith("/post/create"),
   "vai direto para o compositor, sem depender do gatilho do feed")
 
 
+# ══ THREADS: compositor MODAL, e dois "Postar" na mesma pagina ═══════════
+# Medido em 04/11. A URL nao muda ao abrir o compositor (ao contrario do
+# Facebook, que tem /post/create), entao esta e a unica receita com um passo de
+# CLIQUE antes de preencher. E tudo e ancorado em [role=dialog] porque "Postar"
+# existe duas vezes: o da linha do tempo e o do modal.
+MAPA_TH_FECHADO = {
+    'div[role="button"]:text-is("Novo post")': {},
+    # o modal ainda nao existe -> o textbox so aparece depois do clique
+    '[role="dialog"] div[role="textbox"]': {"existe": False},
+}
+pg = Page(MAPA_TH_FECHADO)
+try:
+    asyncio.run(pub.preencher(pg, "threads", "", "oi"))
+    t(False, "com o modal fechado e o textbox ausente, deveria estourar")
+except RuntimeError:
+    t(True, "sem o modal, o preenchimento para com erro em vez de seguir no vazio")
+t(("click", 'div[role="button"]:text-is("Novo post")') in pg.acoes,
+  "mas ANTES disso ele clicou em Novo post para tentar abrir")
+
+# modal FECHADO que abre com o clique -- o caminho de verdade
+GATILHO = 'div[role="button"]:text-is("Novo post")'
+DO_MODAL = ['[role="dialog"] div[role="textbox"]',
+            '[role="dialog"] input[type="file"][accept*="image"]',
+            '[role="dialog"] div[role="button"]:text-is("Postar")']
+MAPA_TH = dict({GATILHO: {}}, **{sel: {"existe": False} for sel in DO_MODAL})
+pg = Page(MAPA_TH, nasceNoClique={GATILHO: DO_MODAL})
+r = asyncio.run(pub.preencher(pg, "threads", "/tmp/arte.jpg", "ola threads"))
+t(r["abriu_compositor"] == 'div[role="button"]:text-is("Novo post")',
+  "abriu o compositor pelo gatilho medido")
+t(r["legenda"].startswith('[role="dialog"]'),
+  "e escreve DENTRO do modal: " + r["legenda"])
+t(r["publicar"].startswith('[role="dialog"]'),
+  "o botao de publicar tambem e o do modal, nunca o da linha do tempo")
+t(r["publicou"] is False, "e segue sem publicar")
+ordem = [a[0] for a in pg.acoes]
+t(ordem.index("click") < ordem.index("arquivo"),
+  "o clique de abrir vem ANTES do arquivo: o input so existe dentro do modal")
+
+# ⚠ o caso perigoso: modal JA ABERTO. Clicar de novo no "Novo post" podia
+# fechar o modal, abrir um segundo ou cair num menu.
+MAPA_TH_ABERTO = dict({GATILHO: {}}, **{sel: {} for sel in DO_MODAL})
+pg = Page(MAPA_TH_ABERTO)
+r = asyncio.run(pub.preencher(pg, "threads", "", "ja aberto"))
+t(r["abriu_compositor"] == "já estava aberto",
+  "com o modal aberto, ele NAO clica de novo")
+t(not [a for a in pg.acoes
+       if a[0] == "click" and 'Novo post' in a[1]],
+  "nenhum clique no gatilho -- conferir o estado antes custa menos que descobrir depois")
+
+# as outras tres NAO tem passo de abrir: o Facebook tem URL propria, X e TikTok
+# abrem prontos. Um clique a mais ali seria clique no escuro.
+for rede in ("x", "tiktok", "facebook"):
+    t(not pub.receita(rede).get("abrir_compositor"),
+      "%s nao precisa de clique para abrir o compositor" % rede)
+
+
 # ══ Rede sem receita ═════════════════════════════════════════════════════
-t(pub.tem_receita("x") and pub.tem_receita("tiktok") and pub.tem_receita("facebook"),
-  "X, TikTok e Facebook tem receita")
-for sem in ("youtube", "kwai", "threads", "telegram"):
+t(all(pub.tem_receita(r) for r in ("x", "tiktok", "facebook", "threads")),
+  "X, TikTok, Facebook e Threads tem receita")
+for sem in ("youtube", "kwai", "telegram"):
     t(not pub.tem_receita(sem), "%s ainda nao foi medido" % sem)
 try:
     asyncio.run(pub.preencher(Page({}), "youtube", "/tmp/a.mp4", "x"))
