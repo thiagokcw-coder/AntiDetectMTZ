@@ -104,6 +104,38 @@ _LER_TELA = r"""
     }
     return partes.join(' > ');
   };
+  // ── DENTRO DE QUÊ este elemento está ────────────────────────────────────
+  // Medido no Threads (04/11): "Postar" aparece DUAS vezes na mesma página — o
+  // compositor da linha do tempo e o do modal — e os dois só têm classe
+  // atômica da Meta. Sem saber o contêiner de cada um, escolher seria adivinhar
+  // qual é qual, que é o que estas medições existem para impedir.
+  //
+  // Devolve o ancestral mais próximo que tenha um gancho ESTÁVEL (role=dialog,
+  // aria-label, data-testid/e2e) — é com ele que o seletor vira
+  // `<ancora> <elemento>` e deixa de ser ambíguo. Classe atômica não serve de
+  // âncora: ela muda sozinha a cada build.
+  const ancora = (el) => {
+    let n = el.parentElement;
+    for (let i = 0; i < 12 && n && n.nodeType === 1; i++) {
+      if (n.getAttribute('role') === 'dialog') {
+        const r = attr(n, 'aria-label');
+        return r ? '[role="dialog"][aria-label="' + r.replace(/"/g, '') + '"]' : '[role="dialog"]';
+      }
+      for (const a of ['data-e2e', 'data-testid', 'data-test-id']) {
+        const v = attr(n, a);
+        if (v && v.length < 60) return '[' + a + '="' + v.replace(/"/g, '') + '"]';
+      }
+      const al = attr(n, 'aria-label');
+      if (al && al.length < 60 && n.getAttribute('role')) {
+        return '[aria-label="' + al.replace(/"/g, '') + '"]';
+      }
+      n = n.parentElement;
+    }
+    return '';
+  };
+  const emDialogo = (el) => {
+    try { return !!el.closest('[role="dialog"]'); } catch (e) { return false; }
+  };
   const txt = (el) => ((el.innerText || el.textContent || '') + '')
                         .trim().replace(/\s+/g, ' ').slice(0, 60);
 
@@ -137,6 +169,7 @@ _LER_TELA = r"""
   const arquivos = take('input[type=file]', 20, el => ({
     seletor: sel(el), nome: attr(el, 'name'), id: el.id || '',
     aceita: attr(el, 'accept'), varios: !!el.multiple, visivel: vis(el),
+    ancora: ancora(el), em_dialogo: emDialogo(el),
   }));
 
   const textos = take(
@@ -147,6 +180,7 @@ _LER_TELA = r"""
                    || attr(el, 'data-text'),
       aria: attr(el, 'aria-label'), papel: attr(el, 'role'),
       limite: attr(el, 'maxlength'), visivel: vis(el),
+      ancora: ancora(el), em_dialogo: emDialogo(el),
     }));
 
   const botoes = take('button, [role=button], input[type=submit], a[role=button]',
@@ -155,7 +189,7 @@ _LER_TELA = r"""
       data_e2e: attr(el, 'data-e2e'),
       data_testid: attr(el, 'data-testid') || attr(el, 'data-test-id'),
       desabilitado: !!el.disabled || attr(el, 'aria-disabled') === 'true',
-      visivel: vis(el),
+      visivel: vis(el), ancora: ancora(el), em_dialogo: emDialogo(el),
     })).filter(b => b.texto || b.aria || b.data_e2e || b.data_testid);
 
   // ── Clicavel que NAO e <button> ────────────────────────────────────────
@@ -196,7 +230,7 @@ _LER_TELA = r"""
       if (!t) continue;
       clicaveis.push({ seletor: sel(el), tag: el.tagName.toLowerCase(), texto: t,
                        aria: attr(el, 'aria-label'), data_e2e: attr(el, 'data-e2e'),
-                       visivel: vis(el) });
+                       visivel: vis(el), ancora: ancora(el), em_dialogo: emDialogo(el) });
     } catch (e) {}
   }
 
@@ -205,6 +239,7 @@ _LER_TELA = r"""
     url: location.href,
     campos_senha: todos('input[type=password]').length,
     raizes_sombra: RAIZES.length - 1,
+    tem_dialogo: todos('[role="dialog"]').length,
     arquivos: arquivos,
     textos: textos,
     botoes: botoes,
@@ -271,6 +306,20 @@ def _visiveis_primeiro(itens: list) -> list:
     return [i for i in itens if i.get("visivel")] + [i for i in itens if not i.get("visivel")]
 
 
+def _do_dialogo_primeiro(itens: list) -> list:
+    """Se houver MODAL na tela, o que está dentro dele vem primeiro.
+
+    Medido no Threads (04/11): "Postar" existe DUAS vezes — o compositor da
+    linha do tempo e o do modal — e só o do modal publica o que você acabou de
+    escrever. Quando um modal está aberto, ele é a tela; o que ficou atrás é
+    cenário. Sem modal na tela, a ordem não muda.
+    """
+    dentro = [i for i in itens if i.get("em_dialogo")]
+    if not dentro:
+        return list(itens)
+    return dentro + [i for i in itens if not i.get("em_dialogo")]
+
+
 def _palpite(lido: dict) -> dict:
     """Um PALPITE de quais elementos seriam o arquivo, a legenda e o publicar.
 
@@ -278,8 +327,9 @@ def _palpite(lido: dict) -> dict:
     para virar seletor sem alguém conferir a foto — rótulo que afirma o que não
     foi conferido é o erro que esta base já pagou quatro vezes.
     """
-    arq = next((a for a in lido.get("arquivos") or [] if a.get("visivel")), None) \
-        or next(iter(lido.get("arquivos") or []), None)
+    arquivos = _do_dialogo_primeiro(lido.get("arquivos") or [])
+    arq = next((a for a in arquivos if a.get("visivel")), None) \
+        or next(iter(arquivos), None)
 
     # Campo de legenda: o maior candidato visível, preferindo contenteditable e
     # textarea (é o que as redes usam) a um input de busca que só passava por ali.
@@ -287,7 +337,8 @@ def _palpite(lido: dict) -> dict:
         bom = t.get("tag") in ("textarea",) or t.get("papel") == "textbox" \
               or t.get("tag") == "div"
         return (1 if t.get("visivel") else 0) + (1 if bom else 0)
-    textos = sorted(lido.get("textos") or [], key=_peso, reverse=True)
+    textos = sorted(_do_dialogo_primeiro(lido.get("textos") or []),
+                    key=_peso, reverse=True)
     leg = next(iter(textos), None)
 
     def _tem_verbo(b):
@@ -295,7 +346,7 @@ def _palpite(lido: dict) -> dict:
                 + (b.get("data_e2e") or "")).lower()
         return any(v in alvo for v in _VERBOS_DE_PUBLICAR)
 
-    pub = [b for b in (lido.get("botoes") or []) if _tem_verbo(b)]
+    pub = [b for b in _do_dialogo_primeiro(lido.get("botoes") or []) if _tem_verbo(b)]
     # Clicavel que nao e <button> entra separado e DEPOIS: no TikTok o controle
     # de upload e um div, entao ignora-lo deixaria a tela mais importante sem
     # nenhum candidato. Vem marcado para ninguem confundir com um botao de
