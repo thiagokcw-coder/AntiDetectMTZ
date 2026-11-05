@@ -1126,7 +1126,7 @@
           <button class="btn btn-ghost btn-sm" onclick="loadAccountsPage()">↻ Atualizar</button>
           <button class="btn btn-ghost btn-sm" onclick="openAddAccount()">+ Adicionar conta</button>
           <button class="btn btn-ghost btn-sm" onclick="exportAccountsCsv()">⤓ Exportar CSV</button>
-          <button class="btn btn-primary btn-sm" onclick="checkAllAccounts()">Verificar todas</button>
+          <button class="btn btn-primary btn-sm" onclick="checkAllAccounts()" title="Abre cada conta no perfil dela e diz onde a sessão caiu. Cobre todas as redes, uma de cada vez.">Verificar todas</button>
         </div>
       </div>
 
@@ -4692,9 +4692,9 @@ function renderAccounts(list) {
         <button class="btn btn-ghost btn-sm" onclick="abrirNoChrome('${escapeHtml(a.platform || 'instagram')}', this, '${escapeHtml(a.username || '')}')" title="Chrome normal, com os SEUS logins. Não renova o IP e não usa o perfil antidetect.">🌐 Chrome</button>
         ${a.profile_exists
           ? `<button class="btn btn-ghost btn-sm" onclick="warmBrowser('${a.profile_id}', this)" title="Aquecer o navegador do perfil (cookies/histórico) antes de usar" ${browserWarming ? 'disabled' : ''}>${browserWarming ? '🔥 ' + fmtCountdown(a.profile_warming.remaining_seconds) : '🔥 Aquecer'}</button>
-             ${(a.platform || 'instagram') === 'instagram'
-                ? `<button class="btn btn-success btn-sm" onclick="checkAccount('${a.id}', this)">Verificar</button>`
-                : `<span style="font-size:10px;color:var(--muted)" title="A detecção lê a tela do Instagram; em outra rede ela concluiria 'sessão expirada' sobre nada. Confira a conta na própria rede.">sem verificação automática</span>`}`
+             <button class="btn btn-success btn-sm" onclick="checkAccount('${a.id}', this)" title="${(a.platform || 'instagram') === 'instagram'
+                ? 'Lê a tela do Instagram: distingue ativa, em suspensão, banida e sessão expirada.'
+                : 'Abre o site da rede no perfil e vê se ele manda para a tela de login. Diz com certeza que NÃO está logada; não prova que está.'}">Verificar</button>`
           : ''}
         <button class="btn btn-ghost btn-sm" onclick="accountDetail('${a.id}')">Detalhes</button>
       </td>

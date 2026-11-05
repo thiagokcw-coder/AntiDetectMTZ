@@ -2639,9 +2639,21 @@ async def accounts_warmup(account_id: str, body: AccountWarmupRequest = AccountW
     return {"account_id": account_id, "status": "warming", "minutes": body.minutes}
 
 
-async def _check_all_accounts():
+async def _check_all_accounts(todas_as_redes: bool = False):
     """Verifica o status das contas VIVAS, sequencial e headless. Pula terminais
-    (banida/descartada — sem volta), sem perfil, ou em uso agora; pausa entre contas."""
+    (banida/descartada — sem volta), sem perfil, ou em uso agora; pausa entre contas.
+
+    `todas_as_redes` separa dois usos que parecem o mesmo e não são:
+
+    - **Varredura automática (False).** Roda sozinha de hora em hora. Fica só no
+      Instagram, que é onde a detecção tem prova de verdade pela API. Abrir
+      TikTok, X, Facebook, Threads e YouTube sozinho, para sempre, é tráfego e
+      sessão que ninguém pediu — e no caso da Meta é sessão abrindo no mesmo IP
+      da automação, a correlação de 16/08.
+    - **"Verificar todas" (True).** O usuário clicou e está esperando: aí vale
+      abrir cada rede e dizer em qual a sessão caiu, que é justamente a
+      pergunta "as redes estão logadas?".
+    """
     try:
         busy = {s.get("profile_id") for s in sm.list_active()}
     except Exception:
@@ -2649,12 +2661,10 @@ async def _check_all_accounts():
     # "in_use" = conta emprestada: verificá-la abriria sessão pelo NOSSO IP numa
     # conta que outra pessoa está usando, e ainda trocaria o rótulo manual.
     terminal = {"banned", "discarded", "in_use"}
-    # Só Instagram: a detecção lê a tela do Instagram (ver a guarda em
-    # `accounts.check_status`). Contas de outras redes entram na varredura só
-    # para gastar 8 segundos e um launch headless cada, sem medir nada.
     pending = [a for a in acc.list_accounts()
                if (a.get("status") or "").lower() not in terminal
-               and (a.get("platform") or "instagram").lower() == "instagram"
+               and (todas_as_redes
+                    or (a.get("platform") or "instagram").lower() == "instagram")
                and a.get("profile_id") and a.get("profile_id") not in busy]
     for i, a in enumerate(pending):
         if _creation_stop:
@@ -2669,8 +2679,14 @@ async def _check_all_accounts():
 
 @app.post("/accounts/check-all")
 async def accounts_check_all():
-    """Dispara verificação de todas as contas em segundo plano (sequencial)."""
-    asyncio.create_task(_check_all_accounts())
+    """Dispara verificação de todas as contas em segundo plano (sequencial).
+
+    Cobre TODAS as redes, não só o Instagram: quem clicou está perguntando
+    "minhas sessões estão de pé?", e responder só por uma rede seria responder
+    outra pergunta. A varredura AUTOMÁTICA continua só no Instagram — ver
+    `_check_all_accounts`.
+    """
+    asyncio.create_task(_check_all_accounts(todas_as_redes=True))
     return {"status": "checking", "count": len(acc.list_accounts())}
 
 

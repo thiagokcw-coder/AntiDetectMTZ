@@ -734,6 +734,65 @@ def whatsapp_usage_summary() -> list:
 
 # ── Verificação de status (automática) ──────────────────────────────────────
 
+async def _check_outra_rede(account_id: str, acc: dict, profile: dict,
+                            rede_id: str) -> dict:
+    """Verifica a sessão de uma rede que não é o Instagram.
+
+    ## O que esta verificação pode e o que não pode afirmar
+
+    Fora do Instagram não há API para perguntar "quem sou eu", então o que
+    existe é o sinal INVERSO: site que te manda para a tela de login está
+    dizendo que você não está logado. Isso é **conclusivo para o NÃO** e fraco
+    para o sim — abrir uma página sem ser barrado não prova que há sessão.
+
+    Por isso a assimetria, que é deliberada:
+      - caiu no login  → `login_required`. A conta está inutilizável até a
+        sessão voltar, e esconder isso faria a leva falhar sem motivo visível.
+      - abriu normal   → **o status NÃO muda**. Fica só o registro "parece
+        logado". Marcar "ativa" aqui seria afirmar o que não foi medido, que é
+        o erro que esta base já pagou várias vezes.
+      - não carregou   → inconclusivo, e dito assim.
+    """
+    import ig_session as igs
+    import redes as _redes
+
+    ts = _now().strftime("%Y-%m-%d %H:%M:%S")
+    r = _redes.rede(rede_id) or {}
+    site = r.get("site")
+    if not site:
+        detalhe = "não sei qual é o site do %s para verificar" % _redes.nome(rede_id)
+        db.update_account(account_id, last_checked_at=ts, last_check_result=detalhe)
+        return {"status": acc.get("status"), "detail": detalhe, "rede": rede_id}
+
+    try:
+        g = await igs.probe_generico(profile, site)
+    except Exception as e:
+        detalhe = "não consegui verificar: %s" % str(e)[:120]
+        db.update_account(account_id, last_checked_at=ts, last_check_result=detalhe)
+        return {"status": acc.get("status"), "detail": detalhe, "rede": rede_id}
+
+    logado, motivo = g.get("logado"), (g.get("motivo") or g.get("erro") or "")
+    detalhe = motivo or "sem resposta"
+
+    # "Em uso" é rótulo MANUAL e a verificação não pode apagá-lo — mesma regra
+    # do Instagram.
+    if (acc.get("status") or "") == "in_use":
+        db.update_account(account_id, last_checked_at=ts,
+                          last_check_result="(em uso) " + detalhe)
+        return {"status": "in_use", "detail": detalhe, "rede": rede_id,
+                "logado": logado, "certeza": g.get("certeza")}
+
+    if logado is False:
+        _apply_status(account_id, "login_required", detalhe,
+                      extra={"last_checked_at": ts, "last_check_result": detalhe})
+        return {"status": "login_required", "detail": detalhe, "rede": rede_id,
+                "logado": False, "certeza": g.get("certeza")}
+
+    db.update_account(account_id, last_checked_at=ts, last_check_result=detalhe)
+    return {"status": acc.get("status"), "detail": detalhe, "rede": rede_id,
+            "logado": logado, "certeza": g.get("certeza")}
+
+
 async def check_status(account_id: str, headless: bool = True) -> dict:
     """Abre o perfil da conta, detecta o status no Instagram e atualiza o banco."""
     import instagram as ig
@@ -747,17 +806,14 @@ async def check_status(account_id: str, headless: bool = True) -> dict:
                           last_check_result="perfil ausente")
         return {"status": acc.get("status"), "detail": "perfil ausente — não foi possível verificar"}
 
-    # SÓ INSTAGRAM. `ig.detect_status` navega no Instagram e lê a tela dele; numa
-    # conta de TikTok ou de YouTube ele encontraria a tela de login do Instagram
-    # e concluiria "sessão expirada". Como a re-verificação automática varre a
-    # lista inteira, sem esta guarda toda conta de outra rede amanheceria
-    # marcada errada — e o pior é que pareceria medição.
+    # `ig.detect_status` navega no Instagram e lê a tela DELE: numa conta de
+    # TikTok ou de YouTube acharia a tela de login do Instagram e concluiria
+    # "sessão expirada" sobre nada. Fora do Instagram, quem verifica é o
+    # `probe_generico` — ele lê o sinal INVERSO (o site te mandou para o login?),
+    # que é o único que vale em qualquer rede.
     rede_da_conta = (acc.get("platform") or "instagram").strip().lower()
     if rede_da_conta != "instagram":
-        ts = _now().strftime("%Y-%m-%d %H:%M:%S")
-        detalhe = "verificação automática só existe para o Instagram — confira a conta na própria rede"
-        db.update_account(account_id, last_checked_at=ts, last_check_result=detalhe)
-        return {"status": acc.get("status"), "detail": detalhe, "rede": rede_da_conta}
+        return await _check_outra_rede(account_id, acc, profile, rede_da_conta)
 
     result = await sm.check_account_status(profile, ig.detect_status, headless=headless)
     status = result.get("status", "unknown")
