@@ -189,8 +189,14 @@ t(len(corpo["snippet"]["description"]) == 5000, "descricao cortada em 5000")
 
 
 # ══ A cota, que muda o plano de uso ══════════════════════════════════════
-t(yt.COTA_PADRAO // yt.CUSTO_UPLOAD == 6,
-  "a cota padrao da SEIS envios por dia -- limite que ninguem deve descobrir "
-  "no meio de uma leva")
+# ⚠ Este numero ja esteve ERRADO aqui (dizia 6, do modelo antigo de 1600
+# unidades por insert). Conferido na documentacao em 05/11: `videos.insert` tem
+# balde proprio de 100/dia, custo 1 por chamada. A diferenca entre 6 e 100 muda
+# o plano de uso inteiro, entao o numero fica travado por assercao.
+t(yt.UPLOADS_POR_DIA == 100,
+  "a cota padrao da CEM envios por dia (balde proprio do videos.insert)")
+t(yt.CUSTO_UPLOAD == 1, "cada envio custa 1 do balde dele, nao 1600")
+t(yt.COTA_OUTROS_ENDPOINTS == 10000,
+  "os demais endpoints dividem 10.000 unidades, num balde separado")
 
 print("OK — %d assercoes" % ok)

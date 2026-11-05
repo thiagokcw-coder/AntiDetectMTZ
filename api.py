@@ -5717,7 +5717,7 @@ def youtube_estado(request: Request, account_id: str = ""):
     """O que ja esta configurado. NUNCA devolve segredo."""
     cid, seg = _yt_credenciais()
     out = {"credenciais": bool(cid and seg), "redirect_uri": _yt_redirect(request),
-           "cota_uploads_dia": yt.COTA_PADRAO // yt.CUSTO_UPLOAD}
+           "cota_uploads_dia": yt.UPLOADS_POR_DIA}
     if account_id:
         guardado = db.get_setting(_yt_chave(account_id), "") or ""
         out["autorizada"] = bool(guardado)

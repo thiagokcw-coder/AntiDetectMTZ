@@ -39,12 +39,27 @@ UPLOAD = ("https://www.googleapis.com/upload/youtube/v3/videos"
           "?uploadType=resumable&part=snippet,status")
 CANAL = "https://www.googleapis.com/youtube/v3/channels?part=snippet&mine=true"
 
-#: Quanto a cota padrão permite. `videos.insert` custa 1600 unidades e o projeto
-#: nasce com 10.000 por dia — ou seja, **seis envios por dia**, não ilimitado.
-#: Está aqui, e não só na documentação do Google, porque é um limite que muda o
-#: plano de uso e ninguém descobre no meio de uma leva.
-CUSTO_UPLOAD = 1600
-COTA_PADRAO = 10000
+# ─── A cota, que não é dinheiro ──────────────────────────────────────────────
+#
+# A API é GRATUITA: o limite é de chamadas por dia, não de valor. Estourar a
+# cota devolve erro até a virada do dia; não gera cobrança.
+#
+# ⚠ CONFERIDO NA DOCUMENTAÇÃO em 05/11, porque eu tinha escrito errado aqui:
+# `videos.insert` NÃO custa 1600 das 10.000 unidades (esse era o modelo antigo,
+# que daria seis envios por dia). Hoje ele tem **balde próprio**:
+#
+#   "Os métodos search.list e videos.insert têm os próprios buckets de cota.
+#    Cada um desses métodos tem um limite diário padrão de 100 por dia.
+#    O custo da cota é de 1 por chamada."
+#
+# Ou seja: **100 envios por dia**, e os outros endpoints dividem 10.000
+# unidades à parte. A diferença entre 6 e 100 muda o plano de uso inteiro — e
+# foi justamente a pergunta "não é pago?" que fez a conferência acontecer.
+#
+# As cotas zeram à meia-noite no horário do Pacífico, não no fuso daqui.
+UPLOADS_POR_DIA = 100
+CUSTO_UPLOAD = 1
+COTA_OUTROS_ENDPOINTS = 10000
 
 
 def _sem_segredo(txt: str) -> str:
