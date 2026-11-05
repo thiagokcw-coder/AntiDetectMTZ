@@ -51,7 +51,23 @@ def do_dominio(c: dict, dominios) -> bool:
 
 
 def _clean(c: dict, dominio_padrao: str = ".instagram.com") -> dict:
-    """Normaliza um cookie para o formato do add_cookies."""
+    """Normaliza um cookie para o formato do add_cookies.
+
+    ## Os prefixos `__Secure-` e `__Host-` não são enfeite de nome
+
+    São regras do navegador, e ele RECUSA o cookie que as viole. Isso só
+    apareceu com o Google (o YouTube não logava, 05/11): a sessão dele vem
+    cheia de `__Secure-1PSID`, `__Secure-3PAPISID`, `__Host-GAPS`, e basta um
+    deles chegar sem o `secure` para o `add_cookies` levantar — e, como a
+    chamada leva a lista inteira, levar junto TODOS os outros.
+
+      - `__Secure-` exige `secure`.
+      - `__Host-` exige `secure`, `path` "/" e ser do HOST exato — domínio sem
+        ponto na frente, porque o ponto é o que o torna válido para subdomínios.
+
+    Forçar aqui é melhor que recusar depois: o que falta é um flag que o
+    exportador esqueceu, não uma informação que não temos.
+    """
     out = {k: c[k] for k in _PW_FIELDS if k in c}
     # sameSite só aceita 'Strict' | 'Lax' | 'None'
     ss = str(out.get("sameSite") or "").capitalize()
@@ -60,6 +76,14 @@ def _clean(c: dict, dominio_padrao: str = ".instagram.com") -> dict:
         out["domain"] = dominio_padrao
     if not out.get("path"):
         out["path"] = "/"
+
+    nome = str(out.get("name") or "")
+    if nome.startswith("__Secure-"):
+        out["secure"] = True
+    elif nome.startswith("__Host-"):
+        out["secure"] = True
+        out["path"] = "/"
+        out["domain"] = str(out.get("domain") or "").lstrip(".")
     return out
 
 
@@ -158,12 +182,32 @@ async def import_cookies(profile: dict, cookies: list, only_auth: bool = False,
                 "error": "nenhum cookie de %s no material recebido" % " / ".join(doms)}
 
     async def _run(page):
-        await page.context.add_cookies(payload)
-        # Confere o que ficou de fato gravado no contexto.
+        # ⚠ `add_cookies` recebe a LISTA e falha inteira se UM cookie for
+        # invalido -- entao um flag errado num cookie secundario levava a
+        # sessao toda junto, com uma mensagem que nao dizia qual era. Medido
+        # com o Google (05/11), que e quem mais traz cookie de regra estrita.
+        #
+        # Entao: tenta de uma vez (rapido, o caso normal) e, se falhar, insiste
+        # UM a um para salvar o que der e NOMEAR o que foi recusado.
+        recusados = []
+        try:
+            await page.context.add_cookies(payload)
+        except Exception:
+            for c in payload:
+                try:
+                    await page.context.add_cookies([c])
+                except Exception as e:
+                    recusados.append({"name": c.get("name"),
+                                      "motivo": str(e).splitlines()[0][:110]})
         now = await page.context.cookies()
-        return summarize(now, doms)
+        resumo = summarize(now, doms)
+        resumo["recusados"] = recusados
+        return resumo
+
     got = await sm.run_profile_task(profile, _run, headless=True)
-    return {"imported": len(payload), "profile_now": got}
+    recusados = (got or {}).get("recusados") or []
+    return {"imported": len(payload) - len(recusados), "enviados": len(payload),
+            "recusados": recusados, "profile_now": got}
 
 
 async def descobrir_conta(profile: dict, use_local: bool = True) -> dict:
