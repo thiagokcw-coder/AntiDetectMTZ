@@ -313,6 +313,8 @@ class Alvo:
     #: publicacao de outra pessoa a repostar (so story)
     post: dict = field(default_factory=dict)
     personalizado: tuple = ()
+    #: o que o app ajustou SOZINHO para caber nesta rede (ver adaptar_para_rede)
+    adaptado: tuple = ()
     #: preenchido depois, pelo orquestrador
     desfecho: str = ""
     detalhe: str = ""
@@ -337,6 +339,7 @@ class Alvo:
             "capa": self.capa,
             "capa_composta": self.capa_composta,
             "personalizado": list(self.personalizado),
+            "adaptado": list(self.adaptado),
             "desfecho": self.desfecho,
             "detalhe": self.detalhe,
             "quando": self.quando,
@@ -394,9 +397,119 @@ def conteudo_da_rede(conteudo: dict, personalizacao: dict, r: dict,
     return final, tuple(trocados)
 
 
+def encurtar_legenda(texto: str, limite: int, link: str = "") -> tuple:
+    """Corta a legenda para caber no limite da rede, SEM perder o link.
+
+    Três decisões que não são óbvias:
+
+    1. **Corta na palavra, não no caractere.** Cortar no meio de uma palavra
+       denuncia máquina, e é o tipo de detalhe que ninguém revisa depois.
+    2. **O link sobrevive.** Se ele está na legenda, é ele que leva a pessoa ao
+       destino — cortar o texto e levar o link junto deixaria a publicação sem
+       a única coisa que ela existe para fazer. Então o link é reservado e
+       recolocado no fim.
+    3. **Se nem o link cabe, não adapta.** Devolve `None` para quem chamou
+       recusar com motivo, em vez de publicar um link pela metade, que não
+       clica e não se percebe.
+
+    Devolve `(texto_novo, descricao_do_que_foi_feito)` ou `(None, motivo)`.
+    """
+    texto = texto or ""
+    if len(texto) <= limite:
+        return texto, ""
+
+    tem_link = bool(link) and link in texto
+    reticencia = "…"
+    if tem_link:
+        # espaço para "… " + o link
+        reserva = len(link) + len(reticencia) + 2
+        if reserva > limite:
+            return None, ("o link sozinho tem %d caracteres e o limite é %d"
+                          % (len(link), limite))
+        corpo = texto.replace(link, " ").strip()
+        espaco = limite - reserva
+    else:
+        corpo = texto
+        espaco = limite - len(reticencia)
+
+    cortado = corpo[:espaco]
+    # Volta até o último espaço, para não partir palavra. Se a "palavra" ocupa
+    # o trecho inteiro (URL colada, hashtag enorme), corta no seco mesmo —
+    # melhor um corte feio que uma legenda que não entra.
+    ultimo = cortado.rfind(" ")
+    if ultimo > espaco * 0.6:
+        cortado = cortado[:ultimo]
+    cortado = cortado.rstrip(" ,;.-")
+
+    novo = (cortado + reticencia + " " + link) if tem_link else (cortado + reticencia)
+    return novo, ("legenda encurtada de %d para %d caracteres%s"
+                  % (len(texto), len(novo), " (link preservado)" if tem_link else ""))
+
+
+def _destino_que_aceita(r: dict, destino: str, tipo: str) -> str:
+    """O destino desta rede que aceita este TIPO de mídia, se o pedido não aceitar.
+
+    É o que transforma "o Instagram publica vídeo como Reels — troque o
+    destino" de instrução em ação: a adaptação faz a troca e a prévia mostra.
+    """
+    combina = r.get("combina") or {}
+    if not combina or tipo in (combina.get(destino) or (tipo,)):
+        return destino
+    for alvo in r.get("destinos") or ():
+        if tipo in (combina.get(alvo) or ()):
+            return alvo
+    return destino
+
+
+def adaptar_para_rede(final: dict, r: dict, destino: str, tipo: str) -> tuple:
+    """Ajusta o conteúdo ao que ESTA rede aceita. Função PURA.
+
+    Existe porque recusar não é adaptar: antes, legenda de 400 caracteres fazia
+    o X sair da leva com "personalize a legenda desta rede" — o usuário tinha
+    de resolver à mão o que o app sabia resolver sozinho.
+
+    O que ela NÃO faz, de propósito: inventar mídia. Imagem não vira vídeo, e
+    rede que só aceita vídeo continua sendo recusada. Adaptar é escolher entre
+    o que existe; o resto seria fingir.
+
+    Devolve `(conteudo_adaptado, lista_do_que_mudou, erro_ou_vazio)`.
+    """
+    saida = dict(final)
+    mudancas = []
+
+    # 1) destino: o que a rede tem, e que aceita este tipo de mídia
+    alvo = destino
+    if alvo not in (r.get("destinos") or ()):
+        alvo = (r.get("destinos") or ("feed",))[0]
+        mudancas.append("destino %s → %s (o %s não tem %s)"
+                        % (destino, alvo, r["nome"], destino))
+    novo_alvo = _destino_que_aceita(r, alvo, tipo)
+    if novo_alvo != alvo:
+        mudancas.append("destino %s → %s (é o que aceita %s)" % (alvo, novo_alvo, tipo))
+        alvo = novo_alvo
+    saida["destino"] = alvo
+    if alvo != destino:
+        # O formato acompanha o destino novo, senão a arte sairia no tamanho
+        # do destino antigo — 9:16 num post que virou feed, por exemplo.
+        saida["formato"] = (r.get("formato_padrao") or {}).get(alvo) or saida.get("formato")
+
+    # 2) legenda: encurtada para caber, com o link protegido
+    legenda = saida.get("legenda") or ""
+    limite = int(r.get("legenda_max") or 0)
+    if legenda and limite and len(legenda) > limite:
+        novo, nota = encurtar_legenda(legenda, limite, saida.get("link") or "")
+        if novo is None:
+            return saida, mudancas, nota
+        saida["legenda"] = novo
+        mudancas.append(nota)
+
+    return saida, mudancas, ""
+
+
 def montar_plano(contas: list[dict], conteudo: dict,
                  redes_pedidas: Optional[list[str]] = None,
-                 personalizacoes: Optional[dict] = None) -> list[Alvo]:
+                 personalizacoes: Optional[dict] = None,
+                 adaptar: bool = True) -> list[Alvo]:
     """Quem publica, com o quê, e quem é recusado por quê — antes de tocar em
     rede nenhuma.
 
@@ -404,6 +517,16 @@ def montar_plano(contas: list[dict], conteudo: dict,
     devolve). `redes_pedidas` vazio significa TODAS as que o perfil tem.
     `personalizacoes` é `{rede: {legenda, link, arquivo, formato, destino}}` e
     vence o conteúdo comum, campo a campo.
+
+    `adaptar` (padrão **ligado**) deixa o app ajustar sozinho o que dá para
+    ajustar — encurtar a legenda que não cabe, trocar o destino que a rede não
+    tem, mandar vídeo do Instagram para Reels. Antes isso tudo era RECUSA com
+    um "personalize esta rede", ou seja, o app sabia resolver e mandava o
+    usuário resolver. O que foi ajustado sai em `adaptado`, para a prévia
+    mostrar — adaptação que não aparece é adaptação que engana.
+
+    Desligar devolve o comportamento antigo: a rede sai da leva com o motivo.
+    Serve para quem quer ver o conflito em vez de deixar o app escolher.
 
     A ordem das recusas é do mais barato para o mais caro de descobrir: rede
     desconhecida, conta que não está ativa, destino que a rede não tem, formato
@@ -437,6 +560,22 @@ def montar_plano(contas: list[dict], conteudo: dict,
         d.destino = destino
 
         final, trocados = conteudo_da_rede(conteudo, meu, r, destino)
+
+        # ADAPTAR antes de recusar. Roda depois da personalização de propósito:
+        # o que o usuário escreveu para aquela rede é o ponto de partida, e a
+        # adaptação só mexe no que ainda não cabe.
+        if adaptar:
+            tipo_do_conteudo_ = tipo_do_conteudo(final)
+            final, mudou, erro_adapt = adaptar_para_rede(
+                final, r, destino, tipo_do_conteudo_)
+            d.adaptado = tuple(mudou)
+            destino = final.get("destino") or destino
+            d.destino = destino
+            if erro_adapt:
+                d.motivo = erro_adapt
+                plano.append(d)
+                continue
+
         d.legenda = final.get("legenda") or ""
         d.link = final.get("link") or ""
         d.arquivo = final.get("arquivo") or ""
@@ -561,6 +700,7 @@ async def publicar_em_todas(perfil: dict, contas: list[dict], conteudo: dict,
                             personalizacoes: Optional[dict] = None,
                             rotacionar=None,
                             auto_publicar: Optional[list] = None,
+                            adaptar: bool = True,
                             log=None) -> dict:
     """Publica o conteúdo em todas as redes do perfil, na mesma leva.
 
@@ -579,7 +719,12 @@ async def publicar_em_todas(perfil: dict, contas: list[dict], conteudo: dict,
     é justamente a que não se liga confiando.
     """
     fala = log or (lambda *_: None)
-    plano = montar_plano(contas, conteudo, redes_pedidas, personalizacoes)
+    # `adaptar` TEM de chegar aqui: a previa e a leva precisam usar a mesma
+    # regra, senao a tela mostra uma coisa e a publicacao sai outra -- que e
+    # o defeito que esta aba ja teve quando edicao e publicacao viviam
+    # separadas (13/10).
+    plano = montar_plano(contas, conteudo, redes_pedidas, personalizacoes,
+                         adaptar=adaptar)
     vao = [d for d in plano if d.publica]
 
     resumo = resumo_do_plano(plano)

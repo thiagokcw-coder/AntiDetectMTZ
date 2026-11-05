@@ -5630,7 +5630,8 @@ async def redes_plano(profile_id: str = Form(...), redes_pedidas: str = Form("")
                       legenda: str = Form(""), arquivo_nome: str = Form(""),
                       destino: str = Form("feed"), link: str = Form(""),
                       personalizacoes: str = Form(""),
-                      capa_nome: str = Form("")):
+                      capa_nome: str = Form(""),
+                      adaptar: bool = Form(True)):
     """A prévia: quem publicaria, quem seria recusado e por quê — sem publicar.
 
     Separado do publicar de propósito. O plano é a parte que decide, e ele
@@ -5649,7 +5650,8 @@ async def redes_plano(profile_id: str = Form(...), redes_pedidas: str = Form("")
                 # recusar Reels sem capa antes de subir o vídeo inteiro.
                 "capa": capa_nome}
     plano = _redes.montar_plano(contas, conteudo, pedidas,
-                                _personalizacoes(personalizacoes))
+                                _personalizacoes(personalizacoes),
+                                adaptar=adaptar)
     return {"plano": [d.como_dict() for d in plano],
             "resumo": _redes.resumo_do_plano(plano),
             "tipo": _redes.tipo_do_conteudo(conteudo)}
@@ -5876,7 +5878,8 @@ async def redes_publicar(profile_id: str = Form(...), arquivo: UploadFile = File
                          personalizacoes: str = Form(""),
                          rotulo: str = Form(""), com_chip: bool = Form(True),
                          rect_json: str = Form(""), post_json: str = Form(""),
-                         auto_publicar: str = Form("")):
+                         auto_publicar: str = Form(""),
+                         adaptar: bool = Form(True)):
     """A LEVA: um clique, todas as redes do perfil.
 
     `simular` nasce **True**. É o padrão deste projeto para motor que nunca
@@ -5933,6 +5936,7 @@ async def redes_publicar(profile_id: str = Form(...), arquivo: UploadFile = File
             p, contas, conteudo, pedidas,
             espalhar_segundos=espalhar, simular=simular,
             personalizacoes=_personalizacoes(personalizacoes),
+            adaptar=adaptar,
             # Quais redes podem APERTAR publicar sozinhas. Vazio por padrão: a
             # rede medida preenche a tela e para, e só entra aqui depois de ter
             # acertado uma vez na frente do usuário.
