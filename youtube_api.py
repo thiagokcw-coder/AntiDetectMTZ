@@ -1,8 +1,22 @@
 # -*- coding: utf-8 -*-
-"""YouTube pela API oficial (Data API v3) — o único caminho que vale a pena aqui.
+"""YouTube pela API oficial (Data API v3) — PRONTO, mas DORMENTE desde 05/11.
 
-POR QUE A API, E SÓ PARA O YOUTUBE
-----------------------------------
+⚠ NÃO ESTÁ EM USO. Decisão do usuário, no meio do cadastro no Google Cloud:
+*"vou fazer pelo caminho normal, o youtube muita coisa pra pouco retorno"*. O
+preparo (projeto no Cloud, tela de permissão, publicar o app, cliente OAuth)
+custa mais do que o YouTube devolve no plano dele hoje.
+
+**Nada chama este módulo** enquanto não houver `youtube_client_id` nos
+settings; os endpoints `/youtube/*` respondem 400 pedindo as credenciais. Não
+apagar: o dia em que a sessão por cookie não se sustentar, este é o caminho que
+resolve, e reescrever custaria o trabalho todo de novo.
+
+**O que ele NUNCA chegou a fazer:** não rodou contra o Google de verdade. As 31
+asserções usam cliente HTTP injetado. Se um dia for ligado, a primeira
+autorização é que vai dizer se o fluxo fecha.
+
+POR QUE A API SERIA BOA, E SÓ PARA O YOUTUBE
+--------------------------------------------
 Todas as outras redes publicam pelo navegador, porque a API delas é paga (X),
 exige app aprovado (TikTok, Facebook) ou não existe (Kwai). O YouTube é a
 exceção: a Data API v3 é gratuita e a conta comum pode usá-la.

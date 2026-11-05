@@ -205,8 +205,12 @@ REDES: tuple[dict, ...] = (
         "formatos": ("video",),
         "legenda_max": 5000,
         "medido": False,
-        "nota": "única rede grande com API gratuita viável (Data API v3, "
-                "OAuth) — candidata a sair do assistido primeiro",
+        "nota": "só vídeo. A Data API v3 é gratuita (100 envios/dia) e o "
+                "código dela está pronto em `youtube_api.py`, mas ficou "
+                "DORMENTE em 05/11 — decisão do usuário: o preparo no Google "
+                "Cloud é muito para o que esta rede devolve. Caminho atual: "
+                "sessão por cookie (de google.com E youtube.com) + compositor "
+                "do Studio, que é um fluxo de várias telas",
     },
     {
         "id": "kwai",
