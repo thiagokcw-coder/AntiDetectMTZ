@@ -4,7 +4,7 @@ API REST — iniciar com:
 """
 from fastapi import FastAPI, HTTPException, Request, UploadFile, File, Form
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, HTMLResponse
 from pydantic import BaseModel
 from typing import Optional
 from pathlib import Path
@@ -14,6 +14,7 @@ import json
 import os
 import random
 import re
+import secrets
 import socket
 import threading
 import uuid
@@ -5408,6 +5409,7 @@ def conhecimento_registro():
 # quem desenha o chip e o APP na hora de compor. Entao a arte tem que ja vir com
 # o chip desenhado -- e no MESMO retangulo que vira a regiao tocavel.
 import story as story_mod
+import youtube_api as yt
 
 
 @app.get("/story/contas")
@@ -5651,6 +5653,144 @@ async def redes_plano(profile_id: str = Form(...), redes_pedidas: str = Form("")
     return {"plano": [d.como_dict() for d in plano],
             "resumo": _redes.resumo_do_plano(plano),
             "tipo": _redes.tipo_do_conteudo(conteudo)}
+
+
+# ─── YOUTUBE pela API oficial (Data API v3) ──────────────────────────────────
+#
+# O YouTube e a unica rede grande com API gratuita viavel, e para o Google isso
+# resolve a causa em vez do sintoma: a sessao dele e a mais dificil de
+# transplantar (dois dominios, cookies `__Secure-`/`__Host-`, amarra forte a
+# dispositivo e IP). Pela API nao ha sessao de navegador para manter viva.
+#
+# ⚠ SEGREDOS: `client_secret` e `refresh_token` ficam nos settings e NUNCA
+# voltam numa resposta. Os endpoints devolvem "configurado: sim/nao", nunca o
+# valor — a mesma regra dos cookies.
+
+def _yt_chave(account_id: str) -> str:
+    return "youtube_token_%s" % account_id
+
+
+def _yt_credenciais() -> tuple:
+    return (db.get_setting("youtube_client_id", "") or "",
+            db.get_setting("youtube_client_secret", "") or "")
+
+
+def _yt_redirect(request: Request) -> str:
+    """Para onde o Google devolve o consentimento: o proprio app.
+
+    Sai da REQUISICAO, nao de uma constante: `PORT` vive no `main.py` e a porta
+    muda sozinha quando a 18754 esta ocupada (`find_free_port`) — um endereco
+    fixo aqui estaria errado justamente no dia em que a porta mudasse.
+
+    Cliente OAuth do tipo "App para computador" aceita qualquer porta em
+    127.0.0.1 sem registrar cada uma, entao isto e seguro. E o endereco tem de
+    ser IDENTICO no pedido e na troca do codigo, por isso os dois usam esta
+    funcao em vez de montar a string cada um do seu jeito.
+    """
+    return str(request.base_url).rstrip("/") + "/youtube/oauth/callback"
+
+
+class YoutubeCredRequest(BaseModel):
+    client_id: str
+    client_secret: str
+
+
+@app.post("/youtube/credenciais")
+def youtube_credenciais(body: YoutubeCredRequest, request: Request):
+    """Guarda o par do OAuth. Uma vez por maquina, nao por conta."""
+    cid = (body.client_id or "").strip()
+    seg = (body.client_secret or "").strip()
+    if not cid or not seg:
+        raise HTTPException(400, "informe o ID e a chave secreta do cliente OAuth")
+    if not cid.endswith(".apps.googleusercontent.com"):
+        # Erro de colar o campo errado e comum, e o sintoma dele so apareceria
+        # la na tela do Google, como "client_id invalido".
+        raise HTTPException(400, "o ID do cliente termina em "
+                                 ".apps.googleusercontent.com — confira o que foi colado")
+    db.set_setting("youtube_client_id", cid)
+    db.set_setting("youtube_client_secret", seg)
+    return {"ok": True, "redirect_uri": _yt_redirect(request)}
+
+
+@app.get("/youtube/estado")
+def youtube_estado(request: Request, account_id: str = ""):
+    """O que ja esta configurado. NUNCA devolve segredo."""
+    cid, seg = _yt_credenciais()
+    out = {"credenciais": bool(cid and seg), "redirect_uri": _yt_redirect(request),
+           "cota_uploads_dia": yt.COTA_PADRAO // yt.CUSTO_UPLOAD}
+    if account_id:
+        guardado = db.get_setting(_yt_chave(account_id), "") or ""
+        out["autorizada"] = bool(guardado)
+        if guardado:
+            try:
+                out["canal"] = json.loads(guardado).get("canal") or {}
+            except Exception:
+                out["canal"] = {}
+    return out
+
+
+@app.post("/youtube/autorizar")
+def youtube_autorizar(request: Request, account_id: str = Form(...)):
+    """Devolve o endereco do consentimento para esta conta."""
+    cid, seg = _yt_credenciais()
+    if not (cid and seg):
+        raise HTTPException(400, "cadastre antes o ID e a chave do cliente OAuth")
+    if not db.get_account(account_id):
+        raise HTTPException(404, "conta não encontrada")
+    # O `state` amarra a volta a ESTA conta: sem ele, autorizar duas contas em
+    # sequencia poderia gravar o token da segunda em cima da primeira.
+    estado = "%s:%s" % (account_id, secrets.token_urlsafe(8))
+    db.set_setting("youtube_oauth_state", estado)
+    return {"url": yt.url_de_autorizacao(cid, _yt_redirect(request), estado)}
+
+
+@app.get("/youtube/oauth/callback")
+async def youtube_callback(request: Request, code: str = "", state: str = "",
+                           error: str = ""):
+    """A volta do consentimento. Responde HTML porque quem chega aqui e o
+    NAVEGADOR do usuario, nao o app."""
+    def pagina(titulo, corpo, cor="#22c55e"):
+        return HTMLResponse(
+            "<html><head><meta charset='utf-8'><title>%s</title></head>"
+            "<body style='font-family:system-ui;background:#111;color:#eee;padding:40px'>"
+            "<h2 style='color:%s'>%s</h2><p>%s</p>"
+            "<p style='color:#888'>Pode fechar esta aba e voltar ao app.</p>"
+            "</body></html>" % (titulo, cor, titulo, corpo))
+
+    if error:
+        return pagina("Autorização recusada", "O Google respondeu: %s" % error, "#ef4444")
+    esperado = db.get_setting("youtube_oauth_state", "") or ""
+    if not state or state != esperado:
+        return pagina("Pedido não reconhecido",
+                      "Este retorno não corresponde ao pedido feito pelo app. "
+                      "Comece de novo pela aba Contas.", "#ef4444")
+    account_id = state.split(":")[0]
+    cid, seg = _yt_credenciais()
+    try:
+        tok = await asyncio.to_thread(yt.trocar_codigo, cid, seg, code,
+                                      _yt_redirect(request))
+        info = await asyncio.to_thread(yt.canal, tok["access_token"])
+    except Exception as e:
+        return pagina("Não consegui concluir", str(e)[:300], "#ef4444")
+
+    db.set_setting(_yt_chave(account_id),
+                   json.dumps({"refresh_token": tok["refresh_token"], "canal": info}))
+    db.set_setting("youtube_oauth_state", "")
+    db.update_account(account_id,
+                      last_checked_at=time.strftime("%Y-%m-%d %H:%M:%S"),
+                      last_check_result="autorizada pela API do YouTube (canal: %s)"
+                                        % (info.get("titulo") or "?"))
+    return pagina("Autorizado ✓",
+                  "Canal: <b>%s</b>. O app já pode publicar nesta conta."
+                  % (info.get("titulo") or "(sem título)"))
+
+
+@app.delete("/youtube/autorizacao")
+def youtube_revogar(account_id: str):
+    """Esquece o token desta conta (o acesso no Google segue — revogue em
+    myaccount.google.com/permissions se quiser cortar dos dois lados)."""
+    db.set_setting(_yt_chave(account_id), "")
+    return {"ok": True}
 
 
 @app.post("/redes/medir-compositor")
