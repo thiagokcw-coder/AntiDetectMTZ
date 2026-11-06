@@ -47,6 +47,10 @@ const render = vm.createContext({
            {rede:'x',rede_nome:'X',publica:true,arquivo:'video.mp4',transporte:'browser'}],
  _pbFormatos:{},_pbRedes:[],_pbAberta:null,_pbMedicoes:{},_pbOnde:{},
  escapeHtml:s=>String(s || ''),_pbPreviaTexto:()=>'',
+ //  passou a reavaliar o botao de publicar no fim
+ // (ele diz quantas redes vao receber, e isso muda com os cartoes).
+ // Aqui nao se testa o botao, entao basta existir.
+ storyAtualizarBotao:()=>{},
 });
 elements.previews={innerHTML:''};elements.missing={innerHTML:''};
 vm.runInContext(source('_storyDesenharCartoes','/** Mede o compositor'),render);
