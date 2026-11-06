@@ -408,7 +408,7 @@
             <input id="st-rotulo" placeholder="ex.: ENTRE NO GRUPO" oninput="storyDesenharPrevia()" style="width:100%;box-sizing:border-box;padding:8px 10px;background:var(--surface);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px">
           </div>
           <div style="flex:1;min-width:210px">
-            <div style="font-size:11px;color:var(--muted);margin-bottom:3px">O que publicar</div>
+            <div style="font-size:11px;color:var(--muted);margin-bottom:3px">Destino pedido <span title="É o pedido; cada rede recebe o que ela tem. Story vira feed no X e no Threads, vídeo vira Reels no Instagram — e o cartão de cada uma mostra o que ficou.">· cada rede adapta ⓘ</span></div>
             <select id="st-destino" onchange="storyTrocouDestino()" style="width:100%;padding:8px 10px;background:var(--surface);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px">
               <option value="story:story">Story (9:16)</option>
               <option value="reels:story" selected>Vídeo com legenda (9:16) — Reels no Instagram</option>
@@ -512,18 +512,18 @@
         <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
           <button class="btn" onclick="storyCompor(this)">🎨 Ver a arte composta</button>
           <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer">
-            <input type="checkbox" id="st-simular" checked> <b>Simulação</b> — decide tudo e não publica
+            <input type="checkbox" id="st-simular" checked onchange="storyAtualizarBotao()"> <b>Simulação</b> — decide tudo e não publica
           </label>
           <div style="display:flex;align-items:center;gap:6px;font-size:12px">
             Espalhar
             <input id="st-espalhar" type="number" min="0" max="300" value="12" style="width:58px;padding:5px 7px;background:var(--surface);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:12px">
             s
           </div>
-          <button class="btn btn-primary" id="st-publicar" onclick="storyPublicarLeva(this)">📣 <span id="st-publicar-rotulo">Publicar na leva</span></button>
+          <button class="btn btn-primary" id="st-publicar" onclick="storyPublicarLeva(this)"><span id="st-publicar-rotulo">Publicar na leva</span></button>
           <span id="st-publicar-por-que" style="font-size:12px;color:var(--muted)"></span>
           <span id="st-status" style="font-size:12px;color:var(--muted)"></span>
         </div>
-        <div class="form-hint" style="margin-top:8px"><b>Ver a arte composta</b> mostra o resultado real no formato escolhido — opcional, só para conferir. A leva compõe imagens e a capa do Instagram. O vídeo é enviado sem alterações.</div>
+        <div class="form-hint" style="margin-top:8px">O botão mostra <b>quantas redes</b> vão receber e fica <span style="color:var(--red)">vermelho</span> quando a simulação está desligada. Passe o mouse para ver as contas, uma a uma. <b>Ver a arte composta</b> mostra o resultado real no formato escolhido — opcional, só para conferir. A leva compõe imagens e a capa do Instagram. O vídeo é enviado sem alterações.</div>
         <div class="form-hint" style="margin-top:4px">Seis publicações no mesmo milissegundo do mesmo IP é assinatura de máquina (lição de 21/08) — por isso as saídas são espalhadas. Em <code>0</code> saem juntas. A leva renova o IP do modem <b>uma vez</b>, antes de começar.</div>
         <div id="st-resultado" style="margin-top:12px"></div>
       </div>
@@ -2534,6 +2534,8 @@ function _storyDesenharCartoes() {
       ${_pbAberta === d.rede ? pubPainelPers(d) : ''}
     </div>`;
   }).join('');
+
+  storyAtualizarBotao();
 
   const semConta = (p.faltam || []).map(r => (_pbRedes.find(x => x.id === r) || {}).nome || r);
   faltam.innerHTML = semConta.length
@@ -5315,8 +5317,12 @@ function storyTrocouDestino() {
   }
   const feed = destino === 'feed';
   const reels = destino === 'reels';
-  const rot = document.getElementById('st-publicar-rotulo');
-  if (rot) rot.textContent = reels ? 'Publicar Reels' : (feed ? 'Publicar post' : 'Publicar story');
+  // ⚠ O rotulo do botao NAO sai mais daqui. Ele dizia "Publicar Reels" a
+  // partir do destino PEDIDO -- sobra de quando a aba publicava num Instagram
+  // so. Hoje a leva vai para varias redes, cada uma com o destino DELA depois
+  // da adaptacao, e prometer "Reels" no botao e prometer errado. Quem escreve
+  // o rotulo agora e `storyAtualizarBotao`, a partir do plano.
+  storyAtualizarBotao();
   // Reels tem legenda, como o feed. E, como o feed, NÃO tem link clicável —
   // mas por um motivo que vale dizer diferente: ali o chip vai na CAPA, que é
   // o que aparece na grade do perfil.
@@ -5351,6 +5357,51 @@ function storyTrocouDestino() {
  * cima -- foi assim que o caso apareceu, com o chip tapando o "GRUPO DO
  * WHATSAPP" da propria peca. Desmarcado: o retangulo some da previa, o campo
  * de link sai de cena e a arte sobe como esta. */
+/** O botao diz o que a leva VAI fazer: quantas redes, e se publica de verdade.
+ *
+ * Antes dizia "Publicar Reels" -- o destino PEDIDO, de quando a aba publicava
+ * num Instagram so. Com varias redes e adaptacao por rede, esse rotulo
+ * prometia o que nao ia acontecer.
+ *
+ * E quando a simulacao esta DESLIGADA o botao fica vermelho e diz "de
+ * verdade". A caixinha de simulacao e facil de desmarcar sem querer, e a
+ * diferenca entre as duas coisas e irreversivel -- o botao tem de parecer
+ * diferente, nao so se chamar diferente.
+ */
+function storyAtualizarBotao() {
+  const b = document.getElementById('st-publicar');
+  const rot = document.getElementById('st-publicar-rotulo');
+  if (!b || !rot) return;
+  const simular = document.getElementById('st-simular')?.checked;
+
+  // Conta pelo PLANO, nao pelas marcadas: rede marcada que o plano recusou
+  // (imagem no TikTok, conta em suspensao) nao vai sair, e prometer que vai
+  // seria o mesmo erro do rotulo antigo.
+  const pedidas = new Set(_stRedesPedidas());
+  const vao = (_pbPlano || []).filter(d => d.publica && pedidas.has(d.rede));
+  const n = vao.length;
+
+  // `.btn-danger` desta folha é FANTASMA (fundo transparente, borda vermelha):
+  // ficaria menos chamativo que o azul do primary, o oposto do que se quer num
+  // botão que publica de verdade. Então o vermelho vai preenchido, no estilo.
+  b.classList.toggle('btn-primary', !!simular);
+  if (simular || n === 0) {
+    b.style.background = '';
+    b.style.borderColor = '';
+    b.style.color = '';
+  } else {
+    b.style.background = 'var(--red)';
+    b.style.borderColor = 'var(--red)';
+    b.style.color = '#fff';
+  }
+  b.disabled = n === 0;
+  b.title = n ? vao.map(d => '@' + (d.username || '?') + ' (' + d.rede_nome + ' · ' + d.destino + ')').join('\n')
+              : 'Nenhuma rede marcada pode receber este conteúdo.';
+  rot.textContent = n === 0 ? 'Nenhuma rede pronta'
+    : (simular ? `◌ Simular em ${n} rede${n > 1 ? 's' : ''}`
+               : `📣 Publicar DE VERDADE em ${n} rede${n > 1 ? 's' : ''}`);
+}
+
 function storyComChip() {
   const c = document.getElementById('st-com-chip');
   return !c || c.checked;
