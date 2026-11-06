@@ -5797,6 +5797,54 @@ def youtube_revogar(account_id: str):
     return {"ok": True}
 
 
+# ─── Legendas escritas FORA do app ───────────────────────────────────────────
+#
+# O modelo (Grok, no caso que motivou isto) nao tem acesso ao app: ele devolve
+# um arquivo de texto com uma secao por rede, e o app le. Sem chave, sem custo
+# por token e sem decisao nao-deterministica dentro do motor -- a regra
+# "SEM IA embutida" continua valendo.
+
+def _legendas_info() -> dict:
+    """Limite e destinos de cada rede, do registro, para o parser avisar."""
+    import redes as _redes
+    return {r["id"]: {"legenda_max": r["legenda_max"],
+                      "destinos": list(r["destinos"])} for r in _redes.REDES}
+
+
+@app.post("/legendas/importar")
+def legendas_importar(texto: str = Form(...), profile_id: str = Form("")):
+    """Le o arquivo de legendas e devolve o que vai para cada rede.
+
+    Nao grava nada: devolve, e a tela aplica. Importar nao e publicar, e
+    separar os dois deixa o usuario ver os avisos antes de qualquer coisa.
+    """
+    import legendas as _leg
+
+    da_persona = []
+    if profile_id:
+        da_persona = [(a.get("platform") or "instagram").lower()
+                      for a in db.list_accounts_by_profile(profile_id)]
+    return _leg.importar(texto or "", da_persona, _legendas_info())
+
+
+@app.get("/legendas/briefing")
+def legendas_briefing(profile_id: str = ""):
+    """O texto para colar no modelo: formato + limite de cada rede.
+
+    So as redes que a persona TEM, quando ela e informada -- pedir legenda de
+    Kwai para uma persona sem Kwai e pedir trabalho que vai para o lixo.
+    """
+    import legendas as _leg
+    import redes as _redes
+
+    quais = None
+    if profile_id:
+        quais = {(a.get("platform") or "instagram").lower()
+                 for a in db.list_accounts_by_profile(profile_id)}
+    info = [dict(r) for r in _redes.REDES if quais is None or r["id"] in quais]
+    return {"texto": _leg.modelo_de_briefing(info), "redes": len(info)}
+
+
 @app.post("/redes/medir-compositor")
 async def redes_medir_compositor(profile_id: str = Form(...), rede: str = Form(...),
                                  abrir: bool = Form(True), etapa: str = Form(""),

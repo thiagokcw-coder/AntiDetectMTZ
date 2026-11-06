@@ -455,6 +455,30 @@
             <span style="color:#f59e0b">Só marque depois de ver uma leva preencher a tela certo</span> — Desmarcado, o Instagram fica pendente; as outras redes abrem para conferência, sem o clique final.
           </label>
         </div>
+        <!-- LEGENDAS DE FORA. O modelo nao tem acesso ao app: ele devolve um
+             arquivo com uma secao por rede e o app le. Sem chave de API, sem
+             custo por token e sem decisao nao-deterministica no motor. -->
+        <details id="st-legendas-painel" style="margin-top:10px;border:1px solid var(--border);border-radius:10px;padding:10px 12px;background:var(--surface)">
+          <summary style="cursor:pointer;font-size:12px;font-weight:600">📝 Trazer legendas escritas fora (ChatGPT, Grok…)</summary>
+          <div class="form-hint" style="margin:8px 0">
+            1 · Copie o briefing e cole no modelo. 2 · Cole aqui o que ele devolver. O formato é <code>=== REDE ===</code> seguido do texto.
+          </div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">
+            <button class="btn btn-ghost btn-sm" onclick="legCopiarBriefing(this)">⧉ Copiar briefing para o modelo</button>
+            <label class="btn btn-ghost btn-sm" style="cursor:pointer;margin:0">
+              📄 Escolher arquivo
+              <input type="file" accept=".txt,.md,text/plain" style="display:none" onchange="legDoArquivo(event)">
+            </label>
+          </div>
+          <textarea id="st-legendas-txt" rows="5" placeholder="=== INSTAGRAM (Reels) ===&#10;texto da legenda…&#10;&#10;=== X ===&#10;…"
+                    style="width:100%;box-sizing:border-box;padding:7px 9px;background:var(--bg);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:11.5px;font-family:ui-monospace,monospace;resize:vertical"></textarea>
+          <div style="display:flex;gap:6px;align-items:center;margin-top:8px">
+            <button class="btn btn-primary btn-sm" onclick="legAplicar(this)">Aplicar às redes</button>
+            <button class="btn btn-ghost btn-sm" onclick="legLimpar()">Limpar</button>
+          </div>
+          <div id="st-legendas-aviso" style="margin-top:8px"></div>
+        </details>
+
         <div id="st-aviso-feed" class="form-hint" style="margin-top:6px;display:none;color:#f59e0b">
           <span id="st-aviso-feed-txt">⚠ No <b>feed</b> o chip fica só <b>desenhado</b> — o Instagram não tem link clicável em post, nem na legenda. Quem leva a pessoa ao destino é o texto, não o toque.</span>
         </div>
@@ -2673,6 +2697,99 @@ function pubAbrirPers(rede) {
 }
 
 let _pbTimerPers = null;
+/* ── Legendas vindas de fora ─────────────────────────────────────────────
+ *
+ * O ciclo: o app gera o BRIEFING (formato + limite de cada rede), voce cola no
+ * modelo, e o que ele devolver volta para ca. O limite e a informacao que o
+ * modelo nao tem como saber, e e justamente a que faz a legenda voltar grande
+ * demais -- por isso ela vai no briefing.
+ */
+async function legCopiarBriefing(btn) {
+  const p = _stPerfilAtual();
+  try {
+    const r = await api('GET', '/legendas/briefing'
+      + (p ? '?profile_id=' + encodeURIComponent(p.profile_id) : ''));
+    await navigator.clipboard.writeText(r.texto);
+    toast('Briefing copiado — cole no modelo (' + r.redes + ' rede(s)).');
+  } catch (e) {
+    toast('Não consegui copiar: ' + e.message, 'error');
+  }
+}
+
+function legDoArquivo(ev) {
+  const f = ev.target.files && ev.target.files[0];
+  if (!f) return;
+  const leitor = new FileReader();
+  leitor.onload = () => {
+    document.getElementById('st-legendas-txt').value = leitor.result || '';
+    legAplicar();
+  };
+  leitor.readAsText(f);
+  ev.target.value = '';   // deixa reescolher o MESMO arquivo depois de editar
+}
+
+/** Aplica as legendas do arquivo na personalizacao de cada rede.
+ *
+ * Quem decide o que e de quem e o BACKEND (`legendas.importar`), nao a tela:
+ * os apelidos ("X (Twitter)", "Tik Tok"), os limites e a conferencia do
+ * destino vivem num lugar so, com teste. Repetir isso aqui criaria uma segunda
+ * versao que divergiria na primeira correcao.
+ */
+async function legAplicar(btn) {
+  const txt = (document.getElementById('st-legendas-txt').value || '').trim();
+  const caixa = document.getElementById('st-legendas-aviso');
+  if (!txt) { toast('Cole o texto das legendas primeiro.', 'error'); return; }
+  const p = _stPerfilAtual();
+  const parar = btn ? runBtnCountdown(btn, 4) : null;
+  try {
+    const fd = new FormData();
+    fd.append('texto', txt);
+    if (p) fd.append('profile_id', p.profile_id);
+    const r = await apiForm('POST', '/legendas/importar', fd, 30000);
+    if (parar) parar();
+
+    const redes = Object.keys(r.legendas || {});
+    redes.forEach(rede => {
+      const d = r.legendas[rede];
+      _pbPers[rede] = _pbPers[rede] || {};
+      _pbPers[rede].legenda = d.legenda;
+      // Destino em branco NAO vira personalizacao: seria fixar "" como
+      // escolha (a regra de `conteudo_da_rede`: string vazia e escolha, nao
+      // heranca) e travar o destino da rede em nada.
+      if (d.destino) _pbPers[rede].destino = d.destino;
+    });
+
+    caixa.innerHTML = legAvisosHtml(redes, r.avisos || []);
+    storyPrevias();
+    toast(redes.length
+      ? '📝 ' + redes.length + ' legenda(s) aplicada(s).'
+      : 'Nenhuma legenda reconhecida — veja os avisos.', redes.length ? 'success' : 'error');
+  } catch (e) {
+    if (parar) parar();
+    caixa.innerHTML = '';
+    toast('Não consegui ler: ' + e.message, 'error');
+  }
+}
+
+/** Os avisos ficam na TELA, nao num toast que some. Eles sao o motivo de o
+ * importador existir: arquivo escrito por modelo erra nome de rede, destino e
+ * tamanho, e "importei 4 de 5" sem dizer qual sumiu e pior que um erro. */
+function legAvisosHtml(redes, avisos) {
+  const ok = redes.length
+    ? `<div style="font-size:11px;color:#22c55e">✓ aplicado em: ${redes.map(r => escapeHtml(nomeDaRede(r))).join(', ')}</div>`
+    : '';
+  const alerta = avisos.length
+    ? `<div style="font-size:11px;color:#f59e0b;margin-top:4px;line-height:1.4">`
+      + avisos.map(a => '⚠ ' + escapeHtml(a)).join('<br>') + `</div>`
+    : '';
+  return ok + alerta;
+}
+
+function legLimpar() {
+  document.getElementById('st-legendas-txt').value = '';
+  document.getElementById('st-legendas-aviso').innerHTML = '';
+}
+
 function pubSetPers(rede, campo, valor) {
   _pbPers[rede] = _pbPers[rede] || {};
   _pbPers[rede][campo] = valor;
