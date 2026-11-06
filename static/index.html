@@ -397,7 +397,7 @@
           </div>
           <div style="flex:1;min-width:200px">
             <label style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--muted);margin-bottom:3px;cursor:pointer">
-              <input type="checkbox" id="st-com-chip" checked onchange="storyTrocouChip()">
+              <input type="checkbox" id="st-com-chip" onchange="storyTrocouChip()">
               <span>Chip de link na arte</span>
             </label>
             <input id="st-link" value="https://wa.me/" placeholder="cole aqui: wa.me/5551… ou o link de uma publicação" oninput="storyAutoDetectar()"
@@ -411,25 +411,35 @@
             <div style="font-size:11px;color:var(--muted);margin-bottom:3px">O que publicar</div>
             <select id="st-destino" onchange="storyTrocouDestino()" style="width:100%;padding:8px 10px;background:var(--surface);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px">
               <option value="story:story">Story (9:16)</option>
-              <option value="reels:story">Reels (9:16) — vídeo + capa</option>
+              <option value="reels:story" selected>Vídeo com legenda (9:16) — Reels no Instagram</option>
               <option value="feed:vertical">Post de feed — vertical 4:5</option>
               <option value="feed:quadrado">Post de feed — quadrado 1:1</option>
               <option value="feed:paisagem">Post de feed — paisagem 16:9</option>
             </select>
           </div>
+          <!-- O CONTEUDO: video ou imagem. Video e o padrao porque e o unico
+               denominador comum -- as oito redes aceitam video, e TRES (TikTok,
+               YouTube e Kwai) recusam imagem. -->
           <div>
-            <div style="font-size:11px;color:var(--muted);margin-bottom:3px"><span id="st-img-rotulo">Imagem</span><span id="st-img-opc" style="display:none"> — opcional</span></div>
-            <input id="st-arquivo" type="file" accept="image/*" onchange="storyCarregarImagem(event)" style="font-size:12px">
+            <div style="font-size:11px;color:var(--muted);margin-bottom:3px"><span id="st-img-rotulo">Conteúdo — vídeo ou imagem</span><span id="st-img-opc" style="display:none"> — opcional</span></div>
+            <input id="st-arquivo" type="file" accept="video/*,image/*" onchange="storyCarregarImagem(event)" style="font-size:12px">
+            <div id="st-video-validacao" class="form-hint" role="status"></div>
+            <div id="st-rascunho-status" class="form-hint" role="status">Rascunho automático: carregando…</div>
+            <div id="st-arquivo-nome" style="font-size:10px;color:var(--muted);margin-top:2px"></div>
           </div>
-          <div id="st-video-caixa" style="display:none">
-            <div style="font-size:11px;color:var(--muted);margin-bottom:3px">Vídeo do Reels</div>
-            <input id="st-video" type="file" accept="video/*" onchange="storyTrocouVideo()" style="font-size:12px">
-            <div id="st-video-nome" style="font-size:10px;color:var(--muted);margin-top:2px"></div>
+          <!-- A CAPA so existe quando o conteudo e video: o compositor e de
+               imagem (Pillow), entao e nela que o chip e desenhado, e e ela que
+               o Reels exige. -->
+          <div id="st-capa-caixa" style="display:none">
+            <div style="font-size:11px;color:var(--muted);margin-bottom:3px">Capa (imagem) <span style="color:#f59e0b">— o Reels exige</span></div>
+            <div style="margin-bottom:6px"><label>Segundo da capa <input id="st-capa-tempo" type="number" min="0" step="0.1" value="0" style="width:70px"></label> <button class="btn btn-sm" onclick="storyExtrairCapa(this)">Extrair do vídeo</button></div>
+            <input id="st-capa" type="file" accept="image/*" onchange="storyCarregarCapa(event)" style="font-size:12px">
+            <div id="st-capa-nome" class="form-hint"></div>
           </div>
         </div>
-        <div id="st-legenda-caixa" style="margin-top:10px;display:none">
+        <div id="st-legenda-caixa" style="margin-top:10px">
           <div style="font-size:11px;color:var(--muted);margin-bottom:3px">Legenda do post</div>
-          <textarea id="st-legenda" rows="2" oninput="storyPrevias()" placeholder="O feed do Instagram não tem link clicável — cole o link aqui, é por onde a pessoa copia."
+          <textarea id="st-legenda" rows="2" oninput="storyPrevias()" placeholder="Escreva a legenda do vídeo ou imagem. Inclua o link, se desejar."
                     style="width:100%;box-sizing:border-box;padding:8px 10px;background:var(--surface);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;resize:vertical"></textarea>
         </div>
         <div style="margin-top:8px;display:flex;align-items:flex-start;gap:6px">
@@ -439,10 +449,10 @@
           </label>
         </div>
         <div style="margin-top:8px;display:flex;align-items:flex-start;gap:6px">
-          <input type="checkbox" id="st-auto-publicar" style="margin-top:3px">
+          <input type="checkbox" id="st-auto-publicar" onchange="_storyDesenharCartoes()" style="margin-top:3px">
           <label for="st-auto-publicar" class="form-hint" style="margin:0;cursor:pointer">
-            Deixar as redes <b>já medidas</b> apertarem publicar sozinhas.
-            <span style="color:#f59e0b">Só marque depois de ver uma leva preencher a tela certo</span> — desmarcado, elas param antes do clique e você confere.
+            Autorizar publicação automática no <b>Instagram e nas redes com preenchimento medido</b>.
+            <span style="color:#f59e0b">Só marque depois de ver uma leva preencher a tela certo</span> — Desmarcado, o Instagram fica pendente; as outras redes abrem para conferência, sem o clique final.
           </label>
         </div>
         <div id="st-aviso-feed" class="form-hint" style="margin-top:6px;display:none;color:#f59e0b">
@@ -468,7 +478,7 @@
 
       <div class="card" style="margin-bottom:14px">
         <div style="font-weight:600;font-size:13px;margin-bottom:2px">As redes desta persona</div>
-        <div class="form-hint" style="margin-bottom:10px">Uma prévia <b>por rede</b>, no formato dela, com a arte encaixada igual ao backend (a arte inteira cabe, a sobra vira fundo — nada é esticado). Marcada e <span style="color:#22c55e">verde</span> = entra na leva. Clique em <b>personalizar</b> para dar legenda, link ou formato próprios a uma rede.</div>
+        <div class="form-hint" style="margin-bottom:10px">Prévia <b>por rede</b>: imagens são compostas no formato indicado. Vídeos mantêm o formato original, sem recorte ou conversão. A capa é usada apenas no Reels do Instagram. Marcada e <span style="color:#22c55e">verde</span> = entra na leva. Clique em <b>personalizar</b> para dar legenda, link ou formato próprios a uma rede.</div>
         <div id="st-previas" style="display:flex;flex-wrap:wrap;gap:10px"></div>
         <div id="st-previas-vazio" class="form-hint">Escolha uma imagem para ver as prévias.</div>
         <div id="st-faltam" class="form-hint" style="margin-top:10px"></div>
@@ -489,7 +499,7 @@
           <span id="st-publicar-por-que" style="font-size:12px;color:var(--muted)"></span>
           <span id="st-status" style="font-size:12px;color:var(--muted)"></span>
         </div>
-        <div class="form-hint" style="margin-top:8px"><b>Ver a arte composta</b> mostra o resultado real no formato escolhido — opcional, só para conferir. A leva compõe sozinha a arte <b>de cada rede</b>, no formato de cada uma.</div>
+        <div class="form-hint" style="margin-top:8px"><b>Ver a arte composta</b> mostra o resultado real no formato escolhido — opcional, só para conferir. A leva compõe imagens e a capa do Instagram. O vídeo é enviado sem alterações.</div>
         <div class="form-hint" style="margin-top:4px">Seis publicações no mesmo milissegundo do mesmo IP é assinatura de máquina (lição de 21/08) — por isso as saídas são espalhadas. Em <code>0</code> saem juntas. A leva renova o IP do modem <b>uma vez</b>, antes de começar.</div>
         <div id="st-resultado" style="margin-top:12px"></div>
       </div>
@@ -2370,6 +2380,7 @@ function _stRedesPedidas() {
  * prévia que o usuário leria. */
 let _stTimerPlano = null;
 function storyPrevias() {
+  if (typeof storyAgendarRascunho === 'function') storyAgendarRascunho();
   clearTimeout(_stTimerPlano);
   _stTimerPlano = setTimeout(_storyPlanoEDesenho, 180);
 }
@@ -2395,32 +2406,21 @@ async function _storyPlanoEDesenho() {
   vazio.style.display = 'none';
 
   const { destino } = storyDestino();
-  const arq = document.getElementById('st-arquivo').files[0];
+  const arq = storyConteudo();
   try {
     const fd = new FormData();
     fd.append('profile_id', p.profile_id);
     fd.append('legenda', document.getElementById('st-legenda').value || '');
     // Só o NOME do arquivo: é dele que sai o tipo (imagem/vídeo). Mandar os
     // bytes a cada tecla subiria o vídeo inteiro por dígito.
-    // No Reels a MIDIA e o video e a ARTE e a capa: e o nome do video que
-    // diz ao plano que o conteudo e video, e a capa que o deixa recusar
-    // "Reels sem capa" antes de alguem subir o video inteiro.
-    const vid = document.getElementById('st-video')?.files[0];
-    fd.append('arquivo_nome', destino === 'reels'
-      ? (vid ? vid.name : '')
-      : (arq ? arq.name : (_stPost ? 'repost.jpg' : '')));
-    fd.append('capa_nome', destino === 'reels' && arq ? arq.name : '');
+    // So os NOMES: e deles que o plano tira o tipo (video/imagem) e a
+    // existencia da capa, sem subir o video inteiro a cada tecla.
+    fd.append('arquivo_nome', arq ? arq.name : (_stPost ? 'repost.jpg' : ''));
+    fd.append('capa_nome', storyCapa()?.name || '');
     fd.append('adaptar', _pbAdaptar() ? 'true' : 'false');
     fd.append('destino', destino);
     fd.append('link', storyComChip() ? (document.getElementById('st-link').value || '') : '');
     fd.append('personalizacoes', JSON.stringify(_pbPers));
-  // A leva precisa adaptar com a MESMA regra da prévia; mandar só na prévia
-  // faria a tela mostrar uma coisa e a publicação sair outra.
-  fd.append('adaptar', _pbAdaptar() ? 'true' : 'false');
-  // Só vai lista aqui se o usuário marcou "pode publicar sozinho". Vazio = a
-  // rede medida preenche a tela e PARA, que é o padrão.
-  fd.append('auto_publicar', document.getElementById('st-auto-publicar')?.checked
-    ? _pbRedes.filter(x => x.tem_receita).map(x => x.id).join(',') : '');
     const r = await apiForm('POST', '/redes/plano', fd);
     _pbPlano = r.plano || [];
   } catch (e) {
@@ -2428,6 +2428,25 @@ async function _storyPlanoEDesenho() {
     return;
   }
   _storyDesenharCartoes();
+  return true;
+}
+
+function storyRedesAutomaticas() {
+  if (!document.getElementById('st-auto-publicar')?.checked) return [];
+  return _pbRedes.filter(r => r.transporte === 'instagrapi' || r.tem_receita).map(r => r.id);
+}
+
+let _stVideoArquivo = null;
+let _stVideoURL = '';
+function storyVideoURL() {
+  const arquivo = storyConteudo();
+  const video = storyEhVideo(arquivo) ? arquivo : null;
+  if (video !== _stVideoArquivo) {
+    if (_stVideoURL) URL.revokeObjectURL(_stVideoURL);
+    _stVideoArquivo = video;
+    _stVideoURL = video ? URL.createObjectURL(video) : '';
+  }
+  return _stVideoURL;
 }
 
 function _storyDesenharCartoes() {
@@ -2448,11 +2467,18 @@ function _storyDesenharCartoes() {
     const px = meta.px || [1080, 1920];
     const borda = !d.publica ? 'var(--border)' : (temPers ? '#818cf8' : (marcada ? '#22c55e' : 'var(--border)'));
     const _r0 = _pbRedes.find(x => x.id === d.rede) || {};
-    const selo = d.transporte === 'instagrapi' ? '⚡ sozinho'
-               : (_r0.tem_receita ? '✎ preenche' : '🖐 assistido');
+    const autorizado = storyRedesAutomaticas().includes(d.rede);
+    const selo = d.transporte === 'instagrapi' ? (autorizado ? '⚡ publica' : '⏸ aguarda autorização')
+               : (_r0.tem_receita ? (autorizado ? '⚡ publica' : '✎ preenche') : '🖐 assistido');
+    const video = storyEhVideo({name: d.arquivo});
+    const videoURL = video && !(d.personalizado || []).includes('arquivo') ? storyVideoURL() : '';
     // A prévia usa object-fit: contain sobre aspect-ratio, que é exatamente o
     // que o `_encaixar` faz no Pillow; o chip usa as MESMAS coordenadas 0-1.
-    const previa = temImagem
+    const previa = video
+      ? `${videoURL ? `<video controls preload="metadata" src="${videoURL}" style="width:100%;max-height:220px;background:#101010" aria-label="Vídeo original"></video>` : '<div class="form-hint">Vídeo personalizado — confira o arquivo no compositor da rede.</div>'}
+         <div style="font-size:10px;color:var(--muted)">Vídeo original — sem conversão de proporção</div>
+         ${d.rede === 'instagram' && temImagem ? `<img src="${img.src}" style="width:48px;max-height:72px;object-fit:contain" alt="Capa do Instagram"><div style="font-size:10px;color:var(--muted)">Capa do Instagram; não faz parte do vídeo</div>` : ''}`
+      : temImagem
       ? `<div style="position:relative;width:100%;aspect-ratio:${px[0]} / ${px[1]};background:#101010;border-radius:5px;overflow:hidden;${d.publica ? '' : 'opacity:.4'}">
            <img src="${img.src}" style="width:100%;height:100%;object-fit:contain;display:block">
            ${chip ? `<div style="position:absolute;left:${(_stRect.x - _stRect.largura / 2) * 100}%;top:${(_stRect.y - _stRect.altura / 2) * 100}%;width:${_stRect.largura * 100}%;height:${_stRect.altura * 100}%;background:rgba(255,255,255,.92);border-radius:3px;display:flex;align-items:center;justify-content:center;overflow:hidden">
@@ -2467,10 +2493,10 @@ function _storyDesenharCartoes() {
         <b style="font-size:11px">${escapeHtml(d.rede_nome)}</b>
       </div>
       ${previa}
-      <div style="font-size:9px;color:var(--muted);margin-top:4px">${escapeHtml(meta.proporcao || d.formato)} · ${escapeHtml(d.destino || '')} · ${selo}</div>
+      <div style="font-size:9px;color:var(--muted);margin-top:4px">${video ? 'formato original' : escapeHtml(meta.proporcao || d.formato)} · ${escapeHtml(d.destino || '')} · ${selo}</div>
       <div style="font-size:9px;color:var(--muted)">@${escapeHtml(d.username || '—')}</div>
       ${d.publica ? _pbPreviaTexto(d) : ''}
-      <div style="font-size:9px;color:${d.publica ? 'var(--muted)' : '#f59e0b'};margin-top:2px;line-height:1.3">${escapeHtml(d.motivo)}</div>
+      <div style="font-size:9px;color:${d.publica ? 'var(--muted)' : '#f59e0b'};margin-top:2px;line-height:1.3">${escapeHtml(d.transporte === 'instagrapi' && d.publica && !autorizado ? 'Sem envio: autorize a publicação automática para publicar no Instagram.' : d.motivo)}</div>
       <div style="display:flex;gap:4px;align-items:center;margin-top:5px">
         <button class="btn btn-sm" style="font-size:9px;padding:2px 6px" onclick="pubAbrirPers('${escapeHtml(d.rede)}')">${_pbAberta === d.rede ? '▾' : '▸'} personalizar</button>
         ${temPers ? `<button class="btn btn-sm" style="font-size:9px;padding:2px 6px" title="voltar ao conteúdo comum" onclick="pubLimparPers('${escapeHtml(d.rede)}')">↺</button>` : ''}
@@ -2668,20 +2694,25 @@ function pubLimparPers(rede) {
 async function storyPublicarLeva(btn) {
   const p = _stPerfilAtual();
   if (!p) return toast('Escolha uma persona', 'error');
+  if (!await _storyPlanoEDesenho()) return toast('Não foi possível atualizar o plano. Tente novamente.', 'error');
   const pedidas = _stRedesPedidas().filter(r => (_pbPlano.find(d => d.rede === r) || {}).publica);
   if (!pedidas.length) return toast('Nenhuma rede marcada pode receber este conteúdo', 'error');
 
+  if (!await storyValidarMidia()) return;
   const simular = document.getElementById('st-simular').checked;
-  const arq = document.getElementById('st-arquivo').files[0];
-  const vid = document.getElementById('st-video')?.files[0];
-  const ehReels = storyDestino().destino === 'reels';
-  if (ehReels) {
-    if (!vid) return toast('O Reels precisa do vídeo', 'error');
-    if (!arq) return toast('O Reels precisa de uma capa (imagem) — é nela que o chip é desenhado', 'error');
-  } else if (!arq && !_stPost) {
-    return toast('Escolha uma imagem ou busque uma publicação', 'error');
+  const arq = storyConteudo();
+  const capa = storyCapa();
+  const ehVideo = storyEhVideo(arq);
+  if (!arq && !_stPost) {
+    return toast('Escolha o conteúdo (vídeo ou imagem) ou busque uma publicação', 'error');
   }
-  if (!simular && !confirm(`Publicar de verdade em ${pedidas.length} rede(s) pela persona "${p.perfil}"?`)) return;
+  // O Reels exige capa, e com vídeo o Instagram SEMPRE vira Reels (a adaptação
+  // faz isso). Então vídeo sem capa não publica no Instagram — avisar aqui
+  // custa um toast; descobrir na leva custa a leva.
+  if (ehVideo && !capa && pedidas.includes('instagram')) {
+    return toast('Vídeo no Instagram vai como Reels, e o Reels exige uma capa (imagem).', 'error');
+  }
+  if (!simular && !confirm(`Executar leva para a persona "${p.perfil}"?\nPublicação automática autorizada: ${pedidas.filter(r => storyRedesAutomaticas().includes(r)).join(', ') || 'nenhuma'}.\nAs demais redes abrem para conferência; Instagram sem autorização fica pendente.`)) return;
 
   const chip = storyComChip();
   const fd = new FormData();
@@ -2697,14 +2728,13 @@ async function storyPublicarLeva(btn) {
   fd.append('simular', simular ? 'true' : 'false');
   fd.append('espalhar_segundos', document.getElementById('st-espalhar').value || '12');
   fd.append('personalizacoes', JSON.stringify(_pbPers));
-  // A troca de papel acontece AQUI, num lugar só: para o backend `arquivo` e
-  // sempre a midia e `capa` e sempre a imagem de capa.
-  if (ehReels) {
-    fd.append('arquivo', vid);
-    fd.append('capa', arq);
-  } else if (arq) {
-    fd.append('arquivo', arq);
-  }
+  fd.append('adaptar', _pbAdaptar() ? 'true' : 'false');
+  fd.append('auto_publicar', storyRedesAutomaticas().join(','));
+  // Sem troca de papel: `arquivo` e o conteudo e `capa` e a capa, aqui e no
+  // backend. A inversao antiga (no Reels a imagem virava capa e o video virava
+  // arquivo) existia porque a imagem era o campo principal -- deixou de ser.
+  if (arq) fd.append('arquivo', arq);
+  if (capa) fd.append('capa', capa);
 
   const st = document.getElementById('st-status');
   st.textContent = simular ? 'Simulando…' : 'Publicando na leva…';
@@ -2714,7 +2744,7 @@ async function storyPublicarLeva(btn) {
     storyRenderLeva(r);
     st.textContent = r.simulado
       ? 'Simulação concluída — nada foi publicado.'
-      : `${r.publicadas} publicada(s), ${r.preenchidas || 0} preenchida(s) esperando o seu clique, ${r.assistidas} aberta(s), ${r.falhas} falha(s).`;
+      : `${r.publicadas} publicada(s), ${r.preenchidas || 0} preenchida(s) esperando o seu clique, ${r.assistidas} aberta(s), ${r.pendentes || 0} pendente(s), ${r.falhas} falha(s).`;
     toast(r.simulado ? '◌ Simulação concluída' : '📣 Leva encerrada', r.falhas ? 'error' : 'success');
   } catch (e) {
     st.textContent = 'Falhou: ' + e.message;
@@ -2726,7 +2756,7 @@ async function storyPublicarLeva(btn) {
 
 function storyRenderLeva(r) {
   const linhas = (r.plano || []).map(d => {
-    const icone = { publicado: '✓', preenchido: '✎', assistido: '🖐', simulado: '◌', falhou: '✗' }[d.desfecho] || '⤫';
+    const icone = { publicado: '✓', preenchido: '✎', assistido: '🖐', simulado: '◌', pendente: '⏸', falhou: '✗' }[d.desfecho] || '⤫';
     const cor = d.desfecho === 'falhou' ? '#ef4444'
               : d.desfecho === 'publicado' ? '#22c55e'
               : d.desfecho === 'preenchido' ? '#818cf8'
@@ -4974,6 +5004,8 @@ let _stRedes = [];
 let _stFormatos = {};
 
 async function loadStoryCreator() {
+  storyTrocouDestino();
+  storyTrocouChip();
   try {
     const [cat, perfis] = await Promise.all([
       api('GET', '/redes'),
@@ -4995,28 +5027,93 @@ async function loadStoryCreator() {
       ? _pbPerfis.map(p => `<option value="${escapeHtml(p.profile_id)}">${escapeHtml(p.perfil || p.profile_id)} — ${p.ativas} rede(s) ativa(s)</option>`).join('')
       : '<option value="">(nenhum perfil cadastrado)</option>';
     if (anterior && _pbPerfis.some(p => p.profile_id === anterior)) sel.value = anterior;
-    storyTrocouPerfil();
+    if (!_stDraftReady || sel.value !== anterior) storyTrocouPerfil();
+    await storyRestaurarRascunho();
   } catch (e) {
     document.getElementById('st-status').textContent = 'não consegui carregar: ' + (e.message || 'erro');
   }
 }
 
+/** O arquivo e VIDEO? Decide pela extensao, igual ao backend
+ * (`redes.tipo_do_conteudo`) -- os dois precisam concordar, senao a tela
+ * mostraria um fluxo e o plano decidiria outro. */
+function storyEhVideo(f) {
+  return !!f && /\.(mp4|mov|m4v|webm|avi|mkv)$/i.test(f.name || '');
+}
+
+function storyConteudo() {
+  return document.getElementById('st-arquivo')?.files[0] || _stConteudoRestaurado || null;
+}
+
+function storyCapa() {
+  return storyEhVideo(storyConteudo()) ? (document.getElementById('st-capa')?.files[0] || _stCapaRestaurada || null) : null;
+}
+
+/** Entrou conteudo: video ou imagem.
+ *
+ * ⚠ Video NAO tem previa de arte, e isso nao e preguica: o compositor e o
+ * Pillow, que so mexe em imagem. Desenhar o chip num video exigiria ffmpeg,
+ * que este projeto nao instalou. Entao, com video, o chip vai na CAPA -- e a
+ * tela diz isso em vez de mostrar um retangulo que nao vai a lugar nenhum.
+ */
 function storyCarregarImagem(ev) {
   const f = ev.target.files && ev.target.files[0];
   if (!f) return;
+  _stConteudoRestaurado = f;
+  storyValidarMidia();
+  const nome = document.getElementById('st-arquivo-nome');
+  if (nome) nome.textContent = (storyEhVideo(f) ? '🎬 ' : '🖼 ') + f.name;
+  _stArquivoComposto = null;
+  document.getElementById('st-resultado').innerHTML = '';
+
+  if (storyEhVideo(f)) {
+    // o palco passa a mostrar a CAPA, se houver
+    storyMostrarArte(storyCapa());
+    storyBotaoPublicar(false, 'vídeo novo — o chip vai na capa, não no vídeo');
+  } else {
+    storyMostrarArte(f);
+    storyBotaoPublicar(false, 'imagem nova — a arte composta na tela ficou velha');
+  }
+  storyTrocouDestino();
+}
+
+function storyCarregarCapa(ev) {
+  const f = ev.target.files && ev.target.files[0];
+  if (!f) return;
+  _stCapaRestaurada = f;
+  document.getElementById('st-capa-nome').textContent = f.name;
+  // Com video, e a capa que vira o palco: o retangulo do chip e desenhado
+  // nela, porque e ela que o Reels publica e que aparece na grade do perfil.
+  if (storyEhVideo(storyConteudo())) storyMostrarArte(f);
+  _stArquivoComposto = null;
+  document.getElementById('st-resultado').innerHTML = '';
+  storyBotaoPublicar(false, 'capa nova — componha novamente para conferir');
+  storyPrevias();
+}
+
+/** Poe uma imagem no palco (ou esvazia). Separado porque agora DUAS entradas
+ * podem alimentar o palco: o conteudo (quando e imagem) e a capa (quando o
+ * conteudo e video). */
+function storyMostrarArte(f) {
   const img = document.getElementById('st-img');
+  const vazio = document.getElementById('st-vazio');
+  const rect = document.getElementById('st-rect');
+  if (!f) {
+    img.style.display = 'none';
+    rect.style.display = 'none';
+    vazio.style.display = '';
+    vazio.textContent = 'Vídeo escolhido. Envie uma capa para posicionar o chip.';
+    storyPrevias();
+    return;
+  }
   img.onload = () => {
-    document.getElementById('st-vazio').style.display = 'none';
+    vazio.style.display = 'none';
     img.style.display = '';
-    document.getElementById('st-rect').style.display = '';
+    rect.style.display = '';
     storyAplicarRect();
     storyDesenharPrevia();
   };
   img.src = URL.createObjectURL(f);
-  storyTrocouDestino();          // a previa nasce na proporcao do destino
-  _stArquivoComposto = null;
-  storyBotaoPublicar(false, 'imagem nova — a arte composta na tela ficou velha');
-  document.getElementById('st-resultado').innerHTML = '';
 }
 
 /** A arte composta na tela ficou velha — avisa, mas NÃO trava a publicação.
@@ -5075,7 +5172,7 @@ const ST_PX = { story: [1080, 1920], vertical: [1080, 1350], quadrado: [1080, 10
                 paisagem: [1920, 1080], pin: [1000, 1500] };
 
 function storyDestino() {
-  const v = (document.getElementById('st-destino')?.value || 'story:story').split(':');
+  const v = (document.getElementById('st-destino')?.value || 'reels:story').split(':');
   return { destino: v[0], formato: v[1] };
 }
 
@@ -5106,7 +5203,7 @@ function storyTrocouDestino() {
   // Reels tem legenda, como o feed. E, como o feed, NÃO tem link clicável —
   // mas por um motivo que vale dizer diferente: ali o chip vai na CAPA, que é
   // o que aparece na grade do perfil.
-  document.getElementById('st-legenda-caixa').style.display = (feed || reels) ? '' : 'none';
+  document.getElementById('st-legenda-caixa').style.display = '';
   document.getElementById('st-aviso-feed').style.display = (feed || reels) ? '' : 'none';
   const avisoTxt = document.getElementById('st-aviso-feed-txt');
   if (avisoTxt) {
@@ -5114,13 +5211,13 @@ function storyTrocouDestino() {
       ? '⚠ O <b>Reels</b> não tem link clicável. O chip é desenhado na <b>capa</b> — que é a imagem que aparece na grade do perfil — e o link vai na legenda.'
       : '⚠ No <b>feed</b> o chip fica só <b>desenhado</b> — o Instagram não tem link clicável em post, nem na legenda. Quem leva a pessoa ao destino é o texto, não o toque.';
   }
-  // No Reels o arquivo de imagem passa a ser a CAPA: é ela que o compositor
-  // desenha e é ela que carrega o chip. O vídeo é a mídia, e ganha campo
-  // próprio — mexer num vídeo exigiria ffmpeg, que este projeto não instalou.
-  const vcx = document.getElementById('st-video-caixa');
-  if (vcx) vcx.style.display = reels ? '' : 'none';
-  const irot = document.getElementById('st-img-rotulo');
-  if (irot) irot.textContent = reels ? 'Capa do Reels (imagem)' : 'Imagem';
+  // A CAPA aparece quando o conteúdo é VÍDEO — não quando o destino é Reels.
+  // O gatilho é o tipo do arquivo porque é ele que decide se há arte para
+  // compor: com vídeo o compositor (Pillow) não tem o que fazer, e o chip só
+  // pode ir na capa.
+  const ehVideo = storyEhVideo(storyConteudo());
+  const ccx = document.getElementById('st-capa-caixa');
+  if (ccx) ccx.style.display = ehVideo ? '' : 'none';
   // A arte composta ficou com o formato antigo: travar é mais honesto que
   // publicar 9:16 num post 1:1.
   if (_stArquivoComposto) {
@@ -5137,18 +5234,6 @@ function storyTrocouDestino() {
  * cima -- foi assim que o caso apareceu, com o chip tapando o "GRUPO DO
  * WHATSAPP" da propria peca. Desmarcado: o retangulo some da previa, o campo
  * de link sai de cena e a arte sobe como esta. */
-/** O vídeo do Reels entrou: só mostra o nome e refaz as prévias.
- *
- * Não há prévia do vídeo de propósito — a arte que o app compõe é a CAPA, e
- * mostrar um quadro do vídeo exigiria ffmpeg. Fingir prévia do que não se
- * compõe seria prometer o que não acontece. */
-function storyTrocouVideo() {
-  const f = document.getElementById('st-video').files[0];
-  const alvo = document.getElementById('st-video-nome');
-  if (alvo) alvo.textContent = f ? ('🎬 ' + f.name) : '';
-  storyPrevias();
-}
-
 function storyComChip() {
   const c = document.getElementById('st-com-chip');
   return !c || c.checked;
@@ -5306,7 +5391,9 @@ async function storyBuscarPost(btn) {
 }
 
 async function storyCompor(btn) {
-  const arq = document.getElementById('st-arquivo').files[0];
+  const video = storyEhVideo(storyConteudo());
+  const arq = video ? storyCapa() : storyConteudo();
+  if (video && !arq) { toast('Envie uma capa para compor a arte do vídeo', 'error'); return; }
   const link = (document.getElementById('st-link').value || '').trim();
   const status = document.getElementById('st-status');
   const temLink = link && link !== 'https://wa.me/';
@@ -5334,7 +5421,7 @@ async function storyCompor(btn) {
     _stLinkRect = r.link_rect || null;
     storyBotaoPublicar(true);
     document.getElementById('st-resultado').innerHTML =
-      `<div style="font-size:12px;color:var(--muted);margin-bottom:6px">Esta é a arte que vai subir (${r.largura_px}×${r.altura_px}):</div>
+      `<div style="font-size:12px;color:var(--muted);margin-bottom:6px">${video ? 'Esta é a capa do vídeo' : 'Esta é a arte que vai subir'} (${r.largura_px}×${r.altura_px}):</div>
        <img src="/story/arquivo/${encodeURIComponent(r.arquivo)}?t=${Date.now()}" style="max-height:52vh;border:1px solid var(--border);border-radius:8px">`;
     status.textContent = 'composta — confira antes de publicar';
   } catch (e) { stop(); toast(e.message || 'Erro ao compor', 'error'); status.textContent = ''; }
@@ -7813,5 +7900,6 @@ pollInterval = setInterval(() => {
 }, 3000);
 
 </script>
+<script src="/static/publication_editor.js"></script>
 </body>
 </html>

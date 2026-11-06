@@ -48,6 +48,8 @@ _creation_stop = False
 _ig_creation_tasks: dict[str, asyncio.Task] = {}
 
 app = FastAPI(title="Browser Profile Manager", version="1.0.0")
+from publication_draft import router as publication_draft_router
+app.include_router(publication_draft_router)
 
 import sys
 import platform as _platform

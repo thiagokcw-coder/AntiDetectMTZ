@@ -739,12 +739,20 @@ async def publicar_em_todas(perfil: dict, contas: list[dict], conteudo: dict,
                 "plano": [d.como_dict() for d in plano], "resumo": resumo}
 
     # UMA rotação para a leva inteira — ver a nota no topo do arquivo.
-    rotacao = await _rotacionar_uma_vez(perfil, simular, fala, rotacionar)
+    executaveis = [d for d in vao if d.transporte != "instagrapi"
+                   or d.rede_id in (auto_publicar or ())]
+    rotacao = (await _rotacionar_uma_vez(perfil, simular, fala, rotacionar)
+               if executaveis else {"ok": True, "pulou": "sem envio autorizado"})
 
     atrasos = _espalhamento(len(vao), espalhar_segundos)
     inicio = time.time()
 
     async def uma(d: Alvo, atraso: float):
+        if not simular and d.transporte == "instagrapi" and d.rede_id not in (auto_publicar or ()):
+            d.desfecho = "pendente"
+            d.detalhe = "Instagram não enviado: publicação automática não autorizada"
+            fala("   ⏸ %s: %s" % (nome(d.rede_id), d.detalhe))
+            return
         if atraso > 0:
             await asyncio.sleep(atraso)
         d.quando = time.time() - inicio
@@ -797,6 +805,7 @@ async def publicar_em_todas(perfil: dict, contas: list[dict], conteudo: dict,
     preenchidas = sum(1 for d in plano if d.desfecho == "preenchido")
     assistidas = sum(1 for d in plano if d.desfecho == "assistido")
     falhas = sum(1 for d in plano if d.desfecho == "falhou")
+    pendentes = sum(1 for d in plano if d.desfecho == "pendente")
     fala("📣 leva encerrada: %d publicada(s), %d preenchida(s) esperando o seu "
          "clique, %d aberta(s), %d falha(s)"
          % (publicadas, preenchidas, assistidas, falhas))
@@ -807,6 +816,7 @@ async def publicar_em_todas(perfil: dict, contas: list[dict], conteudo: dict,
         "publicadas": publicadas,
         "assistidas": assistidas,
         "preenchidas": preenchidas,
+        "pendentes": pendentes,
         "falhas": falhas,
         "rotacao_ip": rotacao,
         "plano": [d.como_dict() for d in plano],
