@@ -2873,6 +2873,31 @@ async function storyPublicarLeva(btn) {
   }
 }
 
+/** O link da linha: a PUBLICAÇÃO quando a rede nos disse qual é, o PERFIL
+ * quando não.
+ *
+ * Os dois rótulos são diferentes de propósito. Só o Instagram devolve o
+ * endereço da publicação (a API do app dá o shortcode); nas outras, depois do
+ * clique, descobrir o permalink exigiria medir a tela de "publicado" de cada
+ * uma. Chamar o perfil de "ver publicação" seria mentir num clique.
+ *
+ * Nada aparece para quem não publicou: link de conferência numa rede que
+ * falhou só faria procurar o que não existe.
+ */
+function storyLinkDaLeva(d) {
+  const estilo = 'font-size:11px;color:#60a5fa;text-decoration:none';
+  if (d.url) {
+    return `<a href="${escapeHtml(d.url)}" target="_blank" rel="noopener" style="${estilo}">ver publicação ↗</a>`;
+  }
+  if (d.desfecho === 'publicado' && d.perfil_url) {
+    return `<a href="${escapeHtml(d.perfil_url)}" target="_blank" rel="noopener" style="${estilo}" title="Esta rede não devolve o endereço da publicação — confira no perfil.">conferir no perfil ↗</a>`;
+  }
+  if (d.desfecho === 'preenchido' && d.perfil_url) {
+    return `<span style="font-size:11px;color:var(--muted)">aguardando o seu clique</span>`;
+  }
+  return '';
+}
+
 function storyRenderLeva(r) {
   const linhas = (r.plano || []).map(d => {
     const icone = { publicado: '✓', preenchido: '✎', assistido: '🖐', simulado: '◌', pendente: '⏸', falhou: '✗' }[d.desfecho] || '⤫';
@@ -2885,6 +2910,7 @@ function storyRenderLeva(r) {
       <td style="padding:4px 8px;color:${cor}">${icone} ${escapeHtml(d.rede_nome)}</td>
       <td style="padding:4px 8px;color:var(--muted)">@${escapeHtml(d.username || '—')}</td>
       <td style="padding:4px 8px;color:${cor}">${escapeHtml(d.detalhe || d.motivo || '')}${quando}</td>
+      <td style="padding:4px 8px;white-space:nowrap">${storyLinkDaLeva(d)}</td>
     </tr>`;
   }).join('');
   const term = (r.terminal || []).map(l => escapeHtml(l)).join('\n');

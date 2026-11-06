@@ -424,6 +424,27 @@ def _calar_expose(cl) -> None:
         pass
 
 
+def _link_do_post(media, conta: str, destino: str) -> str:
+    """O endereço público da publicação que acabou de sair.
+
+    O `pk` sozinho não abre nada: o que entra na URL do feed e do Reels é o
+    **shortcode** (`media.code`). O story é a exceção — ele vive sob o perfil,
+    por `pk`, e não tem shortcode.
+
+    Devolve "" quando não dá para montar, em vez de um link quebrado: link que
+    não abre é pior que link nenhum, porque custa um clique para descobrir.
+    """
+    code = getattr(media, "code", "") or ""
+    pk = str(getattr(media, "pk", "") or "")
+    if destino == "story":
+        return ("https://www.instagram.com/stories/%s/%s/" % (conta, pk)
+                if conta and pk else "")
+    if not code:
+        return ""
+    return "https://www.instagram.com/%s/%s/" % (
+        "reel" if destino == "reels" else "p", code)
+
+
 def publicar(perfil: dict, caminho: str, link: str,
              x: float, y: float, largura: float, altura: float,
              post: dict = None, link_rect: dict = None, cl=None,
@@ -471,6 +492,7 @@ def publicar(perfil: dict, caminho: str, link: str,
         media = cl.clip_upload(Path(caminho), caption=legenda or "",
                                thumbnail=Path(capa))
         return {"pk": str(media.pk), "conta": cl.username, "destino": "reels",
+                "url": _link_do_post(media, cl.username, "reels"),
                 "repostou": False, "com_link": False, "capa": str(capa),
                 "aviso": ("o Reels não tem link clicável — o chip está "
                           "desenhado na CAPA e o link vai na legenda")
@@ -481,6 +503,7 @@ def publicar(perfil: dict, caminho: str, link: str,
         # pessoa lê e digita. Por isso ela é o campo que importa aqui.
         media = cl.photo_upload(Path(caminho), caption=legenda or "")
         return {"pk": str(media.pk), "conta": cl.username, "destino": "feed",
+                "url": _link_do_post(media, cl.username, "feed"),
                 "repostou": bool(post), "com_link": False,
                 "aviso": ("o feed do Instagram não tem link clicável — o chip "
                           "está desenhado na arte e o link vai na legenda")
@@ -502,5 +525,6 @@ def publicar(perfil: dict, caminho: str, link: str,
     # trazia o destino escrito nela (foi assim que o caso apareceu).
     story = cl.photo_upload_to_story(Path(caminho), **kw)
     return {"pk": str(story.pk), "conta": cl.username, "destino": "story",
+            "url": _link_do_post(story, cl.username, "story"),
             "repostou": bool(post), "com_link": "links" in kw,
             "simples": not kw}

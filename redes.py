@@ -316,6 +316,9 @@ class Alvo:
     #: o que o app ajustou SOZINHO para caber nesta rede (ver adaptar_para_rede)
     adaptado: tuple = ()
     #: preenchido depois, pelo orquestrador
+    #: endereço da PUBLICAÇÃO (só onde a rede nos diz qual é) e do PERFIL
+    url: str = ""
+    perfil_url: str = ""
     desfecho: str = ""
     detalhe: str = ""
     quando: float = 0.0
@@ -340,11 +343,41 @@ class Alvo:
             "capa_composta": self.capa_composta,
             "personalizado": list(self.personalizado),
             "adaptado": list(self.adaptado),
+            "url": self.url,
+            "perfil_url": self.perfil_url,
             "desfecho": self.desfecho,
             "detalhe": self.detalhe,
             "quando": self.quando,
             "resultado": self.resultado,
         }
+
+
+#: Onde fica o PERFIL de uma conta, por rede. Cada uma tem a sua convenção —
+#: o arroba entra no TikTok, no Threads e no YouTube, e não entra no X nem no
+#: Instagram. Montar isso com uma regra só daria link quebrado em metade delas.
+_PERFIL_URL = {
+    "instagram": "https://www.instagram.com/{u}/",
+    "facebook": "https://www.facebook.com/{u}",
+    "threads": "https://www.threads.com/@{u}",
+    "x": "https://x.com/{u}",
+    "tiktok": "https://www.tiktok.com/@{u}",
+    "youtube": "https://www.youtube.com/@{u}",
+    "kwai": "https://www.kwai.com/@{u}",
+    "telegram": "https://t.me/{u}",
+}
+
+
+def url_do_perfil(rede_id: str, username: str) -> str:
+    """O endereço do perfil desta conta. Vazio se faltar o username.
+
+    Serve de substituto HONESTO do permalink nas redes que publicam pelo
+    navegador: depois do clique não sabemos o endereço da publicação sem medir
+    a tela de "publicado" de cada uma. O perfil não é a publicação, e a tela
+    diz isso — "conferir no perfil", não "ver publicação".
+    """
+    u = (username or "").strip().lstrip("@")
+    modelo = _PERFIL_URL.get((rede_id or "").strip().lower())
+    return modelo.format(u=u) if (modelo and u) else ""
 
 
 def tipo_do_conteudo(conteudo: dict) -> str:
@@ -770,8 +803,15 @@ async def publicar_em_todas(perfil: dict, contas: list[dict], conteudo: dict,
             await _compor_para(d, conteudo)
             # O conteúdo que sai é o DA REDE (já personalizado no plano), nunca
             # o comum: era aqui que a prévia e a publicação divergiriam.
+            # O perfil serve a TODAS: é o link que existe mesmo quando a rede
+            # não nos diz o endereço da publicação. Fica preenchido antes de
+            # publicar porque vale também para quem falhar no meio — é por ele
+            # que se vai ver o que aconteceu.
+            d.perfil_url = url_do_perfil(d.rede_id, d.username)
+
             if d.transporte == "instagrapi":
                 d.resultado = await _publicar_instagram(perfil, d)
+                d.url = d.resultado.get("url") or ""
                 d.desfecho = "publicado"
                 d.detalhe = "%s publicado como @%s" % (
                     d.destino, d.resultado.get("conta") or d.username)
@@ -783,6 +823,11 @@ async def publicar_em_todas(perfil: dict, contas: list[dict], conteudo: dict,
                 modo = d.resultado.get("modo") or "assistido"
                 if modo == "publicado":
                     d.desfecho = "publicado"
+                    # ⚠ Sem permalink aqui, e não por preguiça: depois do
+                    # clique a rede não nos diz o endereço da publicação, e
+                    # descobrir exigiria medir a tela de "publicado" de cada
+                    # uma. Inventar uma URL daria link quebrado, que custa um
+                    # clique para a pessoa descobrir que é mentira.
                     d.detalhe = "publicado pelo compositor da rede"
                 elif modo == "preenchido":
                     d.desfecho = "preenchido"

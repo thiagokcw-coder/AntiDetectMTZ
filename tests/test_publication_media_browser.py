@@ -39,7 +39,13 @@ with sync_playwright() as p:
       const width=opened.video.videoWidth; opened.dispose();
       _stVideoMetadata.set(_stConteudoRestaurado,Promise.resolve({duration:1,width:320,height:180}));
       if(!await storyValidarMidia())throw Error('validation failed');
-      document.getElementById('st-capa-tempo').value='0.6';
+      // 0.85, nao 0.6: o video e vermelho ate ~0.5s e azul depois, mas o
+      // setTimeout(50) do laco sempre atrasa um pouco, entao a virada cai
+      // DEPOIS de 0.5s -- e posicionar video em currentTime nao e exato por
+      // quadro. Buscar a 0.1s da fronteira pegava o quadro vermelho de vez em
+      // quando (1 falha em 3 execucoes, medido em 06/11). No meio da faixa
+      // azul o teste mede o que quer medir, sem depender da precisao do timer.
+      document.getElementById('st-capa-tempo').value='0.85';
       await storyExtrairCapa({disabled:false});
       const bitmap=await createImageBitmap(_stCapaRestaurada);
       if(bitmap.width!==320||bitmap.height!==180)throw Error('wrong cover dimensions');
