@@ -851,9 +851,34 @@ async def publicar_em_todas(perfil: dict, contas: list[dict], conteudo: dict,
     assistidas = sum(1 for d in plano if d.desfecho == "assistido")
     falhas = sum(1 for d in plano if d.desfecho == "falhou")
     pendentes = sum(1 for d in plano if d.desfecho == "pendente")
-    fala("📣 leva encerrada: %d publicada(s), %d preenchida(s) esperando o seu "
-         "clique, %d aberta(s), %d falha(s)"
-         % (publicadas, preenchidas, assistidas, falhas))
+    simuladas = sum(1 for d in plano if d.desfecho == "simulado")
+
+    # ─── A linha de encerramento ────────────────────────────────────────────
+    #
+    # Conta só o que ACONTECEU: a versão antiga imprimia quatro números fixos,
+    # e numa simulação -- o caso mais comum, porque é o padrão -- saía
+    # "0 publicada(s), 0 preenchida(s), 0 aberta(s), 0 falha(s)" logo depois de
+    # cinco redes simuladas. Quatro zeros que leem como "não fez nada".
+    #
+    # ⚠ E conta percorrendo os desfechos que EXISTEM, não uma lista escrita à
+    # mão. A primeira tentativa de consertar isto listou cinco rótulos e
+    # esqueceu `pendente` -- o desfecho da rede que precisa de autorização --,
+    # então a linha dizia "4 preenchida(s)" numa leva de 5 e a quinta sumia.
+    # Era o mesmo defeito, cometido no conserto dele. Com a contagem derivada,
+    # desfecho novo aparece sozinho em vez de desaparecer.
+    _ROTULOS = {
+        "simulado": "%d simulada(s), nada publicado",
+        "publicado": "%d publicada(s)",
+        "preenchido": "%d preenchida(s) esperando o seu clique",
+        "assistido": "%d aberta(s) para você confirmar",
+        "pendente": "%d esperando autorização",
+        "falhou": "%d falha(s)",
+    }
+    from collections import Counter
+    contagem = Counter(d.desfecho for d in plano if d.desfecho)
+    partes = [(_ROTULOS.get(k) or ("%d em " + k)) % n
+              for k, n in sorted(contagem.items(), key=lambda kv: -kv[1])]
+    fala("📣 leva encerrada: " + (" · ".join(partes) or "nenhuma rede recebeu nada"))
 
     return {
         "ok": falhas == 0,
@@ -861,6 +886,7 @@ async def publicar_em_todas(perfil: dict, contas: list[dict], conteudo: dict,
         "publicadas": publicadas,
         "assistidas": assistidas,
         "preenchidas": preenchidas,
+        "simuladas": simuladas,
         "pendentes": pendentes,
         "falhas": falhas,
         "rotacao_ip": rotacao,

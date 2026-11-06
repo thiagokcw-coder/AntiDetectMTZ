@@ -2863,7 +2863,15 @@ async function storyPublicarLeva(btn) {
     storyRenderLeva(r);
     st.textContent = r.simulado
       ? 'Simulação concluída — nada foi publicado.'
-      : `${r.publicadas} publicada(s), ${r.preenchidas || 0} preenchida(s) esperando o seu clique, ${r.assistidas} aberta(s), ${r.pendentes || 0} pendente(s), ${r.falhas} falha(s).`;
+      // Só o que aconteceu. A lista fixa imprimia "0 publicada(s), 0
+      // preenchida(s), 0 aberta(s), 0 pendente(s), 0 falha(s)" quando alguma
+      // delas era zero — uma fileira de zeros que lê como "não fez nada".
+      : [r.publicadas && `${r.publicadas} publicada(s)`,
+         r.preenchidas && `${r.preenchidas} preenchida(s) esperando o seu clique`,
+         r.assistidas && `${r.assistidas} aberta(s) para você confirmar`,
+         r.pendentes && `${r.pendentes} pendente(s)`,
+         r.falhas && `${r.falhas} falha(s)`
+        ].filter(Boolean).join(' · ') || 'Nenhuma rede recebeu nada.';
     toast(r.simulado ? '◌ Simulação concluída' : '📣 Leva encerrada', r.falhas ? 'error' : 'success');
   } catch (e) {
     st.textContent = 'Falhou: ' + e.message;
